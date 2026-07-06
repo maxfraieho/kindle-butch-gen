@@ -21,11 +21,12 @@ To bridge this gap, we use the following architectural components:
 
 ## 2. Compilation and Dependencies
 
-### llama.cpp with CLBlast (OpenCL)
-CLBlast is a tuned OpenCL SGEMM/DGEMM library that replaces basic BLAS calls with highly optimized kernels. When compiling `llama.cpp` inside Ubuntu:
-1.  We install `libclblast-dev` and `opencl-headers`.
-2.  We configure CMake with `-DGGML_CLBLAST=ON` to build the OpenCL backend.
-3.  Binaries compiled with CLBlast offload matrix multiplication computation directly to the Adreno GPU when `-ngl 99` (number of GPU layers offloaded) is passed to `llama-server`.
+### llama.cpp with Native OpenCL Backend
+`llama.cpp` includes a native OpenCL backend optimized specifically for Qualcomm Adreno GPUs. When compiling `llama.cpp` inside Ubuntu:
+1.  We install `opencl-headers` and `ocl-icd-opencl-dev`.
+2.  We configure CMake with `-DGGML_OPENCL=ON` to build the native OpenCL backend.
+3.  CMake will automatically enable `GGML_OPENCL_USE_ADRENO_KERNELS` to compile and run optimized shaders/kernels written specifically for Adreno GPU hardware.
+4.  Binaries compiled with native OpenCL offload matrix operations directly to the Adreno GPU when `-ngl 99` (number of layers offloaded) is passed to `llama-server`.
 
 ### OCR (Marker) and PyTorch
 Marker relies on PyTorch. Since CUDA is not available on Android Adreno hardware:

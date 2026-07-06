@@ -73,7 +73,7 @@ set -euo pipefail
 
 echo "=== [Ubuntu Setup] ==="
 apt update
-apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev libclblast-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg
+apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg
 
 # 1. Configure OpenCL ICD for Qualcomm Adreno GPU
 echo "Configuring Adreno GPU OpenCL drivers..."
@@ -91,14 +91,14 @@ else
     echo "Warning: clinfo failed to list OpenCL devices. GPU acceleration might not be fully working yet."
 fi
 
-# 2. Compile llama.cpp with CLBlast (OpenCL) acceleration
-echo "Cloning and building llama.cpp with CLBlast..."
+# 2. Compile llama.cpp with native OpenCL acceleration (highly optimized for Adreno)
+echo "Cloning and building llama.cpp with native OpenCL..."
 cd /tmp
 if [ -d "llama.cpp" ]; then rm -rf llama.cpp; fi
 git clone --depth 1 https://github.com/ggerganov/llama.cpp.git
 cd llama.cpp
 mkdir build && cd build
-cmake .. -DGGML_CLBLAST=ON
+cmake .. -DGGML_OPENCL=ON
 make -j$(nproc)
 
 # Copy compiled binaries to system path
