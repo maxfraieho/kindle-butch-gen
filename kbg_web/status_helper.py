@@ -301,6 +301,10 @@ def add_book(slug, pdf_path, title, authors, lang):
         "generate_audiobook": True,
         "tts_voice": "ukrainian_tts",
         "tts_voice_quality": "medium",
+        "tts_speaker_id": 2,
+        "tts_speed": 1.0,
+        "tts_noise_scale": 0.667,
+        "tts_noise_w": 0.8,
         "page_ranges": [[1, pages]]
     }
     

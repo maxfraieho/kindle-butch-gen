@@ -63,6 +63,10 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         "generate_audiobook": config.get("generate_audiobook", False),
         "tts_voice": config.get("tts_voice", "lada"),
         "tts_voice_quality": config.get("tts_voice_quality", "x_low"),
+        "tts_speaker_id": int(config.get("tts_speaker_id", 2)),
+        "tts_speed": float(config.get("tts_speed", 1.0)),
+        "tts_noise_scale": float(config.get("tts_noise_scale", 0.667)),
+        "tts_noise_w": float(config.get("tts_noise_w", 0.8)),
     }
     return paths
 

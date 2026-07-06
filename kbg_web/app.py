@@ -417,6 +417,118 @@ def dashboard():
             line-height: 1.5;
             white-space: pre-wrap;
         }
+
+        /* TTS Settings Collapsible styling */
+        .settings-details {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .settings-details[open] summary {
+            margin-bottom: 1rem;
+        }
+
+        .settings-details summary {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+            outline: none;
+        }
+
+        .settings-details summary:hover {
+            color: #fff;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+            margin-top: 0.5rem;
+            background: rgba(0, 0, 0, 0.15);
+            padding: 1.25rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        @media (max-width: 600px) {
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .range-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            accent-color: var(--primary);
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .range-slider:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .preview-section {
+            grid-column: 1 / -1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+        }
+
+        .preview-text {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.9rem;
+            padding: 0.6rem;
+            resize: vertical;
+            min-height: 50px;
+        }
+
+        .preview-text:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .preview-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        audio {
+            accent-color: var(--primary);
+        }
     </style>
 </head>
 <body>
@@ -574,6 +686,60 @@ def dashboard():
                                 <label class="option-checkbox"><input type="checkbox" id="noaudio-${book.slug}"> No Audio</label>
                             </div>
 
+                            <details class="settings-details">
+                                <summary>🛠️ TTS Settings</summary>
+                                <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label for="voice-${book.slug}">Voice</label>
+                                        <select id="voice-${book.slug}" class="form-control" style="padding: 0.5rem;">
+                                            <option value="ukrainian_tts" ${book.tts_voice === 'ukrainian_tts' ? 'selected' : ''}>ukrainian_tts</option>
+                                            <option value="lada" ${book.tts_voice === 'lada' ? 'selected' : ''}>lada</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label for="speaker-${book.slug}">Speaker</label>
+                                        <select id="speaker-${book.slug}" class="form-control" style="padding: 0.5rem;">
+                                            <option value="0" ${book.tts_speaker_id === 0 ? 'selected' : ''}>Lada [0]</option>
+                                            <option value="1" ${book.tts_speaker_id === 1 ? 'selected' : ''}>Mykyta [1]</option>
+                                            <option value="2" ${book.tts_speaker_id === 2 ? 'selected' : ''}>Tetiana [2]</option>
+                                        </select>
+                                    </div>
+                                    <div class="slider-group">
+                                        <div class="slider-header">
+                                            <span>Speed</span>
+                                            <span><span id="speed-val-${book.slug}">${book.tts_speed}</span>x</span>
+                                        </div>
+                                        <input type="range" id="speed-${book.slug}" class="range-slider" min="0.5" max="2.0" step="0.1" value="${book.tts_speed}" oninput="document.getElementById('speed-val-${book.slug}').innerText = this.value">
+                                    </div>
+                                    <div class="slider-group">
+                                        <div class="slider-header">
+                                            <span>Noise Scale</span>
+                                            <span id="noise-scale-val-${book.slug}">${book.tts_noise_scale}</span>
+                                        </div>
+                                        <input type="range" id="noise-scale-${book.slug}" class="range-slider" min="0.1" max="1.5" step="0.05" value="${book.tts_noise_scale}" oninput="document.getElementById('noise-scale-val-${book.slug}').innerText = this.value">
+                                    </div>
+                                    <div class="slider-group">
+                                        <div class="slider-header">
+                                            <span>Noise Width</span>
+                                            <span id="noise-w-val-${book.slug}">${book.tts_noise_w}</span>
+                                        </div>
+                                        <input type="range" id="noise-w-${book.slug}" class="range-slider" min="0.1" max="1.5" step="0.05" value="${book.tts_noise_w}" oninput="document.getElementById('noise-w-val-${book.slug}').innerText = this.value">
+                                    </div>
+                                    <div style="display: flex; align-items: flex-end;">
+                                        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.5rem 1rem; font-size: 0.875rem;">Save Settings</button>
+                                    </div>
+                                    
+                                    <div class="preview-section">
+                                        <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Live Preview (Ukrainian)</label>
+                                        <textarea id="preview-text-${book.slug}" class="preview-text" placeholder="Введіть речення українською для тестування..."></textarea>
+                                        <div class="preview-controls">
+                                            <button type="button" onclick="generatePreview('${book.slug}')" id="preview-btn-${book.slug}" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Hear Preview</button>
+                                            <audio id="preview-audio-${book.slug}" controls style="display: none; height: 32px; flex-grow: 1;"></audio>
+                                        </div>
+                                    </div>
+                                </form>
+                            </details>
+
                             <div class="controls">
                                 ${book.is_running 
                                     ? `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger">Stop Conversion</button>`
@@ -687,8 +853,69 @@ def dashboard():
                 if (prevScrollHeight - prevScrollTop <= prevClientHeight + 50) {
                     logBox.scrollTop = logBox.scrollHeight;
                 }
+        async function saveTtsSettings(event, slug) {
+            event.preventDefault();
+            const tts_voice = document.getElementById(`voice-${slug}`).value;
+            const tts_voice_quality = (tts_voice === 'ukrainian_tts') ? 'medium' : 'x_low';
+            const tts_speaker_id = parseInt(document.getElementById(`speaker-${slug}`).value);
+            const tts_speed = parseFloat(document.getElementById(`speed-${slug}`).value);
+            const tts_noise_scale = parseFloat(document.getElementById(`noise-scale-${slug}`).value);
+            const tts_noise_w = parseFloat(document.getElementById(`noise-w-${slug}`).value);
+            
+            try {
+                const response = await fetch(`/api/tts-settings/${slug}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tts_voice, tts_voice_quality, tts_speaker_id, tts_speed, tts_noise_scale, tts_noise_w })
+                });
+                const res = await response.json();
+                if (response.ok) {
+                    alert('Settings saved successfully!');
+                    fetchBooks();
+                } else {
+                    alert('Error saving settings: ' + res.message);
+                }
             } catch (err) {
-                console.error('Failed to poll logs:', err);
+                alert('Request failed: ' + err.message);
+            }
+        }
+
+        async function generatePreview(slug) {
+            const text = document.getElementById(`preview-text-${slug}`).value.trim();
+            if (!text) {
+                alert('Please enter some text first.');
+                return;
+            }
+            
+            const btn = document.getElementById(`preview-btn-${slug}`);
+            const audio = document.getElementById(`preview-audio-${slug}`);
+            
+            btn.disabled = true;
+            btn.innerText = 'Generating...';
+            audio.style.display = 'none';
+            
+            try {
+                const response = await fetch(`/api/tts-preview/${slug}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    audio.src = blobUrl;
+                    audio.style.display = 'block';
+                    audio.play();
+                } else {
+                    const res = await response.json();
+                    alert('Error generating preview: ' + (res.message || 'unknown error'));
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Hear Preview';
             }
         }
 
@@ -753,7 +980,13 @@ def list_books():
                 "target_lang": target_lang,
                 "is_running": is_running,
                 "progress": prog,
-                "output_files": sorted(output_files)
+                "output_files": sorted(output_files),
+                "tts_voice": cfg.get("tts_voice", "ukrainian_tts"),
+                "tts_voice_quality": cfg.get("tts_voice_quality", "medium"),
+                "tts_speaker_id": int(cfg.get("tts_speaker_id", 2)),
+                "tts_speed": float(cfg.get("tts_speed", 1.0)),
+                "tts_noise_scale": float(cfg.get("tts_noise_scale", 0.667)),
+                "tts_noise_w": float(cfg.get("tts_noise_w", 0.8))
             })
             
     return jsonify(books)
@@ -806,6 +1039,10 @@ def add_book_api():
             "generate_audiobook": True,
             "tts_voice": "ukrainian_tts",
             "tts_voice_quality": "medium",
+            "tts_speaker_id": 2,
+            "tts_speed": 1.0,
+            "tts_noise_scale": 0.667,
+            "tts_noise_w": 0.8,
             "page_ranges": [[1, pages]]
         }
         
@@ -954,6 +1191,146 @@ def download_output_file(slug, filename):
         return jsonify({"status": "error", "message": "File not found"}), 404
         
     return send_file(file_path, as_attachment=True)
+
+@app.route("/api/tts-settings/<slug>", methods=["POST"])
+def update_tts_settings(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        
+    paths = resolve_book_paths(repo_dir, slug)
+    config_path = paths["config_path"]
+    if not os.path.exists(config_path):
+        return jsonify({"status": "error", "message": "Book configuration not found"}), 404
+        
+    data = request.get_json() or {}
+    try:
+        # Load existing config
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            
+        # Parse inputs
+        tts_voice = str(data.get("tts_voice", config.get("tts_voice", "ukrainian_tts"))).strip()
+        tts_voice_quality = str(data.get("tts_voice_quality", config.get("tts_voice_quality", "medium"))).strip()
+        
+        # Validations
+        if tts_voice not in ["lada", "ukrainian_tts"]:
+            return jsonify({"status": "error", "message": "Invalid tts_voice"}), 400
+        if tts_voice_quality not in ["medium", "x_low"]:
+            return jsonify({"status": "error", "message": "Invalid tts_voice_quality"}), 400
+            
+        tts_speaker_id = int(data.get("tts_speaker_id", config.get("tts_speaker_id", 2)))
+        tts_speed = float(data.get("tts_speed", config.get("tts_speed", 1.0)))
+        tts_noise_scale = float(data.get("tts_noise_scale", config.get("tts_noise_scale", 0.667)))
+        tts_noise_w = float(data.get("tts_noise_w", config.get("tts_noise_w", 0.8)))
+        
+        if not (0 <= tts_speaker_id <= 2):
+            return jsonify({"status": "error", "message": "tts_speaker_id must be between 0 and 2"}), 400
+        if not (0.5 <= tts_speed <= 2.0):
+            return jsonify({"status": "error", "message": "tts_speed must be between 0.5 and 2.0"}), 400
+        if not (0.1 <= tts_noise_scale <= 1.5):
+            return jsonify({"status": "error", "message": "tts_noise_scale must be between 0.1 and 1.5"}), 400
+        if not (0.1 <= tts_noise_w <= 1.5):
+            return jsonify({"status": "error", "message": "tts_noise_w must be between 0.1 and 1.5"}), 400
+            
+        # Update config
+        config["tts_voice"] = tts_voice
+        config["tts_voice_quality"] = tts_voice_quality
+        config["tts_speaker_id"] = tts_speaker_id
+        config["tts_speed"] = tts_speed
+        config["tts_noise_scale"] = tts_noise_scale
+        config["tts_noise_w"] = tts_noise_w
+        
+        # Write back
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+            
+        return jsonify({"status": "success", "message": "TTS settings saved successfully"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/tts-preview/<slug>", methods=["POST"])
+def tts_preview(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        
+    data = request.get_json() or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"status": "error", "message": "Text is required for preview"}), 400
+        
+    paths = resolve_book_paths(repo_dir, slug)
+    config_path = paths["config_path"]
+    if not os.path.exists(config_path):
+        return jsonify({"status": "error", "message": "Book configuration not found"}), 404
+        
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            
+        voice = config.get("tts_voice", "ukrainian_tts")
+        voice_quality = config.get("tts_voice_quality", "medium")
+        
+        if voice == "ukrainian_tts" or voice_quality == "medium":
+            model_filename = "uk_UA-ukrainian_tts-medium.onnx"
+        else:
+            model_filename = "uk_UA-lada-x_low.onnx"
+            
+        model_path = os.path.join(repo_dir, "models", "piper", model_filename)
+        if not os.path.exists(model_path):
+            return jsonify({"status": "error", "message": f"Voice model file not found at {model_path}"}), 400
+            
+        # Read parameters from config
+        speaker_id = int(config.get("tts_speaker_id", 2))
+        speed = float(config.get("tts_speed", 1.0))
+        noise_scale = float(config.get("tts_noise_scale", 0.667))
+        noise_w = float(config.get("tts_noise_w", 0.8))
+        
+        length_scale = 1.0 / speed
+        
+        # Prepare target path
+        preview_wav_path = os.path.join(paths["cache_dir"], "preview.wav")
+        os.makedirs(os.path.dirname(preview_wav_path), exist_ok=True)
+        
+        # Stressify and normalize text
+        stress_cmd = [
+            "proot-distro", "login", "ubuntu", "--",
+            "python3", "-c",
+            "import sys; from ukrainian_word_stress import Stressifier; print(Stressifier()(sys.stdin.read()).replace('\\u00b4', '\\u0301'), end='')"
+        ]
+        
+        try:
+            res = subprocess.run(stress_cmd, input=text, capture_output=True, text=True, check=True)
+            stressed_text = res.stdout
+        except Exception as e:
+            # Fallback to normalized text
+            stressed_text = text.replace("\u00b4", "\u0301")
+            
+        # Run piper C++ binary inside Ubuntu container via proot-distro
+        piper_binary = "/data/data/com.termux/files/home/kindle-butch-gen/bin/piper/piper"
+        piper_lib_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/piper"
+        
+        cmd = [
+            "proot-distro", "login", "ubuntu", "--",
+            "env", f"LD_LIBRARY_PATH={piper_lib_path}",
+            piper_binary,
+            "-m", model_path,
+            "-s", str(speaker_id),
+            "--length_scale", str(length_scale),
+            "--noise_scale", str(noise_scale),
+            "--noise_w", str(noise_w),
+            "-f", preview_wav_path
+        ]
+        
+        res = subprocess.run(cmd, input=stressed_text, capture_output=True, text=True)
+        if res.returncode != 0:
+            return jsonify({"status": "error", "message": f"Piper synthesis failed: {res.stderr}"}), 500
+            
+        if not os.path.exists(preview_wav_path):
+            return jsonify({"status": "error", "message": "Failed to generate preview WAV file"}), 500
+            
+        return send_file(preview_wav_path, mimetype="audio/wav")
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     import argparse
