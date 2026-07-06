@@ -10,6 +10,7 @@ import argparse
 import glob
 
 from common.text_protect import PlaceholderManager
+from common.book_paths import resolve_book_paths
 
 def get_hash(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -64,24 +65,22 @@ def main():
     if not args.book and not args.config:
         parser.error("At least one of --book or --config must be specified.")
 
-    if args.config:
-        config_path = args.config
-    else:
-        config_path = os.path.join("books", args.book, "config.json")
-
-    if not os.path.exists(config_path):
-        print(f"Config file not found at {config_path}")
-        return
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    slug = config.get("slug") or args.book
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+    slug = args.book
+    if not slug and args.config:
+        try:
+            with open(args.config, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                slug = cfg.get("slug")
+        except Exception:
+            pass
     if not slug:
         print("Could not determine book slug.")
         return
 
-    cache_path = os.path.join("books", slug, "cache", "translate_cache.json")
+    paths = resolve_book_paths(repo_dir, slug, config_path=args.config)
+
+    cache_path = paths["translate_cache"]
     if not os.path.exists(cache_path):
         print(f"Cache file not found at {cache_path}")
         return
@@ -91,7 +90,7 @@ def main():
 
     print(f"Loaded cache with {len(cache)} entries.")
 
-    batches_dir = os.path.join("books", slug, "batches")
+    batches_dir = paths["batches_dir"]
     if not os.path.exists(batches_dir):
         print(f"Batches directory not found at {batches_dir}")
         return

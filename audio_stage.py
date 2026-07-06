@@ -9,6 +9,7 @@ import hashlib
 import argparse
 import subprocess
 from common.text_protect import PlaceholderManager
+from common.book_paths import resolve_book_paths
 
 def log(message):
     print(f"[AudioStage] {message}", flush=True)
@@ -34,6 +35,23 @@ def locate_translated_file(book_dir, target_lang):
     if os.path.exists(output_dir):
         for f in os.listdir(output_dir):
             if f.endswith(f"_translated_{target_lang}.md"):
+                return os.path.join(output_dir, f)
+
+    # Check 4: books/<slug>/translated/merged_source_{target_lang}.md
+    path_source = os.path.join(book_dir, "translated", f"merged_source_{target_lang}.md")
+    if os.path.exists(path_source):
+        return path_source
+
+    # Check 5: look for any .md file ending with _source_{target_lang}.md under books/<slug>/translated/
+    if os.path.exists(translated_dir):
+        for f in os.listdir(translated_dir):
+            if f.endswith(f"_source_{target_lang}.md"):
+                return os.path.join(translated_dir, f)
+
+    # Check 6: look under books/<slug>/output/ for ending with _source_{target_lang}.md
+    if os.path.exists(output_dir):
+        for f in os.listdir(output_dir):
+            if f.endswith(f"_source_{target_lang}.md"):
                 return os.path.join(output_dir, f)
 
     return None
@@ -100,49 +118,74 @@ def split_paragraph_to_chunks(text, max_chars=1000):
 
 def main():
     parser = argparse.ArgumentParser(description="Audio generation stage for translated books")
-    parser.add_argument("--book", "-b", required=True, help="Book slug")
+    parser.add_argument("--book", "-b", required=False, help="Book slug")
     parser.add_argument("--config", "-c", help="Optional path to config.json")
     args = parser.parse_args()
 
     repo_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Load configuration
-    if args.config:
-        config_path = args.config
-    else:
-        config_path = os.path.join(repo_dir, "books", args.book, "config.json")
-
-    if not os.path.exists(config_path):
-        log(f"Error: Config file not found at '{config_path}'")
+    slug = args.book
+    if not slug and args.config:
+        try:
+            with open(args.config, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                slug = cfg.get("slug")
+        except Exception:
+            pass
+    if not slug:
+        log("Error: Book slug is required.")
         sys.exit(1)
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
+    paths = resolve_book_paths(repo_dir, slug, config_path=args.config)
+    target_lang = paths.get("target_lang", "uk")
+    voice = paths.get("tts_voice", "lada")
+    voice_quality = paths.get("tts_voice_quality", "x_low")
 
-    slug = config.get("slug", args.book)
-    target_lang = config.get("target_lang", "uk")
-    voice = config.get("tts_voice", "lada")
+    # Pick voice based on voice and/or voice_quality config
+    if voice == "ukrainian_tts" or voice_quality == "medium":
+        model_filename = "uk_UA-ukrainian_tts-medium.onnx"
+        url_base = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/uk/uk_UA/ukrainian_tts/medium/"
+    else:
+        model_filename = "uk_UA-lada-x_low.onnx"
+        url_base = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/uk/uk_UA/lada/x_low/"
 
-    # Resolve default model path
-    model_path = config.get("model_path")
-    if not model_path:
-        if voice == "lada":
-            model_path = os.path.join(repo_dir, "models", "piper", "uk_UA-lada-x_low.onnx")
-        else:
-            model_path = os.path.join(repo_dir, "models", "piper", "uk_UA-lada-x_low.onnx")
+    model_dir = os.path.join(repo_dir, "models", "piper")
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, model_filename)
+
+    # Automatic voice model download
+    model_json_path = model_path + ".json"
+    if not os.path.exists(model_path) or not os.path.exists(model_json_path):
+        log(f"Model or config file not found. Downloading from Hugging Face...")
+        for ext in ["", ".json"]:
+            file_to_download = model_filename + ext
+            url = url_base + file_to_download
+            target_file_path = model_path + ext
+            tmp_file_path = target_file_path + ".tmp"
+            log(f"Downloading {url} to {tmp_file_path}...")
+            
+            cmd = ["curl", "-L", "-o", tmp_file_path, url]
+            try:
+                subprocess.run(cmd, check=True)
+                os.rename(tmp_file_path, target_file_path)
+                log(f"Successfully downloaded {file_to_download}")
+            except subprocess.CalledProcessError as e:
+                log(f"Error downloading {file_to_download}: {e}")
+                if os.path.exists(tmp_file_path):
+                    try:
+                        os.remove(tmp_file_path)
+                    except Exception:
+                        pass
+                sys.exit(1)
 
     model_path = os.path.abspath(model_path)
-    if not os.path.exists(model_path):
-        log(f"Error: ONNX model not found at '{model_path}'")
-        sys.exit(1)
-
     voice_slug = os.path.splitext(os.path.basename(model_path))[0]
 
     # Set up directories
-    book_dir = os.path.join(repo_dir, "books", slug)
-    chunks_dir = os.path.join(book_dir, "audio", f"chunks_{voice_slug}")
-    cache_path = os.path.join(book_dir, "cache", f"tts_cache_{voice_slug}.json")
-    output_dir = os.path.join(book_dir, "output")
+    book_dir = paths["book_dir"]
+    chunks_dir = os.path.join(paths["audio_dir"], f"chunks_{voice_slug}")
+    cache_path = os.path.join(paths["cache_dir"], f"tts_cache_{voice_slug}.json")
+    output_dir = paths["output_dir"]
 
     os.makedirs(chunks_dir, exist_ok=True)
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
@@ -245,10 +288,6 @@ def main():
 
         except subprocess.CalledProcessError as e:
             log(f"Error: piper_helper.py failed with exit code {e.returncode}")
-            if e.stdout:
-                print(e.stdout)
-            if e.stderr:
-                print(e.stderr, file=sys.stderr)
             sys.exit(1)
         except Exception as e:
             log(f"Error calling piper_helper.py: {e}")
@@ -293,7 +332,7 @@ def main():
     log("All chunk files verified successfully.")
 
     # Create ffmpeg list file
-    ffmpeg_list_path = os.path.join(book_dir, "audio", "ffmpeg_list.txt")
+    ffmpeg_list_path = os.path.join(paths["audio_dir"], "ffmpeg_list.txt")
     try:
         with open(ffmpeg_list_path, "w", encoding="utf-8") as lf:
             for h in chunk_hashes:
@@ -323,10 +362,6 @@ def main():
         )
     except subprocess.CalledProcessError as e:
         log(f"Error: ffmpeg compilation/concatenation failed with exit code {e.returncode}")
-        if e.stdout:
-            print(e.stdout)
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
         sys.exit(1)
     finally:
         # Clean up temporary ffmpeg list file
