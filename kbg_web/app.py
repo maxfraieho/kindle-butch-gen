@@ -626,6 +626,45 @@ def dashboard():
 
         async function fetchBooks() {
             try {
+                // Save current state, values, and focus to prevent form resetting during polling
+                const openDetails = {};
+                const formValues = {};
+                const activeId = document.activeElement ? document.activeElement.id : null;
+                let selStart = null, selEnd = null;
+                if (document.activeElement && document.activeElement.selectionStart !== undefined) {
+                    selStart = document.activeElement.selectionStart;
+                    selEnd = document.activeElement.selectionEnd;
+                }
+
+                // Query existing elements before fetching
+                const cards = document.querySelectorAll('.book-card');
+                cards.forEach(card => {
+                    const slugEl = card.querySelector('code');
+                    if (slugEl) {
+                        const slug = slugEl.innerText.trim();
+                        const detailsEl = document.getElementById(`details-${slug}`);
+                        if (detailsEl) {
+                            openDetails[slug] = detailsEl.open;
+                            
+                            const voiceEl = document.getElementById(`voice-${slug}`);
+                            const speakerEl = document.getElementById(`speaker-${slug}`);
+                            const speedEl = document.getElementById(`speed-${slug}`);
+                            const noiseEl = document.getElementById(`noise-scale-${slug}`);
+                            const noiseWEl = document.getElementById(`noise-w-${slug}`);
+                            const previewEl = document.getElementById(`preview-text-${slug}`);
+                            
+                            formValues[slug] = {
+                                voice: voiceEl ? voiceEl.value : null,
+                                speaker: speakerEl ? speakerEl.value : null,
+                                speed: speedEl ? speedEl.value : null,
+                                noise_scale: noiseEl ? noiseEl.value : null,
+                                noise_w: noiseWEl ? noiseWEl.value : null,
+                                preview_text: previewEl ? previewEl.value : ''
+                            };
+                        }
+                    }
+                });
+
                 const response = await fetch('/api/books');
                 const books = await response.json();
                 const container = document.getElementById('booksList');
@@ -638,6 +677,7 @@ def dashboard():
                 container.innerHTML = books.map(book => {
                     const badgeClass = book.is_running ? 'badge-running' : 'badge-idle';
                     const badgeText = book.is_running ? 'Running' : 'Idle';
+                    const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
                     
                     return `
                         <div class="glass-card book-card">
@@ -686,7 +726,7 @@ def dashboard():
                                 <label class="option-checkbox"><input type="checkbox" id="noaudio-${book.slug}"> No Audio</label>
                             </div>
 
-                            <details class="settings-details">
+                            <details class="settings-details" id="details-${book.slug}" ${detailsOpenAttr}>
                                 <summary>🛠️ TTS Settings</summary>
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
                                     <div class="form-group" style="margin-bottom:0;">
@@ -760,6 +800,43 @@ def dashboard():
                         </div>
                     `;
                 }).join('');
+
+                // Restore input values that were not saved yet
+                books.forEach(book => {
+                    const slug = book.slug;
+                    const vals = formValues[slug];
+                    if (vals) {
+                        if (vals.voice !== null) document.getElementById(`voice-${slug}`).value = vals.voice;
+                        if (vals.speaker !== null) document.getElementById(`speaker-${slug}`).value = vals.speaker;
+                        if (vals.speed !== null) {
+                            document.getElementById(`speed-${slug}`).value = vals.speed;
+                            document.getElementById(`speed-val-${slug}`).innerText = vals.speed;
+                        }
+                        if (vals.noise_scale !== null) {
+                            document.getElementById(`noise-scale-${slug}`).value = vals.noise_scale;
+                            document.getElementById(`noise-scale-val-${slug}`).innerText = vals.noise_scale;
+                        }
+                        if (vals.noise_w !== null) {
+                            document.getElementById(`noise-w-${slug}`).value = vals.noise_w;
+                            document.getElementById(`noise-w-val-${slug}`).innerText = vals.noise_w;
+                        }
+                        if (vals.preview_text !== '') {
+                            document.getElementById(`preview-text-${slug}`).value = vals.preview_text;
+                        }
+                    }
+                });
+
+                // Restore active cursor focus and selection
+                if (activeId) {
+                    const activeEl = document.getElementById(activeId);
+                    if (activeEl) {
+                        activeEl.focus();
+                        if (selStart !== null && selEnd !== null) {
+                            activeEl.selectionStart = selStart;
+                            activeEl.selectionEnd = selEnd;
+                        }
+                    }
+                }
             } catch (err) {
                 console.error('Failed to fetch books:', err);
             }
