@@ -98,5 +98,8 @@ class PlaceholderManager:
         text = re.sub(r"^\s*#+\s+", "", text, flags=re.MULTILINE) # Headers
         text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE) # Bullet points
         text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE) # Numbered lists
-        text = re.sub(r"\*\*|__|\*|_", "", text) # Bold/Italic
+        text = re.sub(r"\*\*(?=\S)([^\*]+?)(?<=\S)\*\*", r"\1", text)
+        text = re.sub(r"__(?=\S)([^_]+?)(?<=\S)__", r"\1", text)
+        text = re.sub(r"(?<!\w)\*(?=\S)([^\*]+?)(?<=\S)\*(?!\w)", r"\1", text)
+        text = re.sub(r"(?<!\w)_(?=\S)([^_]+?)(?<=\S)_(?!\w)", r"\1", text)
         return text
