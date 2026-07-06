@@ -4,7 +4,28 @@
   "authors": "Ван Вэньцзе, Ли Цзяньчао, Ю И, Чжан Бинь",
   "source_lang": "ru",
   "target_lang": "uk",
-  "page_ranges": [[0, 49], [50, 99], [100, 149], [150, 199], [200, 247]],
+  "page_ranges": [
+    [
+      0,
+      49
+    ],
+    [
+      50,
+      99
+    ],
+    [
+      100,
+      149
+    ],
+    [
+      150,
+      199
+    ],
+    [
+      200,
+      247
+    ]
+  ],
   "cover": "books/vibe-programming/cover.jpeg",
   "pdf_path": "/sdcard/Download/Ван Вэньцзе - Вайб-программирование - 2026.pdf",
   "tts_voice": "ukrainian_tts",
@@ -12,7 +33,6 @@
   "generate_audiobook": true,
   "tts_speaker_id": 2,
   "tts_speed": 1.0,
-  "tts_noise_scale": 0.667,
-  "tts_noise_w": 0.8
+  "tts_noise_scale": 0.65,
+  "tts_noise_w": 0.65
 }
-
