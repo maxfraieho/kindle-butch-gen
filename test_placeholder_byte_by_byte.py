@@ -53,13 +53,38 @@ if os.path.exists(md_path):
 else:
     print(f"Markdown file not found at {md_path}")
 
-# Always add fallback paragraph to test cases
+# Always add fallback and specific test cases to verify the expanded requirements
 fallback_p = "Here is inline code `x = 42` and a math formula $$y = f(x)$$ inside a <span class=\"math\">formula</span>."
 print("Adding fallback paragraph to test cases.")
 test_paragraphs.append(fallback_p)
 
-# Limit to first 5 paragraphs found + fallback to keep output clean but thorough
-test_cases = test_paragraphs[:6]
+# Case 1: Inline HTML tags
+print("Adding HTML tag test case.")
+html_tag_p = "We can use inline HTML elements like <span class=\"highlight\" id=\"tag-1\">this text</span> or a link with an anchor <a href=\"#section-2\">jump to section 2</a>."
+test_paragraphs.append(html_tag_p)
+
+# Case 2: Standard markdown links and nested parentheses in URLs
+print("Adding nested URL parentheses test case.")
+nested_url_p = "Read about it on [Wikipedia Llama Page](https://en.wikipedia.org/wiki/Llama_(milking)) or check this [link with nested parentheses](https://example.com/some(nested)url) for details."
+test_paragraphs.append(nested_url_p)
+
+# Case 3: Code blocks and inline code
+print("Adding code blocks and inline code test case.")
+code_blocks_p = "Consider the following python script:\n```python\ndef test():\n    return \"Success\"\n```\nIt is simple to run it inline like `test()` to check output."
+test_paragraphs.append(code_blocks_p)
+
+# Case 4: Real paragraph from the batch markdown file with HTML tags
+print("Adding real paragraph with HTML tags.")
+real_html_p = "## <span id=\"page-9-0\"></span>**Предисловие от издательства**"
+test_paragraphs.append(real_html_p)
+
+# Case 5: Real paragraph from the batch markdown file with a link
+print("Adding real paragraph with link.")
+real_link_p = "Дизайн обложки разработан с использованием ресурса [magnific.com](http://magnific.com)"
+test_paragraphs.append(real_link_p)
+
+# Limit to all added test cases plus a few dynamically found ones to keep output clean but thorough
+test_cases = test_paragraphs
 
 print(f"Running byte-by-byte verification on {len(test_cases)} test case(s)...")
 
