@@ -9,6 +9,10 @@
   "pdf_path": "/sdcard/Download/Ван Вэньцзе - Вайб-программирование - 2026.pdf",
   "tts_voice": "ukrainian_tts",
   "tts_voice_quality": "medium",
-  "generate_audiobook": true
+  "generate_audiobook": true,
+  "tts_speaker_id": 2,
+  "tts_speed": 1.0,
+  "tts_noise_scale": 0.667,
+  "tts_noise_w": 0.8
 }
 

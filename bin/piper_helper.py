@@ -23,6 +23,11 @@ def main():
     model_path = payload.get("model_path")
     output_dir = payload.get("output_dir")
     chunks = payload.get("chunks", [])
+    speaker_id = payload.get("speaker_id", 2)
+    speed = payload.get("speed", 1.0)
+    noise_scale = payload.get("noise_scale", 0.667)
+    noise_w = payload.get("noise_w", 0.8)
+    length_scale = 1.0 / speed
 
     if not model_path or not output_dir:
         print("[PiperHelper] Error: model_path and output_dir are required in payload", file=sys.stderr)
@@ -85,6 +90,10 @@ def main():
         cmd = [
             piper_binary,
             "-m", model_path,
+            "-s", str(speaker_id),
+            "--length_scale", str(length_scale),
+            "--noise_scale", str(noise_scale),
+            "--noise_w", str(noise_w),
             "-f", output_file
         ]
 

@@ -140,6 +140,10 @@ def main():
     target_lang = paths.get("target_lang", "uk")
     voice = paths.get("tts_voice", "lada")
     voice_quality = paths.get("tts_voice_quality", "x_low")
+    speaker_id = paths.get("tts_speaker_id", 2)
+    speed = paths.get("tts_speed", 1.0)
+    noise_scale = paths.get("tts_noise_scale", 0.667)
+    noise_w = paths.get("tts_noise_w", 0.8)
 
     # Pick voice based on voice and/or voice_quality config
     if voice == "ukrainian_tts" or voice_quality == "medium":
@@ -267,7 +271,11 @@ def main():
             payload = {
                 "model_path": model_path,
                 "output_dir": os.path.abspath(chunks_dir),
-                "chunks": unique_missing_chunks
+                "chunks": unique_missing_chunks,
+                "speaker_id": speaker_id,
+                "speed": speed,
+                "noise_scale": noise_scale,
+                "noise_w": noise_w
             }
             payload_json = json.dumps(payload, ensure_ascii=False)
 
