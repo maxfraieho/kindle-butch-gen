@@ -278,7 +278,7 @@ def main():
                 "python3", helper_path
             ]
             
-            log("Invoking piper_helper.py inside Ubuntu container...")
+            log(f"Invoking piper_helper.py inside Ubuntu container using model: {model_path}...")
             subprocess.run(
                 cmd,
                 input=payload_json,

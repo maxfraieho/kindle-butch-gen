@@ -8,10 +8,9 @@ from ukrainian_word_stress import Stressifier
 
 vowels = "аеиоуіяеїєюАЕИОУІЯЕЇЄЮ"
 
-def convert_acute_to_plus_stress(text):
-    def repl(match):
-        return "+" + match.group(1)
-    return re.sub(r"([" + vowels + r"])[\u0301\u00b4]", repl, text)
+def normalize_accents(text):
+    # Convert spacing acute accent (´, \u00b4) to combining acute accent (́, \u0301)
+    return text.replace("\u00b4", "\u0301")
 
 def main():
     # Read JSON payload from stdin
@@ -65,13 +64,20 @@ def main():
             print(f"[PiperHelper] Warning: Stressifier failed on chunk {chunk_hash}: {e}. Using raw text.", file=sys.stderr)
             stressed_text = text
 
-        # 2. Convert acute accent \u0301 to + before the vowel
-        stressed_text_converted = convert_acute_to_plus_stress(stressed_text)
+        # 2. Normalize acute accent U+00B4 to combining acute accent U+0301
+        stressed_text_normalized = normalize_accents(stressed_text)
 
         # Output wav file path
         output_file = os.path.join(output_dir, f"{chunk_hash}.wav")
 
-        print(f"[PiperHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash}...", flush=True)
+        # Explicitly print the text and model path for first 5 chunks for E2E validation
+        if i < 5:
+            print(f"[PiperHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash}:", flush=True)
+            print(f"  - Voice Model: {model_path}", flush=True)
+            print(f"  - Cleaned text: '{text}'", flush=True)
+            print(f"  - Stressed text: '{stressed_text_normalized}'", flush=True)
+        else:
+            print(f"[PiperHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash}...", flush=True)
 
         # 3. Run piper C++ binary using subprocess
         # Pass the stressed text to piper's stdin
@@ -83,10 +89,10 @@ def main():
         ]
 
         try:
-            # We run subprocess.run, passing stressed_text_converted as stdin input.
+            # We run subprocess.run, passing stressed_text_normalized as stdin input.
             res = subprocess.run(
                 cmd,
-                input=stressed_text_converted,
+                input=stressed_text_normalized,
                 capture_output=True,
                 text=True,
                 env=env,

@@ -1,0 +1,113 @@
+{
+  "table_of_contents": [
+    {
+      "title": "\u041e\u0431 \u0430\u0432\u0442\u043e\u0440\u0430\u0445",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          41.818359375,
+          60.90283203125001
+        ],
+        [
+          156.8066864013672,
+          60.90283203125001
+        ],
+        [
+          156.8066864013672,
+          84.40673828125
+        ],
+        [
+          40.904296875,
+          84.40673828125
+        ]
+      ]
+    },
+    {
+      "title": "\u041f\u0440\u0435\u0434\u0438\u0441\u043b\u043e\u0432\u0438\u0435",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          56.671875,
+          61.22851562500001
+        ],
+        [
+          191.28890991210938,
+          61.22851562500001
+        ],
+        [
+          191.28890991210938,
+          84.40673828125
+        ],
+        [
+          55.7578125,
+          84.40673828125
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 10,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          59
+        ],
+        [
+          "Line",
+          25
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "SectionHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 11,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          82
+        ],
+        [
+          "Line",
+          41
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "SectionHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data/\u0412\u0430\u043d \u0412\u044d\u043d\u044c\u0446\u0437\u0435 - \u0412\u0430\u0439\u0431-\u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 - 2026"
+}
