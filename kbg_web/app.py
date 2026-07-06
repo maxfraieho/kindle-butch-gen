@@ -853,6 +853,11 @@ def dashboard():
                 if (prevScrollHeight - prevScrollTop <= prevClientHeight + 50) {
                     logBox.scrollTop = logBox.scrollHeight;
                 }
+            } catch (err) {
+                console.error('Failed to poll logs:', err);
+            }
+        }
+
         async function saveTtsSettings(event, slug) {
             event.preventDefault();
             const tts_voice = document.getElementById(`voice-${slug}`).value;
