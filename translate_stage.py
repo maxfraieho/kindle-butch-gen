@@ -9,6 +9,7 @@ import hashlib
 import argparse
 import requests
 from common.text_protect import PlaceholderManager
+from common.book_paths import resolve_book_paths
 
 def log(message):
     print(f"[Translate] {message}", flush=True)
@@ -160,44 +161,38 @@ def main():
         parser.error("At least one of --input, --book, or --config must be specified.")
         
     repo_dir = os.path.dirname(os.path.abspath(__file__))
-    config = None
     
-    if args.config:
-        config_path = args.config
-    elif args.book:
-        config_path = os.path.join(repo_dir, "books", args.book, "config.json")
-    else:
-        config_path = None
+    slug = args.book
+    if not slug and args.config:
+        try:
+            with open(args.config, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                slug = cfg.get("slug")
+        except Exception:
+            pass
+    if not slug:
+        slug = "default-book"
         
-    if config_path:
-        if not os.path.exists(config_path):
-            log(f"Error: Config file '{config_path}' does not exist.")
-            sys.exit(1)
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-            
-    # Resolve values
-    slug = args.book or (config.get("slug") if config else "default-book")
-    book_dir = os.path.join(repo_dir, "books", slug)
+    paths = resolve_book_paths(repo_dir, slug, config_path=args.config)
     
     input_path = args.input
     if not input_path:
-        input_path = os.path.join(book_dir, "input", "input.md")
+        input_path = os.path.join(paths["book_dir"], "input", "input.md")
         
     output_path = args.output
     if not output_path:
-        output_path = os.path.join(book_dir, "output", "output.md")
+        output_path = os.path.join(paths["output_dir"], "output.md")
         
     cache_path = args.cache
     if not cache_path:
         if args.book or args.config:
-            cache_path = os.path.join(book_dir, "cache", "translate_cache.json")
+            cache_path = paths["translate_cache"]
         else:
             cache_path = "progress_translate.json"
             
     target_lang = args.target_lang
-    if config and "target_lang" in config:
-        target_lang = config["target_lang"]
+    if paths.get("target_lang"):
+        target_lang = paths["target_lang"]
         
     # Ensure directories exist
     os.makedirs(os.path.dirname(os.path.abspath(input_path)), exist_ok=True)

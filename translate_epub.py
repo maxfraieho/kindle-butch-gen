@@ -14,6 +14,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 from common.text_protect import PlaceholderManager
 from common.epub_validate import sanitize_xhtml_for_xml_parser
+from common.book_paths import resolve_book_paths
+
 
 def log(message):
     print(f"[EPUB-Translate] {message}", flush=True)
@@ -128,44 +130,37 @@ def main():
         sys.exit(1)
         
     repo_dir = os.path.dirname(os.path.abspath(__file__))
-    config = None
-    
-    if args.config:
-        config_path = args.config
-    elif args.book:
-        config_path = os.path.join(repo_dir, "books", args.book, "config.json")
-    else:
-        config_path = None
+    slug = args.book
+    if not slug and args.config:
+        try:
+            with open(args.config, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                slug = cfg.get("slug")
+        except Exception:
+            pass
+    if not slug:
+        slug = "default-book"
         
-    if config_path:
-        if not os.path.exists(config_path):
-            log(f"Error: Config file '{config_path}' does not exist.")
-            sys.exit(1)
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-            
-    # Resolve values
-    slug = args.book or (config.get("slug") if config else "default-book")
-    book_dir = os.path.join(repo_dir, "books", slug)
+    paths = resolve_book_paths(repo_dir, slug, config_path=args.config)
     
     input_path = args.input
     if not input_path:
-        input_path = os.path.join(book_dir, "input", "input.epub")
+        input_path = os.path.join(paths["book_dir"], "input", "input.epub")
         
     output_path = args.output
     if not output_path:
-        output_path = os.path.join(book_dir, "output", "output.epub")
+        output_path = os.path.join(paths["output_dir"], "output.epub")
         
     cache_path = args.cache
     if not cache_path:
         if args.book or args.config:
-            cache_path = os.path.join(book_dir, "cache", "translate_cache.json")
+            cache_path = paths["translate_cache"]
         else:
             cache_path = "progress_translate_epub_uk.json"
             
     target_lang = args.target_lang
-    if config and "target_lang" in config:
-        target_lang = config["target_lang"]
+    if paths.get("target_lang"):
+        target_lang = paths["target_lang"]
         
     # Assign back to args namespace
     args.input = input_path

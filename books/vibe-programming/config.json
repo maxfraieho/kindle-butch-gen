@@ -6,6 +6,9 @@
   "target_lang": "uk",
   "page_ranges": [[0, 49], [50, 99], [100, 149], [150, 199], [200, 247]],
   "cover": "books/vibe-programming/cover.jpeg",
+  "pdf_path": "/sdcard/Download/Ван Вэньцзе - Вайб-программирование - 2026.pdf",
   "tts_voice": "lada",
+  "tts_voice_quality": "x_low",
   "generate_audiobook": true
 }
+
