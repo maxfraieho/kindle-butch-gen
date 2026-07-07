@@ -584,6 +584,192 @@ def dashboard():
             color: #60a5fa;
             display: block;
         }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(9, 9, 11, 0.8);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: rgba(20, 20, 35, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+            transform: scale(0.95);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.2s;
+            padding: 0.25rem;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: #fff;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .fs-path-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 0.75rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: #a78bfa;
+            word-break: break-all;
+        }
+
+        .fs-list {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .fs-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            color: var(--text-primary);
+        }
+
+        .fs-item:last-child {
+            border-bottom: none;
+        }
+
+        .fs-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+        }
+
+        .fs-item-icon {
+            color: #3b82f6;
+            font-size: 1.1rem;
+        }
+
+        .fs-parent-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #a78bfa;
+            cursor: pointer;
+            padding: 0.5rem;
+            font-weight: 500;
+            font-size: 0.9rem;
+            width: fit-content;
+            transition: color 0.2s;
+        }
+
+        .fs-parent-btn:hover {
+            color: #c084fc;
+        }
+
+        .modal-footer {
+            padding: 1.25rem 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: var(--text-primary);
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.25);
+            color: #fff;
+        }
+
+        .save-location-info {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: -0.75rem;
+            margin-bottom: 1.5rem;
+            font-family: 'Fira Code', monospace;
+            word-break: break-all;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -642,7 +828,15 @@ def dashboard():
 
             <!-- Right Column: Books List -->
             <div class="glass-card">
-                <h2 class="card-title">Manage Books</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1;">Manage Books</h2>
+                    <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
+                        <span>⚙</span> Save Location
+                    </button>
+                </div>
+                <div class="save-location-info">
+                    <span>📁</span> <strong>Save Location:</strong> <span id="currentSaveLocation">Loading...</span>
+                </div>
                 <div id="booksList" class="books-container">
                     <p style="color: var(--text-secondary); text-align: center;">Loading books...</p>
                 </div>
@@ -1214,7 +1408,159 @@ def dashboard():
         fetchBooks();
         // Periodically refresh book states to update progress bars
         setInterval(fetchBooks, 5000);
+
+        let activeFsPath = "/storage/emulated/0";
+        let parentFsPath = null;
+
+        async function initSettings() {
+            try {
+                const res = await fetch("/api/settings");
+                const settings = await res.json();
+                document.getElementById("currentSaveLocation").textContent = settings.output_root;
+                activeFsPath = settings.output_root;
+            } catch (err) {
+                console.error("Failed to load settings:", err);
+            }
+        }
+
+        async function openFolderSelector() {
+            const modal = document.getElementById("folderModal");
+            modal.classList.add("active");
+            
+            // Load current path
+            try {
+                const res = await fetch("/api/settings");
+                const settings = await res.json();
+                activeFsPath = settings.output_root;
+            } catch (e) {
+                activeFsPath = "/storage/emulated/0";
+            }
+            await loadDirectory(activeFsPath);
+        }
+
+        function closeFolderSelector() {
+            const modal = document.getElementById("folderModal");
+            modal.classList.remove("active");
+        }
+
+        async function loadDirectory(path) {
+            const listEl = document.getElementById("fsList");
+            listEl.innerHTML = `<p style="padding: 1rem; color: var(--text-secondary); text-align: center;">Loading folder contents...</p>`;
+            
+            document.getElementById("fsCurrentPath").textContent = path;
+            
+            try {
+                const res = await fetch(`/api/browse-fs?path=${encodeURIComponent(path)}`);
+                const data = await res.json();
+                
+                if (data.error) {
+                    listEl.innerHTML = `<p style="padding: 1rem; color: var(--danger); text-align: center;">${data.error}</p>`;
+                    return;
+                }
+                
+                activeFsPath = data.current;
+                parentFsPath = data.parent;
+                
+                // Show/hide up button
+                const parentBtn = document.getElementById("fsParentBtn");
+                if (parentFsPath) {
+                    parentBtn.style.display = "flex";
+                } else {
+                    parentBtn.style.display = "none";
+                }
+                
+                // List folders
+                listEl.innerHTML = "";
+                if (data.dirs.length === 0) {
+                    listEl.innerHTML = `<p style="padding: 1.5rem; color: var(--text-secondary); text-align: center;">No subfolders found</p>`;
+                    return;
+                }
+                
+                data.dirs.forEach(item => {
+                    const div = document.createElement("div");
+                    div.className = "fs-item";
+                    div.onclick = () => loadDirectory(item.path);
+                    
+                    const icon = document.createElement("span");
+                    icon.className = "fs-item-icon";
+                    icon.textContent = "📁";
+                    
+                    const name = document.createElement("span");
+                    name.textContent = item.name;
+                    
+                    div.appendChild(icon);
+                    div.appendChild(name);
+                    listEl.appendChild(div);
+                });
+            } catch (err) {
+                listEl.innerHTML = `<p style="padding: 1rem; color: var(--danger); text-align: center;">Failed to load directories</p>`;
+            }
+        }
+
+        async function navigateFsParent() {
+            if (parentFsPath) {
+                await loadDirectory(parentFsPath);
+            }
+        }
+
+        async function confirmFolderSelection() {
+            const btn = document.getElementById("fsSelectBtn");
+            btn.disabled = true;
+            btn.textContent = "Saving...";
+            
+            try {
+                const res = await fetch("/api/settings/output-root", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ path: activeFsPath })
+                });
+                const data = await res.json();
+                if (data.status === "success") {
+                    document.getElementById("currentSaveLocation").textContent = data.output_root;
+                    closeFolderSelector();
+                } else {
+                    alert("Error: " + (data.message || "Failed to set output directory"));
+                }
+            } catch (err) {
+                alert("Failed to connect to server: " + err);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "✓ Select This Folder";
+            }
+        }
+
+        // Initialize settings on page load
+        initSettings();
     </script>
+
+    <!-- Folder Selector Modal -->
+    <div id="folderModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Output Directory</h3>
+                <button class="modal-close" onclick="closeFolderSelector()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">Choose where translated books and audio files should be saved.</p>
+                <div class="fs-parent-btn" id="fsParentBtn" onclick="navigateFsParent()" style="display: none;">
+                    <span>⬆</span> Up to parent folder
+                </div>
+                <div class="fs-list" id="fsList">
+                    <!-- Dynamic folder list -->
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.5rem;">
+                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Currently selected path:</label>
+                    <div class="fs-path-container" id="fsCurrentPath">/storage/emulated/0</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-outline" onclick="closeFolderSelector()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmFolderSelection()" id="fsSelectBtn" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: background 0.2s;">✓ Select This Folder</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -1863,6 +2209,64 @@ def tts_preview(slug):
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+def load_global_settings():
+    path = os.path.join(repo_dir, "global_settings.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"output_root": "/storage/emulated/0/Documents/kindle-butch-gen/library"}
+
+def save_global_settings(settings):
+    path = os.path.join(repo_dir, "global_settings.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save global settings: {e}")
+
+@app.route("/api/browse-fs")
+def browse_fs():
+    path = request.args.get("path", "/storage/emulated/0")
+    path = os.path.abspath(path)
+    # Allowed root zones
+    ALLOWED_ROOTS = ["/storage/emulated/0", "/data/data/com.termux/files/home"]
+    if not any(path.startswith(root) for root in ALLOWED_ROOTS):
+        return jsonify({"error": "Path outside allowed roots"}), 403
+    if not os.path.isdir(path):
+        return jsonify({"error": "Not a directory"}), 400
+    try:
+        entries = []
+        for item in sorted(os.listdir(path)):
+            full = os.path.join(path, item)
+            if os.path.isdir(full) and not item.startswith('.'):
+                entries.append({"name": item, "path": full})
+        parent = os.path.dirname(path) if path not in ALLOWED_ROOTS else None
+        return jsonify({"current": path, "parent": parent, "dirs": entries})
+    except PermissionError:
+        return jsonify({"error": "Permission denied"}), 403
+
+@app.route("/api/settings/output-root", methods=["POST"])
+def set_output_root():
+    data = request.get_json() or {}
+    new_root = data.get("path", "").strip()
+    if not new_root or not os.path.isabs(new_root):
+        return jsonify({"status": "error", "message": "Invalid path"}), 400
+    try:
+        os.makedirs(new_root, exist_ok=True)  # verification that we can write
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Cannot write to directory: {e}"}), 403
+    settings = load_global_settings()
+    settings["output_root"] = new_root
+    save_global_settings(settings)
+    return jsonify({"status": "success", "output_root": new_root})
+
+@app.route("/api/settings")
+def get_settings():
+    return jsonify(load_global_settings())
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="KBG Web Service Dashboard")
@@ -1871,3 +2275,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     app.run(host="127.0.0.1", port=args.port, debug=args.debug)
+

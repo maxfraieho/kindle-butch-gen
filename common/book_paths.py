@@ -40,6 +40,19 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         else:
             cover_path = os.path.join(book_dir, cover_path)
 
+    # Load global settings
+    global_settings_path = os.path.join(repo_dir, "global_settings.json")
+    global_settings = {}
+    if os.path.exists(global_settings_path):
+        try:
+            with open(global_settings_path, "r", encoding="utf-8") as f:
+                global_settings = json.load(f)
+        except Exception as e:
+            print(f"[Paths] Warning: Failed to load global settings: {e}")
+            
+    output_root = global_settings.get("output_root", "/storage/emulated/0/Documents/kindle-butch-gen/library")
+    book_output_dir = os.path.join(output_root, slug)
+
     paths = {
         "book_dir": book_dir,
         "config_path": os.path.abspath(config_path),
@@ -52,6 +65,8 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         "output_dir": os.path.join(book_dir, "output"),
         "audio_dir": os.path.join(book_dir, "audio"),
         "log_path": os.path.join(book_dir, "conversion_progress.log"),
+        "output_root": os.path.abspath(output_root),
+        "book_output_dir": os.path.abspath(book_output_dir),
         
         # Metadata values
         "slug": slug,
@@ -69,4 +84,5 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         "tts_noise_w": float(config.get("tts_noise_w", 0.8)),
     }
     return paths
+
 

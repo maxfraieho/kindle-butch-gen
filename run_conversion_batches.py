@@ -311,15 +311,21 @@ def main():
             
         log("AZW3 generated successfully.", log_path)
         
-        # Copy to /sdcard/Download if exists/accessible
-        sdcard_download_dir = "/sdcard/Download"
-        if os.path.exists(sdcard_download_dir):
-            try:
-                shutil.copy2(epub_out_path, os.path.join(sdcard_download_dir, os.path.basename(epub_out_path)))
-                shutil.copy2(azw3_out_path, os.path.join(sdcard_download_dir, os.path.basename(azw3_out_path)))
-                log(f"Copied EPUB/AZW3 files to {sdcard_download_dir}.", log_path)
-            except Exception as e:
-                log(f"Warning: Failed to copy outputs to {sdcard_download_dir}: {e}", log_path)
+        # Copy to configured library folder
+        book_output_dir = paths["book_output_dir"]
+        os.makedirs(book_output_dir, exist_ok=True)
+        
+        title_safe = "".join(c for c in paths["title"] if c.isalnum() or c in (' ', '-', '_')).strip()
+        lang_code = paths["target_lang"] if suffix else paths["source_lang"]
+        
+        try:
+            epub_dest = os.path.join(book_output_dir, f"{title_safe}_{lang_code}.epub")
+            azw3_dest = os.path.join(book_output_dir, f"{title_safe}_{lang_code}.azw3")
+            shutil.copy2(epub_out_path, epub_dest)
+            shutil.copy2(azw3_out_path, azw3_dest)
+            log(f"Copied EPUB/AZW3 files to {book_output_dir}.", log_path)
+        except Exception as e:
+            log(f"Warning: Failed to copy outputs to {book_output_dir}: {e}", log_path)
                 
     # 5. Audiobook generation
     if paths["generate_audiobook"] and not args.no_audio:
@@ -335,18 +341,23 @@ def main():
             log("Error: Audiobook generation stage failed!", log_path)
             sys.exit(1)
             
-        # Copy MP3 to /sdcard/Download if exists
+        # Copy MP3 to configured library audio folder
         lang_code = paths["target_lang"] if suffix else paths["source_lang"]
         mp3_filename = f"{slug}_translated_{lang_code}.mp3"
         mp3_out_path = os.path.join(paths["output_dir"], mp3_filename)
         
-        sdcard_download_dir = "/sdcard/Download"
-        if os.path.exists(sdcard_download_dir) and os.path.exists(mp3_out_path):
+        book_output_dir = paths["book_output_dir"]
+        audio_dest_dir = os.path.join(book_output_dir, "audio")
+        os.makedirs(audio_dest_dir, exist_ok=True)
+        
+        if os.path.exists(mp3_out_path):
             try:
-                shutil.copy2(mp3_out_path, os.path.join(sdcard_download_dir, mp3_filename))
-                log(f"Copied MP3 audiobook file to {sdcard_download_dir}.", log_path)
+                title_safe = "".join(c for c in paths["title"] if c.isalnum() or c in (' ', '-', '_')).strip()
+                mp3_dest = os.path.join(audio_dest_dir, f"{title_safe}_{lang_code}.mp3")
+                shutil.copy2(mp3_out_path, mp3_dest)
+                log(f"Copied MP3 audiobook file to {audio_dest_dir}.", log_path)
             except Exception as e:
-                log(f"Warning: Failed to copy audiobook to {sdcard_download_dir}: {e}", log_path)
+                log(f"Warning: Failed to copy audiobook to {audio_dest_dir}: {e}", log_path)
                 
     log("=== Pipeline run fully completed successfully! ===", log_path)
 
