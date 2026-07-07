@@ -548,8 +548,12 @@ def dashboard():
                         <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$">
                     </div>
                     <div class="form-group">
-                        <label for="pdf_path">Source PDF Path (on system)</label>
-                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" required>
+                        <label for="file_upload">Upload File (PDF / EPUB / TXT / MD)</label>
+                        <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
+                    </div>
+                    <div class="form-group">
+                        <label for="pdf_path">Or Enter Source PDF Path (on system)</label>
+                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf">
                     </div>
                     <div class="form-group">
                         <label for="title">Title</label>
@@ -600,27 +604,58 @@ def dashboard():
         document.getElementById('addBookForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const slug = document.getElementById('slug').value.trim();
-            const pdf_path = document.getElementById('pdf_path').value.trim();
             const title = document.getElementById('title').value.trim();
             const authors = document.getElementById('authors').value.trim();
             const lang = document.getElementById('lang').value;
+            const fileInput = document.getElementById('file_upload');
+            const pdf_path = document.getElementById('pdf_path').value.trim();
 
-            try {
-                const response = await fetch('/api/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ slug, pdf_path, title, authors, lang })
-                });
-                const res = await response.json();
-                if (response.ok) {
-                    alert('Book added successfully!');
-                    document.getElementById('addBookForm').reset();
-                    fetchBooks();
-                } else {
-                    alert('Error: ' + res.message);
+            if (fileInput.files.length > 0) {
+                const formData = new FormData();
+                formData.append('slug', slug);
+                formData.append('title', title);
+                formData.append('authors', authors);
+                formData.append('lang', lang);
+                formData.append('file', fileInput.files[0]);
+
+                try {
+                    const response = await fetch('/api/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const res = await response.json();
+                    if (response.ok) {
+                        alert('Book uploaded and added successfully!');
+                        document.getElementById('addBookForm').reset();
+                        fetchBooks();
+                    } else {
+                        alert('Error: ' + res.message);
+                    }
+                } catch (err) {
+                    alert('Upload failed: ' + err.message);
                 }
-            } catch (err) {
-                alert('Request failed: ' + err.message);
+            } else {
+                if (!pdf_path) {
+                    alert('Please upload a file or specify a local PDF path.');
+                    return;
+                }
+                try {
+                    const response = await fetch('/api/add', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ slug, pdf_path, title, authors, lang })
+                    });
+                    const res = await response.json();
+                    if (response.ok) {
+                        alert('Book added successfully!');
+                        document.getElementById('addBookForm').reset();
+                        fetchBooks();
+                    } else {
+                        alert('Error: ' + res.message);
+                    }
+                } catch (err) {
+                    alert('Request failed: ' + err.message);
+                }
             }
         });
 
@@ -1132,6 +1167,92 @@ def add_book_api():
             json.dump(config_data, f, ensure_ascii=False, indent=2)
             
         return jsonify({"status": "success", "message": f"Book '{slug}' added successfully with {pages} pages."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/upload", methods=["POST"])
+def upload_file_api():
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+        
+    uploaded_file = request.files["file"]
+    slug = request.form.get("slug", "").strip()
+    title = request.form.get("title", "").strip()
+    authors = request.form.get("authors", "").strip()
+    lang = request.form.get("lang", "").strip()
+    
+    if not slug or not title or not authors or not lang:
+        return jsonify({"status": "error", "message": "All fields (slug, title, authors, lang) are required"}), 400
+        
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        
+    filename = uploaded_file.filename
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in [".pdf", ".epub", ".txt", ".md"]:
+        return jsonify({"status": "error", "message": f"Unsupported file extension '{ext}'"}), 400
+        
+    try:
+        paths = resolve_book_paths(repo_dir, slug)
+        book_dir = paths["book_dir"]
+        
+        os.makedirs(book_dir, exist_ok=True)
+        os.makedirs(paths["cache_dir"], exist_ok=True)
+        os.makedirs(paths["batches_dir"], exist_ok=True)
+        os.makedirs(paths["translated_dir"], exist_ok=True)
+        os.makedirs(paths["output_dir"], exist_ok=True)
+        os.makedirs(paths["audio_dir"], exist_ok=True)
+        
+        pdf_path = ""
+        page_ranges = []
+        
+        if ext == ".pdf":
+            pdf_path = f"books/{slug}/{slug}.pdf"
+            dest_pdf = os.path.join(book_dir, f"{slug}.pdf")
+            uploaded_file.save(dest_pdf)
+            pages = get_pdf_page_count(dest_pdf)
+            page_ranges = [[1, pages]]
+            
+        elif ext == ".epub":
+            epub_out_path = os.path.join(paths["output_dir"], f"{slug}_translated_{lang}.epub")
+            uploaded_file.save(epub_out_path)
+            
+            merged_md_path = os.path.join(paths["translated_dir"], f"merged_translated_{lang}.md")
+            cmd = [
+                sys.executable,
+                os.path.join(repo_dir, "bin", "extract_epub_text.py"),
+                "-i", epub_out_path,
+                "-o", merged_md_path
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                raise Exception(f"Failed to extract text from EPUB: {res.stderr}")
+                
+        elif ext in [".txt", ".md"]:
+            merged_md_path = os.path.join(paths["translated_dir"], f"merged_translated_{lang}.md")
+            uploaded_file.save(merged_md_path)
+            
+        config_data = {
+            "slug": slug,
+            "title": title,
+            "authors": authors,
+            "source_lang": "ru" if ext == ".pdf" else lang,
+            "target_lang": lang,
+            "pdf_path": pdf_path,
+            "generate_audiobook": True,
+            "tts_voice": "ukrainian_tts",
+            "tts_voice_quality": "medium",
+            "tts_speaker_id": 2,
+            "tts_speed": 1.0,
+            "tts_noise_scale": 0.667,
+            "tts_noise_w": 0.8,
+            "page_ranges": page_ranges
+        }
+        
+        with open(paths["config_path"], "w", encoding="utf-8") as f:
+            json.dump(config_data, f, ensure_ascii=False, indent=2)
+            
+        return jsonify({"status": "success", "message": f"Book '{slug}' uploaded and initialized successfully."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 

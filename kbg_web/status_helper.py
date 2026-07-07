@@ -136,33 +136,29 @@ def calculate_progress(slug):
             "error": "Book directory does not exist"
         }
     
-    page_ranges = paths["page_ranges"]
-    if not page_ranges:
-        return {
-            "marker_percent": 0.0,
-            "translation_percent": 0.0,
-            "tts_percent": 0.0,
-            "error": "No page ranges configured"
-        }
-        
-    pdf_basename = os.path.splitext(os.path.basename(paths["pdf_path"]))[0]
+    pdf_path = paths.get("pdf_path")
+    has_pdf = pdf_path and os.path.exists(pdf_path)
+    page_ranges = paths.get("page_ranges")
     
     # 1. Marker Progress
-    total_pages = sum(end - start + 1 for start, end in page_ranges)
-    completed_marker_pages = 0
-    
-    for start, end in page_ranges:
-        batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
-        marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
-        marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
-        if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
-            completed_marker_pages += (end - start + 1)
-            
-    marker_percent = (completed_marker_pages / total_pages * 100) if total_pages > 0 else 0.0
+    if not has_pdf or not page_ranges:
+        marker_percent = 100.0
+    else:
+        total_pages = sum(end - start + 1 for start, end in page_ranges)
+        completed_marker_pages = 0
+        pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
+        
+        for start, end in page_ranges:
+            batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
+            marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
+            marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
+            if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
+                completed_marker_pages += (end - start + 1)
+        marker_percent = (completed_marker_pages / total_pages * 100) if total_pages > 0 else 0.0
     
     # 2. Translation Progress
     should_translate = paths["target_lang"] != paths["source_lang"]
-    if not should_translate:
+    if not should_translate or not has_pdf or not page_ranges:
         translation_percent = 100.0
     else:
         translate_cache = {}
@@ -175,6 +171,8 @@ def calculate_progress(slug):
                 
         completed_trans_pages = 0.0
         pm = PlaceholderManager()
+        pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
+        total_pages = sum(end - start + 1 for start, end in page_ranges)
         
         for start, end in page_ranges:
             batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
@@ -199,8 +197,8 @@ def calculate_progress(slug):
         translation_percent = (completed_trans_pages / total_pages * 100) if total_pages > 0 else 0.0
 
     # 3. TTS Progress
-    voice = paths["tts_voice"]
-    voice_quality = paths["tts_voice_quality"]
+    voice = paths.get("tts_voice", "ukrainian_tts")
+    voice_quality = paths.get("tts_voice_quality", "medium")
     if voice == "ukrainian_tts" or voice_quality == "medium":
         model_filename = "uk_UA-ukrainian_tts-medium.onnx"
     else:
@@ -217,45 +215,42 @@ def calculate_progress(slug):
             pass
             
     chunks_dir = os.path.join(paths["audio_dir"], f"chunks_{voice_slug}")
-    completed_tts_pages = 0.0
     
-    for start, end in page_ranges:
-        batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
-        marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
+    # Calculate directly from the merged markdown file if it exists
+    suffix = f"_translated_{paths['target_lang']}" if (paths["target_lang"] != paths["source_lang"]) else ""
+    if suffix:
+        target_md_file = os.path.join(paths["translated_dir"], f"merged_translated_{paths['target_lang']}.md")
+    else:
+        target_md_file = os.path.join(paths["translated_dir"], f"merged_source_{paths['source_lang']}.md")
         
-        if should_translate:
-            target_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}_translated_{paths['target_lang']}.md")
-        else:
-            target_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
+    if os.path.exists(target_md_file) and os.path.getsize(target_md_file) > 0:
+        try:
+            with open(target_md_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            paragraphs = re.split(r'\n\s*\n', content)
+            chunk_texts = []
+            for p in paragraphs:
+                chunks = split_paragraph_to_chunks(p, max_chars=1000)
+                for chunk in chunks:
+                    chunk = chunk.strip()
+                    if chunk:
+                        chunk_texts.append(chunk)
             
-        if os.path.exists(target_md_file) and os.path.getsize(target_md_file) > 0:
-            try:
-                with open(target_md_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                paragraphs = re.split(r'\n\s*\n', content)
-                chunk_texts = []
-                for p in paragraphs:
-                    chunks = split_paragraph_to_chunks(p, max_chars=1000)
-                    for chunk in chunks:
-                        chunk = chunk.strip()
-                        if chunk:
-                            chunk_texts.append(chunk)
-                
-                if chunk_texts:
-                    completed_chunks = 0
-                    for text in chunk_texts:
-                        h = get_hash(text)
-                        wav_file = os.path.join(chunks_dir, f"{h}.wav")
-                        if h in tts_cache and os.path.exists(wav_file):
-                            completed_chunks += 1
-                    fraction = completed_chunks / len(chunk_texts)
-                else:
-                    fraction = 1.0
-            except Exception:
-                fraction = 0.0
-            completed_tts_pages += (end - start + 1) * fraction
-            
-    tts_percent = (completed_tts_pages / total_pages * 100) if total_pages > 0 else 0.0
+            if chunk_texts:
+                completed_chunks = 0
+                for text in chunk_texts:
+                    h = get_hash(text)
+                    wav_file = os.path.join(chunks_dir, f"{h}.wav")
+                    if h in tts_cache and os.path.exists(wav_file):
+                        completed_chunks += 1
+                tts_percent = (completed_chunks / len(chunk_texts) * 100)
+            else:
+                tts_percent = 100.0
+        except Exception:
+            tts_percent = 0.0
+    else:
+        # Fallback to 0 if the merged file does not exist yet
+        tts_percent = 0.0
     
     return {
         "marker_percent": round(marker_percent, 1),
