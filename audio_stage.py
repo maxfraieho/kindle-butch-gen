@@ -299,6 +299,46 @@ def main():
             log(f"Warning: termux-wake-lock failed: {e}")
 
         try:
+            # Preprocess chunks: run stressify_batch.py inside PRoot container if using supertonic3 (and Ukrainian)
+            if tts_engine == "supertonic3":
+                try:
+                    log("Running batch stressifier and NFD normalization in PRoot container...")
+                    temp_input = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
+                    temp_output = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
+                    
+                    with open(temp_input, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "chunks": unique_missing_chunks,
+                            "lang": target_lang
+                        }, f, ensure_ascii=False, indent=2)
+                    
+                    cmd_stress = [
+                        "proot-distro", "login", "ubuntu", "--",
+                        "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py"
+                    ]
+                    subprocess.run(cmd_stress, check=True)
+                    
+                    if os.path.exists(temp_output):
+                        with open(temp_output, "r", encoding="utf-8") as f:
+                            stressed_data = json.load(f)
+                        
+                        stressed_map = {c["hash"]: c["text"] for c in stressed_data.get("chunks", [])}
+                        for mc in unique_missing_chunks:
+                            h = mc["hash"]
+                            if h in stressed_map:
+                                mc["text"] = stressed_map[h]
+                                
+                        log("Successfully loaded stressed and NFD-normalized chunks.")
+                    else:
+                        log("Warning: temp_stressed.json not found. Proceeding with raw text.")
+                        
+                    if os.path.exists(temp_input):
+                        os.remove(temp_input)
+                    if os.path.exists(temp_output):
+                        os.remove(temp_output)
+                except Exception as e:
+                    log(f"Warning: Preprocessing (stressifier/NFD) failed: {e}. Proceeding with raw text.")
+
             # Prepare payload for tts_helper.py
             payload = {
                 "tts_engine": tts_engine,
