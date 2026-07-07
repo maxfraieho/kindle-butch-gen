@@ -96,109 +96,117 @@ def main():
             log(f"Warning: Failed to parse custom config: {e}", log_path)
             
     log(f"=== Starting pipeline for book: {slug} ===", log_path)
-    log(f"PDF Path: {paths['pdf_path']}", log_path)
-    log(f"Output Directory: {paths['output_dir']}", log_path)
     
-    if not os.path.exists(paths["pdf_path"]):
-        log(f"Error: PDF file '{paths['pdf_path']}' does not exist.", log_path)
-        sys.exit(1)
-        
-    # Clean batches if requested
-    if args.clean and os.path.exists(paths["batches_dir"]):
-        log(f"Cleaning batches directory: {paths['batches_dir']}", log_path)
-        shutil.rmtree(paths["batches_dir"])
-        
+    pdf_path = paths.get("pdf_path")
+    has_pdf = pdf_path and os.path.exists(pdf_path)
+    
     os.makedirs(paths["batches_dir"], exist_ok=True)
     os.makedirs(paths["translated_dir"], exist_ok=True)
     os.makedirs(paths["output_dir"], exist_ok=True)
     
-    pdf_basename = os.path.splitext(os.path.basename(paths["pdf_path"]))[0]
-    
-    page_ranges = paths["page_ranges"]
-    if not page_ranges:
-        log("Warning: No page_ranges defined in config.json. Pipeline cannot run batches.", log_path)
-        sys.exit(1)
-        
-    success = True
-    
-    # 1. Run marker single-page extraction for each range
-    for start, end in page_ranges:
-        batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
-        marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
-        marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
-        
-        if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
-            log(f"Marker batch {start}-{end} already completed. Skipping extraction.", log_path)
-        else:
-            if not run_marker_batch(start, end, paths["pdf_path"], paths["batches_dir"], log_path):
-                success = False
-                break
-                
-        # 2. Run translation stage if target_lang != source_lang and not disabled
-        should_translate = (paths["target_lang"] != paths["source_lang"]) and not args.no_translate
-        if should_translate:
-            translated_batch_md = os.path.join(marker_out_subdir, f"{pdf_basename}_translated_{paths['target_lang']}.md")
-            if os.path.exists(translated_batch_md) and os.path.getsize(translated_batch_md) > 0:
-                log(f"Translated batch {start}-{end} already exists. Skipping translation.", log_path)
-            else:
-                log(f"Translating batch {start}-{end} to {paths['target_lang']}...", log_path)
-                cmd_translate = [
-                    "python3", os.path.join(repo_dir, "translate_stage.py"),
-                    "--input", marker_md_file,
-                    "--output", translated_batch_md,
-                    "--cache", paths["translate_cache"],
-                    "--target-lang", paths["target_lang"],
-                    "--book", slug
-                ]
-                if args.config:
-                    cmd_translate.extend(["--config", args.config])
-                log(f"Running translation command: {' '.join(cmd_translate)}", log_path)
-                res_trans = subprocess.run(cmd_translate)
-                if res_trans.returncode != 0:
-                    log(f"Error: Translation of batch {start}-{end} failed!", log_path)
-                    success = False
-                    break
-                    
-    if not success:
-        log("Pipeline aborted due to batch extraction/translation failures.", log_path)
-        sys.exit(1)
-        
-    # 3. Merge batch markdown files and copy images
-    log("Merging batch results...", log_path)
     suffix = f"_translated_{paths['target_lang']}" if (paths["target_lang"] != paths["source_lang"] and not args.no_translate) else ""
-    merged_md_content = []
-    
-    for start, end in page_ranges:
-        batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
-        marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
-        md_file = os.path.join(marker_out_subdir, f"{pdf_basename}{suffix}.md")
-        
-        if not os.path.exists(md_file):
-            log(f"Warning: Expected batch markdown file '{md_file}' not found. Skipping in merge.", log_path)
-            continue
-            
-        # Copy images
-        if os.path.exists(marker_out_subdir):
-            for item in os.listdir(marker_out_subdir):
-                if item.lower().endswith((".jpeg", ".jpg", ".png", ".gif")):
-                    src_img = os.path.join(marker_out_subdir, item)
-                    dst_img = os.path.join(paths["translated_dir"], item)
-                    shutil.copy2(src_img, dst_img)
-                    
-        # Read content
-        with open(md_file, "r", encoding="utf-8") as f:
-            merged_md_content.append(f.read())
-            
     if suffix:
         merged_md_name = f"merged_translated_{paths['target_lang']}.md"
     else:
         merged_md_name = f"merged_source_{paths['source_lang']}.md"
-        
     final_merged_md_path = os.path.join(paths["translated_dir"], merged_md_name)
-    with open(final_merged_md_path, "w", encoding="utf-8") as f:
-        f.write("\n\n".join(merged_md_content))
+
+    if not has_pdf:
+        log("No source PDF found or configured. Checking for existing merged Markdown...", log_path)
+        if not os.path.exists(final_merged_md_path):
+            log(f"Error: Neither PDF file nor merged Markdown file '{final_merged_md_path}' exists.", log_path)
+            sys.exit(1)
+        log("Merged Markdown exists. Skipping extraction and translation stages.", log_path)
+    else:
+        log(f"PDF Path: {pdf_path}", log_path)
+        log(f"Output Directory: {paths['output_dir']}", log_path)
         
-    log(f"Merged markdown saved to: {final_merged_md_path}", log_path)
+        # Clean batches if requested
+        if args.clean and os.path.exists(paths["batches_dir"]):
+            log(f"Cleaning batches directory: {paths['batches_dir']}", log_path)
+            shutil.rmtree(paths["batches_dir"])
+            os.makedirs(paths["batches_dir"], exist_ok=True)
+            
+        pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
+        
+        page_ranges = paths.get("page_ranges")
+        if not page_ranges:
+            log("Warning: No page_ranges defined in config.json. Pipeline cannot run batches.", log_path)
+            sys.exit(1)
+            
+        success = True
+        
+        # 1. Run marker single-page extraction for each range
+        for start, end in page_ranges:
+            batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
+            marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
+            marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
+            
+            if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
+                log(f"Marker batch {start}-{end} already completed. Skipping extraction.", log_path)
+            else:
+                if not run_marker_batch(start, end, pdf_path, paths["batches_dir"], log_path):
+                    success = False
+                    break
+                    
+            # 2. Run translation stage if target_lang != source_lang and not disabled
+            should_translate = (paths["target_lang"] != paths["source_lang"]) and not args.no_translate
+            if should_translate:
+                translated_batch_md = os.path.join(marker_out_subdir, f"{pdf_basename}_translated_{paths['target_lang']}.md")
+                if os.path.exists(translated_batch_md) and os.path.getsize(translated_batch_md) > 0:
+                    log(f"Translated batch {start}-{end} already exists. Skipping translation.", log_path)
+                else:
+                    log(f"Translating batch {start}-{end} to {paths['target_lang']}...", log_path)
+                    cmd_translate = [
+                        "python3", os.path.join(repo_dir, "translate_stage.py"),
+                        "--input", marker_md_file,
+                        "--output", translated_batch_md,
+                        "--cache", paths["translate_cache"],
+                        "--target-lang", paths["target_lang"],
+                        "--book", slug
+                    ]
+                    if args.config:
+                        cmd_translate.extend(["--config", args.config])
+                    log(f"Running translation command: {' '.join(cmd_translate)}", log_path)
+                    res_trans = subprocess.run(cmd_translate)
+                    if res_trans.returncode != 0:
+                        log(f"Error: Translation of batch {start}-{end} failed!", log_path)
+                        success = False
+                        break
+                        
+        if not success:
+            log("Pipeline aborted due to batch extraction/translation failures.", log_path)
+            sys.exit(1)
+            
+        # 3. Merge batch markdown files and copy images
+        log("Merging batch results...", log_path)
+        merged_md_content = []
+        
+        for start, end in page_ranges:
+            batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
+            marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
+            md_file = os.path.join(marker_out_subdir, f"{pdf_basename}{suffix}.md")
+            
+            if not os.path.exists(md_file):
+                log(f"Warning: Expected batch markdown file '{md_file}' not found. Skipping in merge.", log_path)
+                continue
+                
+            # Copy images
+            if os.path.exists(marker_out_subdir):
+                for item in os.listdir(marker_out_subdir):
+                    if item.lower().endswith((".jpeg", ".jpg", ".png", ".gif")):
+                        src_img = os.path.join(marker_out_subdir, item)
+                        dst_img = os.path.join(paths["translated_dir"], item)
+                        shutil.copy2(src_img, dst_img)
+                        
+            # Read content
+            with open(md_file, "r", encoding="utf-8") as f:
+                merged_md_content.append(f.read())
+                
+        with open(final_merged_md_path, "w", encoding="utf-8") as f:
+            f.write("\n\n".join(merged_md_content))
+            
+        log(f"Merged markdown saved to: {final_merged_md_path}", log_path)
     
     # 4. Convert merged markdown to EPUB and AZW3 using Calibre's ebook-convert
     if not args.no_ebook:
