@@ -34,5 +34,6 @@
   "tts_speaker_id": 2,
   "tts_speed": 1.0,
   "tts_noise_scale": 0.65,
-  "tts_noise_w": 0.65
+  "tts_noise_w": 0.65,
+  "tts_engine": "supertonic3"
 }
