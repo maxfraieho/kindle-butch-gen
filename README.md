@@ -2,39 +2,57 @@
 
 A tool suite to automate EPUB/Markdown translation and generate Ukrainian audiobooks using high-quality neural TTS models.
 
-## TTS Engine, Voice Quality & License Details
+## TTS Engine, Voice Support & License Details
 
-This project uses the Piper text-to-speech synthesis engine to generate Ukrainian audio. The following voice models are supported:
+This project uses the **Piper text-to-speech synthesis** engine to generate high-quality audiobooks. The system dynamically resolves and downloads voice models from Hugging Face based on the book's target language:
 
-1. **uk_UA-lada-x_low**
-   - **Quality**: `x_low`
-   - **Dataset**: Lada dataset (Apache 2.0 License).
-   - **License**: Apache 2.0.
-   
-2. **uk_UA-ukrainian_tts-medium**
-   - **Quality**: `medium`
-   - **Dataset**: OHF voice datasets (CC0 Public Domain).
-   - **License**: CC0.
+### 1. Ukrainian (`uk_UA`) Voices
+*   **ukrainian_tts**
+    *   **Quality**: `medium`
+    *   **Speakers**: Multi-speaker model (Lada `[0]`, Mykyta `[1]`, Tetiana `[2]`).
+    *   **License**: CC0 (Public Domain).
+*   **lada**
+    *   **Quality**: `x_low`
+    *   **Speakers**: Single-speaker model (Default `[0]`).
+    *   **License**: Apache 2.0.
 
-- **Piper Engine**: Licensed under the **MIT License**.
+### 2. Russian (`ru_RU`) Voices
+*   **irina** (Default Russian voice)
+    *   **Quality**: `medium`
+    *   **Speakers**: Single-speaker model (Default `[0]`).
+*   **denis**
+    *   **Quality**: `medium`
+    *   **Speakers**: Single-speaker model (Default `[0]`).
+*   **dmitri**
+    *   **Quality**: `medium`
+    *   **Speakers**: Single-speaker model (Default `[0]`).
+*   **ruslan**
+    *   **Quality**: `medium`
+    *   **Speakers**: Single-speaker model (Default `[0]`).
+
+- **Piper Engine License**: MIT License.
 
 ### How to Configure Voice in `config.json`
 
-You can specify the desired voice and quality in your book's `config.json` file. For example, to use the high-quality CC0 medium voice, configure it as follows:
+You can specify the desired voice, speaker, and quality in your book's `config.json` file. 
 
+For example, to configure **Ukrainian CC0 Tetiana** voice:
 ```json
 {
+  "target_lang": "uk",
   "tts_voice": "ukrainian_tts",
-  "tts_voice_quality": "medium"
+  "tts_voice_quality": "medium",
+  "tts_speaker_id": 2
 }
 ```
 
-For the low-complexity Lada voice, use:
-
+For **Russian Irina** voice:
 ```json
 {
-  "tts_voice": "lada",
-  "tts_voice_quality": "x_low"
+  "target_lang": "ru",
+  "tts_voice": "irina",
+  "tts_voice_quality": "medium",
+  "tts_speaker_id": 0
 }
 ```
 
@@ -90,4 +108,10 @@ For the low-complexity Lada voice, use:
 - Змінювати налаштування голосу, швидкості мовлення (`Speed`) та емоційного забарвлення (`Noise Scale`/`Noise Width`).
 - Слухати швидке аудіо-прев'ю голосу перед запуском повної обробки книги.
 - Завантажувати готові файли (`.epub`, `.azw3`, `.mp3`) в один клік.
+
+### 4. Пряме завантаження файлів та автопереклад
+
+Веб-інтерфейс підтримує пряме завантаження файлів форматів `.pdf`, `.epub`, `.txt`, `.md`.
+* **Автоматичний парсинг метаданих**: При виборі файлу система автоматично зчитує заголовок, авторів та мову (для `.epub`) й пропонує попередньо заповнені поля форми.
+* **Переклад книг (PDF-less Mode)**: Ви можете завантажити книгу будь-якою мовою (`Source Language`) та обрати іншу мову для аудіокниги (`Target Language`). Якщо мови відрізняються, система автоматично запустить етап перекладу всього тексту книги перед озвученням та створенням кінцевих файлів.
 
