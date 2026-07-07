@@ -5,17 +5,17 @@ Agent: AGY3 (Termux environment)
 ## 1. Текущий статус проекта
 Мы успешно провели рефакторинг и обобщили проект `kindle-butch-gen` для поддержки нескольких книг и гибких настроек TTS:
 *   **Голос**: Поддерживается 3-дикторная модель `uk_UA-ukrainian_tts-medium` (lada: 0, mykyta: 1, tetiana: 2). Tetiana (Speaker 2) зафиксирована как дефолтный диктор.
-*   **Веб-интерфейс**: Реализован Flask-дашборд на порту `5000` (файл `kbg_web/app.py`) с формой изменения настроек TTS (Speed, Noise Scale/Width), генерацией мгновенного аудио-превью и механизмом сохранения состояния инпутов/фокуса при поллинге.
+*   **Веб-интерфейс**: Реализован Flask-дашборд на порту `5000` (`kbg_web/app.py`). Добавлена форма настроек TTS, быстрое превью и авто-сохранение фокуса. Добавлена загрузка файлов (PDF/EPUB/TXT/MD) через `/api/upload` с автоматическим извлечением текста из EPUB (`bin/extract_epub_text.py`) и точным расчетом прогресса TTS на основе общего объема абзацев в объединенном файле (`kbg_web/status_helper.py`).
 *   **Скрипт развертывания**: Создан скрипт `deploy_oneplus13.sh` и технический гайд `docs/plans/deploy_oneplus13_guide.md` для запуска на OnePlus 13 с поддержкой нативного OpenCL ускорения (`GGML_OPENCL=ON`) на GPU Adreno 830.
-*   **Репозиторий**: Код полностью очищен от временных `.wav` и `__pycache__` и выложен в публичный репозиторий [maxfraieho/kindle-butch-gen](https://github.com/maxfraieho/kindle-butch-gen).
+*   **Репозиторий**: Код очищен от `.wav` и `__pycache__` и выложен на GitHub [maxfraieho/kindle-butch-gen](https://github.com/maxfraieho/kindle-butch-gen).
 
 ## 2. Последние измененные файлы
+*   `kbg_web/app.py` (добавлен эндпоинт `/api/upload` и загрузка файлов в UI)
+*   `kbg_web/status_helper.py` (исправлен прогресс-бар TTS на расчет по merged markdown)
+*   `bin/extract_epub_text.py` (экстрактор текста из EPUB для загрузки)
 *   `deploy_oneplus13.sh` (скрипт сборки llama.cpp с OpenCL для OnePlus 13)
 *   `docs/plans/deploy_oneplus13_guide.md` (гайд по OpenCL архитектуре)
-*   `README.md` (инструкция по установке и командам `kbg.sh`)
-*   `LICENSE` (MIT)
-*   `.gitignore` (игнорирует wav, mp3, pdf, caches, models)
-*   `books/vibe-programming/config.json` (дефолтные настройки книги и диктора)
+*   `README.md`, `LICENSE`, `.gitignore`
 
 ## 3. Открытые вопросы и следующие шаги
 1.  **Тестирование развертывания**: Запустить `deploy_oneplus13.sh` на чистом OnePlus 13 для проверки нативной компиляции `llama.cpp` и доступа к GPU через `/dev/kgsl`.
