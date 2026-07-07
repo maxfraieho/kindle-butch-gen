@@ -331,12 +331,11 @@ def main():
                                 "chunks": to_stressify,
                                 "lang": target_lang
                             }, f, ensure_ascii=False, indent=2)
-                        
                         cmd_stress = [
                             "proot-distro", "login", "ubuntu", "--",
                             "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py"
                         ]
-                        subprocess.run(cmd_stress, check=True)
+                        subprocess.run(cmd_stress, stdin=subprocess.DEVNULL, check=True)
                         
                         if os.path.exists(temp_output):
                             with open(temp_output, "r", encoding="utf-8") as f:
