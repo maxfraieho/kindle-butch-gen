@@ -1409,6 +1409,13 @@ def parse_metadata_api():
                 slug_base = os.path.splitext(filename)[0].lower()
             slug = re.sub(r'[^a-z0-9_-]', '-', slug_base)
             slug = re.sub(r'-+', '-', slug).strip('-')
+            
+            if not slug:
+                slug_base = os.path.splitext(filename)[0].lower()
+                slug = re.sub(r'[^a-z0-9_-]', '-', slug_base)
+                slug = re.sub(r'-+', '-', slug).strip('-')
+            if not slug:
+                slug = "uploaded-book"
         except Exception:
             pass
             
@@ -1416,6 +1423,8 @@ def parse_metadata_api():
         slug_base = os.path.splitext(filename)[0].lower()
         slug = re.sub(r'[^a-z0-9_-]', '-', slug_base)
         slug = re.sub(r'-+', '-', slug).strip('-')
+        if not slug:
+            slug = "uploaded-book"
         title = os.path.splitext(filename)[0]
         
     return jsonify({
