@@ -63,7 +63,7 @@ def run_supertonic3(payload):
 
     gen_config = sherpa_onnx.GenerationConfig()
     gen_config.sid = int(speaker_id)
-    gen_config.num_steps = 5
+    gen_config.num_steps = 8
     gen_config.speed = float(speed)
     gen_config.extra["lang"] = lang
 

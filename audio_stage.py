@@ -427,6 +427,7 @@ def main():
         "proot-distro", "login", "ubuntu", "--",
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
         "-i", os.path.abspath(ffmpeg_list_path),
+        "-af", "afftdn,highpass=f=80,lowpass=f=8000,speechnorm",
         "-c:a", "libmp3lame", "-q:a", "4",
         os.path.abspath(output_mp3)
     ]
