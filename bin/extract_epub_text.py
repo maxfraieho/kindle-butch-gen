@@ -12,19 +12,69 @@ sys.path.insert(0, repo_dir)
 
 from common.epub_validate import sanitize_xhtml_for_xml_parser
 
-def extract_text_from_node(node):
-    """Recursively extract text from an XML/HTML node."""
+def extract_text_from_node(node, zip_file=None, opf_dir=None, output_dir=None):
+    """Recursively extract text from an XML/HTML node, embedding image markdown tags."""
+    tag_name = node.tag.split('}')[-1]
+    
+    if tag_name == 'img':
+        src = node.attrib.get('src')
+        if src:
+            alt = node.attrib.get('alt', '').strip()
+            src_basename = os.path.basename(src)
+            # Extract image file from zip
+            if zip_file and opf_dir is not None and output_dir:
+                try:
+                    img_rel_path = os.path.normpath(os.path.join(opf_dir, src))
+                    img_data = zip_file.read(img_rel_path)
+                    dest_img_path = os.path.join(output_dir, src_basename)
+                    with open(dest_img_path, "wb") as img_f:
+                        img_f.write(img_data)
+                except Exception as e:
+                    print(f"Warning: Failed to extract image {src}: {e}")
+            return f"\n\n![{alt}]({src_basename})\n\n"
+        return ""
+
+    if tag_name == 'image':
+        href = node.attrib.get('{http://www.w3.org/1999/xlink}href') or node.attrib.get('href')
+        if href:
+            href_basename = os.path.basename(href)
+            # Extract image file from zip
+            if zip_file and opf_dir is not None and output_dir:
+                try:
+                    img_rel_path = os.path.normpath(os.path.join(opf_dir, href))
+                    img_data = zip_file.read(img_rel_path)
+                    dest_img_path = os.path.join(output_dir, href_basename)
+                    with open(dest_img_path, "wb") as img_f:
+                        img_f.write(img_data)
+                except Exception as e:
+                    print(f"Warning: Failed to extract image {href}: {e}")
+            return f"\n\n![]({href_basename})\n\n"
+        return ""
+
     texts = []
     if node.text:
         texts.append(node.text)
     for child in node:
-        texts.append(extract_text_from_node(child))
+        texts.append(extract_text_from_node(child, zip_file, opf_dir, output_dir))
         if child.tail:
             texts.append(child.tail)
     return "".join(texts)
 
-def walk_and_extract(node, blocks):
+def walk_and_extract(node, blocks, zip_file=None, opf_dir=None, output_dir=None):
     tag_name = node.tag.split('}')[-1]
+    
+    if tag_name == 'img':
+        img_text = extract_text_from_node(node, zip_file, opf_dir, output_dir).strip()
+        if img_text:
+            blocks.append(img_text)
+        return
+
+    if tag_name == 'image':
+        img_text = extract_text_from_node(node, zip_file, opf_dir, output_dir).strip()
+        if img_text:
+            blocks.append(img_text)
+        return
+
     is_block = tag_name in ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'pre', 'blockquote']
     
     # Check if a div has text and no nested blocks
@@ -37,7 +87,7 @@ def walk_and_extract(node, blocks):
             is_block = True
 
     if is_block:
-        text = extract_text_from_node(node).strip()
+        text = extract_text_from_node(node, zip_file, opf_dir, output_dir).strip()
         if text:
             if tag_name.startswith('h'):
                 try:
@@ -54,7 +104,7 @@ def walk_and_extract(node, blocks):
         return
 
     for child in node:
-        walk_and_extract(child, blocks)
+        walk_and_extract(child, blocks, zip_file, opf_dir, output_dir)
 
 def extract_epub_to_markdown(epub_path, output_md_path):
     print(f"Extracting text from EPUB: {epub_path}...")
@@ -115,6 +165,9 @@ def extract_epub_to_markdown(epub_path, output_md_path):
                 idref = itemref.attrib.get("idref")
                 item_refs.append(idref)
 
+        output_dir = os.path.dirname(os.path.abspath(output_md_path))
+        os.makedirs(output_dir, exist_ok=True)
+
         markdown_blocks = []
         for idref in item_refs:
             href = manifest.get(idref)
@@ -141,10 +194,9 @@ def extract_epub_to_markdown(epub_path, output_md_path):
             if body_el is None:
                 body_el = html_root
 
-            walk_and_extract(body_el, markdown_blocks)
+            walk_and_extract(body_el, markdown_blocks, zip_file=z, opf_dir=opf_dir, output_dir=output_dir)
 
         output_content = "\n\n".join(markdown_blocks)
-        os.makedirs(os.path.dirname(os.path.abspath(output_md_path)), exist_ok=True)
         with open(output_md_path, "w", encoding="utf-8") as f:
             f.write(output_content)
         print(f"Successfully extracted markdown to: {output_md_path}")

@@ -143,8 +143,8 @@ def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_ret
         else:
             log(f"Segment validation failed on attempt {attempt+1}.")
             
-    log("Warning: Segment translation validation failed after all retries. Proceeding with last translation.")
-    return translated
+    log("Warning: Segment validation failed after all retries. Falling back to ORIGINAL protected segment to preserve placeholders (images/links/code).")
+    return segment
 
 def main():
     parser = argparse.ArgumentParser(description="Markdown translation module via llama-server")
