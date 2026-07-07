@@ -141,7 +141,7 @@ def run_supertonic3(payload):
                 voice_style=os.path.join(model_dir, "voice.bin"),
             ),
             debug=False,
-            num_threads=2,
+            num_threads=4,
             provider="nnapi",
         )
     )
@@ -154,9 +154,19 @@ def run_supertonic3(payload):
 
     gen_config = sherpa_onnx.GenerationConfig()
     gen_config.sid = int(speaker_id)
-    gen_config.num_steps = 8
+    gen_config.num_steps = 5
     gen_config.speed = float(speed)
     gen_config.extra["lang"] = lang
+
+    # Load cache dynamically
+    cache_path = os.path.join(os.path.dirname(output_dir), "tts_cache_supertonic-3-tts-int8.json")
+    cache = {}
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            pass
 
     total = len(chunks)
     print(f"[TTSHelper] (Supertonic 3) Processing {total} chunks...", flush=True)
@@ -167,6 +177,9 @@ def run_supertonic3(payload):
 
         if not chunk_hash or not text:
             continue
+
+        import unicodedata
+        text = unicodedata.normalize("NFD", text)
 
         output_file = os.path.join(output_dir, f"{chunk_hash}.wav")
 
@@ -182,14 +195,25 @@ def run_supertonic3(payload):
                 print(f"[TTSHelper] Error: Generated audio samples are empty for chunk {chunk_hash}", file=sys.stderr)
                 continue
 
+            # Decimate samples by 2 to downsample from 44100 Hz to 22050 Hz
+            output_sample_rate = audio.sample_rate // 2
+            int16_samples = [int(max(-1.0, min(1.0, s)) * 32767) for s in audio.samples[::2]]
+
             # Save wav file
             with wave.open(output_file, "wb") as wav_file:
                 wav_file.setnchannels(1)
                 wav_file.setsampwidth(2)
-                wav_file.setframerate(audio.sample_rate)
-                int16_samples = [int(max(-1.0, min(1.0, s)) * 32767) for s in audio.samples]
+                wav_file.setframerate(output_sample_rate)
                 packed_data = struct.pack(f"{len(int16_samples)}h", *int16_samples)
                 wav_file.writeframes(packed_data)
+
+            # Update cache file dynamically
+            cache[chunk_hash] = text
+            try:
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(cache, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
 
         except Exception as e:
             print(f"[TTSHelper] Error running Supertonic 3 on chunk {chunk_hash}: {e}", file=sys.stderr)
