@@ -338,6 +338,7 @@ def main():
                 "tts_engine": tts_engine,
                 "model_path": model_path,
                 "output_dir": os.path.abspath(chunks_dir),
+                "cache_path": os.path.abspath(cache_path),
                 "chunks": unique_missing_chunks,
                 "speaker_id": speaker_id,
                 "speed": speed,
