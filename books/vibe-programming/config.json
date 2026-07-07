@@ -28,7 +28,7 @@
   ],
   "cover": "books/vibe-programming/cover.jpeg",
   "pdf_path": "/sdcard/Download/Ван Вэньцзе - Вайб-программирование - 2026.pdf",
-  "tts_voice": "ukrainian_tts",
+  "tts_voice": "supertonic3",
   "tts_voice_quality": "medium",
   "generate_audiobook": true,
   "tts_speaker_id": 2,

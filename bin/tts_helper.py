@@ -142,7 +142,7 @@ def run_supertonic3(payload):
             ),
             debug=False,
             num_threads=2,
-            provider="cpu",
+            provider="nnapi",
         )
     )
 
