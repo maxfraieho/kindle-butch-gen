@@ -145,13 +145,39 @@ def main():
     noise_scale = paths.get("tts_noise_scale", 0.667)
     noise_w = paths.get("tts_noise_w", 0.8)
 
-    # Pick voice based on voice and/or voice_quality config
-    if voice == "ukrainian_tts" or voice_quality == "medium":
-        model_filename = "uk_UA-ukrainian_tts-medium.onnx"
-        url_base = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/uk/uk_UA/ukrainian_tts/medium/"
-    else:
-        model_filename = "uk_UA-lada-x_low.onnx"
-        url_base = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/uk/uk_UA/lada/x_low/"
+    # Pick voice based on target_lang and voice/quality config
+    lang_info = {
+        "uk": {
+            "code": "uk_UA",
+            "hf_dir": "uk/uk_UA",
+            "default_voice": "ukrainian_tts",
+            "default_quality": "medium",
+            "valid_voices": ["ukrainian_tts", "lada"]
+        },
+        "ru": {
+            "code": "ru_RU",
+            "hf_dir": "ru/ru_RU",
+            "default_voice": "irina",
+            "default_quality": "medium",
+            "valid_voices": ["irina", "denis", "dmitri", "ruslan"]
+        }
+    }
+    
+    info = lang_info.get(target_lang, lang_info["uk"])
+    
+    # Validate voice for the given language
+    if voice not in info["valid_voices"]:
+        voice = info["default_voice"]
+        
+    # Standardize quality parameter
+    if voice_quality not in ["low", "medium", "high", "x_low"]:
+        voice_quality = info["default_quality"]
+        
+    lang_code = info["code"]
+    hf_dir = info["hf_dir"]
+    
+    model_filename = f"{lang_code}-{voice}-{voice_quality}.onnx"
+    url_base = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{hf_dir}/{voice}/{voice_quality}/"
 
     model_dir = os.path.join(repo_dir, "models", "piper")
     os.makedirs(model_dir, exist_ok=True)
@@ -275,7 +301,8 @@ def main():
                 "speaker_id": speaker_id,
                 "speed": speed,
                 "noise_scale": noise_scale,
-                "noise_w": noise_w
+                "noise_w": noise_w,
+                "lang": target_lang
             }
             payload_json = json.dumps(payload, ensure_ascii=False)
 
