@@ -1083,42 +1083,10 @@ def dashboard():
                     const badgeText = book.is_running ? 'Running' : 'Idle';
                     const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
                     
-                    let voiceOptions = '';
-                    let speakerOptions = '';
-                    
-                    if (book.tts_engine === 'supertonic3') {
-                        voiceOptions = `
-                            <option value="supertonic3" selected>Supertonic 3 (Multilingual)</option>
-                        `;
-                        speakerOptions = Array.from({length: 10}, (_, i) => 
-                            `<option value="${i}" ${book.tts_speaker_id === i ? 'selected' : ''}>Speaker [${i}]</option>`
-                        ).join('');
-                    } else if (book.target_lang === 'ru') {
-                        voiceOptions = `
-                            <option value="irina" ${book.tts_voice === 'irina' ? 'selected' : ''}>irina (ru)</option>
-                            <option value="denis" ${book.tts_voice === 'denis' ? 'selected' : ''}>denis (ru)</option>
-                            <option value="dmitri" ${book.tts_voice === 'dmitri' ? 'selected' : ''}>dmitri (ru)</option>
-                            <option value="ruslan" ${book.tts_voice === 'ruslan' ? 'selected' : ''}>ruslan (ru)</option>
-                        `;
-                        speakerOptions = `<option value="0" selected>Default [0]</option>`;
-                    } else if (book.target_lang === 'uk') {
-                        voiceOptions = `
-                            <option value="ukrainian_tts" ${book.tts_voice === 'ukrainian_tts' ? 'selected' : ''}>ukrainian_tts (uk)</option>
-                            <option value="lada" ${book.tts_voice === 'lada' ? 'selected' : ''}>lada (uk)</option>
-                        `;
-                        if (book.tts_voice === 'ukrainian_tts') {
-                            speakerOptions = `
-                                <option value="0" ${book.tts_speaker_id === 0 ? 'selected' : ''}>Lada [0]</option>
-                                <option value="1" ${book.tts_speaker_id === 1 ? 'selected' : ''}>Mykyta [1]</option>
-                                <option value="2" ${book.tts_speaker_id === 2 ? 'selected' : ''}>Tetiana [2]</option>
-                            `;
-                        } else {
-                            speakerOptions = `<option value="0" selected>Default [0]</option>`;
-                        }
-                    } else {
-                        voiceOptions = `<option value="default" selected>default</option>`;
-                        speakerOptions = `<option value="0" selected>Default [0]</option>`;
-                    }
+                    const voiceOptions = `<option value="supertonic3" selected>Supertonic 3 (Multilingual)</option>`;
+                    const speakerOptions = Array.from({length: 10}, (_, i) => 
+                        `<option value="${i}" ${book.tts_speaker_id === i ? 'selected' : ''}>Speaker [${i}]</option>`
+                    ).join('');
                     
                     return `
                         <div class="glass-card book-card">
@@ -1170,19 +1138,7 @@ def dashboard():
                             <details class="settings-details" id="details-${book.slug}" ${detailsOpenAttr}>
                                 <summary>🛠️ TTS Settings</summary>
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
-                                     <div class="form-group" style="margin-bottom:0;" title="Supertonic 3 — повільніше, але природніша інтонація">
-                                         <label for="engine-${book.slug}">Engine</label>
-                                         <select id="engine-${book.slug}" class="form-control" style="padding: 0.5rem;" onchange="handleEngineChange('${book.slug}', this.value, '${book.target_lang}')">
-                                             <option value="piper" ${book.tts_engine === 'piper' ? 'selected' : ''}>Piper</option>
-                                             <option value="supertonic3" ${book.tts_engine === 'supertonic3' ? 'selected' : ''}>Supertonic 3</option>
-                                         </select>
-                                     </div>
-                                     <div class="form-group" style="margin-bottom:0;" id="voice-group-${book.slug}">
-                                         <label for="voice-${book.slug}">Voice</label>
-                                         <select id="voice-${book.slug}" class="form-control" style="padding: 0.5rem;" onchange="handleVoiceChange('${book.slug}', this.value)">
-                                             ${voiceOptions}
-                                         </select>
-                                     </div>
+
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label for="speaker-${book.slug}">Speaker</label>
                                         <select id="speaker-${book.slug}" class="form-control" style="padding: 0.5rem;">
@@ -1382,9 +1338,9 @@ def dashboard():
 
         async function saveTtsSettings(event, slug) {
             event.preventDefault();
-            const tts_engine = document.getElementById(`engine-${slug}`).value;
-            const tts_voice = document.getElementById(`voice-${slug}`).value;
-            const tts_voice_quality = (tts_voice === 'ukrainian_tts') ? 'medium' : 'x_low';
+            const tts_engine = 'supertonic3';
+            const tts_voice = 'supertonic3';
+            const tts_voice_quality = 'medium';
             const tts_speaker_id = parseInt(document.getElementById(`speaker-${slug}`).value);
             const tts_speed = parseFloat(document.getElementById(`speed-${slug}`).value);
             const tts_noise_scale = parseFloat(document.getElementById(`noise-scale-${slug}`).value);
