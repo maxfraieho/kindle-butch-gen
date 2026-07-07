@@ -82,6 +82,7 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         "tts_speed": float(config.get("tts_speed", 1.0)),
         "tts_noise_scale": float(config.get("tts_noise_scale", 0.667)),
         "tts_noise_w": float(config.get("tts_noise_w", 0.8)),
+        "tts_engine": config.get("tts_engine", "piper"),
     }
     return paths
 
