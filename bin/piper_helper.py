@@ -27,6 +27,7 @@ def main():
     speed = payload.get("speed", 1.0)
     noise_scale = payload.get("noise_scale", 0.667)
     noise_w = payload.get("noise_w", 0.8)
+    lang = payload.get("lang", "uk")
     length_scale = 1.0 / speed
 
     if not model_path or not output_dir:
@@ -36,12 +37,14 @@ def main():
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
 
-    # Initialize Stressifier once
-    try:
-        stressifier = Stressifier()
-    except Exception as e:
-        print(f"[PiperHelper] Error: Failed to initialize Stressifier: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Initialize Stressifier once (only for Ukrainian)
+    stressifier = None
+    if lang == "uk":
+        try:
+            stressifier = Stressifier()
+        except Exception as e:
+            print(f"[PiperHelper] Error: Failed to initialize Stressifier: {e}", file=sys.stderr)
+            sys.exit(1)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     piper_binary = os.path.join(script_dir, "piper", "piper")
@@ -62,11 +65,14 @@ def main():
             print(f"[PiperHelper] Warning: Skipping chunk {i+1} due to missing hash or text", file=sys.stderr)
             continue
 
-        # 1. Apply stressify to the text
-        try:
-            stressed_text = stressifier(text)
-        except Exception as e:
-            print(f"[PiperHelper] Warning: Stressifier failed on chunk {chunk_hash}: {e}. Using raw text.", file=sys.stderr)
+        # 1. Apply stressify to the text if lang == "uk"
+        if lang == "uk" and stressifier is not None:
+            try:
+                stressed_text = stressifier(text)
+            except Exception as e:
+                print(f"[PiperHelper] Warning: Stressifier failed on chunk {chunk_hash}: {e}. Using raw text.", file=sys.stderr)
+                stressed_text = text
+        else:
             stressed_text = text
 
         # 2. Normalize acute accent U+00B4 to combining acute accent U+0301

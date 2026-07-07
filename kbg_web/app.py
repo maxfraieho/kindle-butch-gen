@@ -16,12 +16,39 @@ from common.book_paths import resolve_book_paths
 from kbg_web.status_helper import calculate_progress, get_pdf_page_count
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"status": "error", "message": "File is too large (maximum allowed size is 200MB)"}), 413
 
 # Registry of active background processes: {slug: subprocess.Popen}
 active_processes = {}
 
 def validate_slug(slug):
     return bool(re.match(r"^[a-z0-9_-]+$", slug))
+
+def detect_epub_lang(epub_path):
+    try:
+        import zipfile
+        import xml.etree.ElementTree as ET
+        with zipfile.ZipFile(epub_path, 'r') as z:
+            container_content = z.read("META-INF/container.xml")
+            container_root = ET.fromstring(container_content)
+            root_file_el = container_root.find(".//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile")
+            if root_file_el is None:
+                root_file_el = container_root.find(".//rootfile")
+            opf_rel_path = root_file_el.attrib["full-path"]
+            opf_content = z.read(opf_rel_path)
+            opf_root = ET.fromstring(opf_content)
+            lang_el = opf_root.find('.//{http://purl.org/dc/elements/1.1/}language')
+            if lang_el is None:
+                lang_el = opf_root.find('.//language')
+            if lang_el is not None and lang_el.text:
+                return lang_el.text.split('-')[0].lower()
+    except Exception:
+        pass
+    return None
 
 @app.route("/")
 def dashboard():
@@ -529,6 +556,34 @@ def dashboard():
         audio {
             accent-color: var(--primary);
         }
+
+        /* Upload and notification styling */
+        .upload-status {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            margin-bottom: 1.25rem;
+            display: none;
+            line-height: 1.4;
+        }
+        .upload-status.success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            display: block;
+        }
+        .upload-status.error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            display: block;
+        }
+        .upload-status.info {
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -542,11 +597,8 @@ def dashboard():
             <!-- Left Column: Add Form -->
             <div class="glass-card">
                 <h2 class="card-title">Add New Book</h2>
+                <div id="uploadStatus" class="upload-status"></div>
                 <form id="addBookForm">
-                    <div class="form-group">
-                        <label for="slug">Book Slug (lowercase, a-z0-9_-)</label>
-                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$">
-                    </div>
                     <div class="form-group">
                         <label for="file_upload">Upload File (PDF / EPUB / TXT / MD)</label>
                         <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
@@ -554,6 +606,10 @@ def dashboard():
                     <div class="form-group">
                         <label for="pdf_path">Or Enter Source PDF Path (on system)</label>
                         <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf">
+                    </div>
+                    <div class="form-group">
+                        <label for="slug">Book Slug (lowercase, a-z0-9_-)</label>
+                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$">
                     </div>
                     <div class="form-group">
                         <label for="title">Title</label>
@@ -564,14 +620,23 @@ def dashboard():
                         <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required>
                     </div>
                     <div class="form-group">
-                        <label for="lang">Target Language</label>
-                        <select id="lang" class="form-control" required>
-                            <option value="uk">Ukrainian (uk)</option>
+                        <label for="source_lang">Source Language</label>
+                        <select id="source_lang" class="form-control" required>
+                            <option value="auto">Auto-detect (EPUB only)</option>
                             <option value="en">English (en)</option>
                             <option value="ru">Russian (ru)</option>
+                            <option value="uk">Ukrainian (uk)</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%;">Add Book</button>
+                    <div class="form-group">
+                        <label for="lang">Target Language (TTS & E-Book)</label>
+                        <select id="lang" class="form-control" required>
+                            <option value="uk">Ukrainian (uk)</option>
+                            <option value="ru">Russian (ru)</option>
+                            <option value="en">English (en)</option>
+                        </select>
+                    </div>
+                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
                 </form>
             </div>
 
@@ -601,21 +666,81 @@ def dashboard():
         let currentLogsSlug = null;
         let logsInterval = null;
 
+        function showUploadStatus(msg, type) {
+            const statusDiv = document.getElementById('uploadStatus');
+            statusDiv.className = 'upload-status ' + type;
+            statusDiv.innerHTML = msg;
+            statusDiv.style.display = 'block';
+        }
+
+        function clearUploadStatus() {
+            const statusDiv = document.getElementById('uploadStatus');
+            statusDiv.style.display = 'none';
+        }
+
+        // Auto-detect metadata on file selection
+        document.getElementById('file_upload').addEventListener('change', async function(e) {
+            if (this.files.length === 0) return;
+            
+            const file = this.files[0];
+            showUploadStatus('Parsing file metadata...', 'info');
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/parse-metadata', {
+                    method: 'POST',
+                    body: formData
+                });
+                const res = await response.json();
+                if (response.ok) {
+                    if (res.detected_slug) {
+                        document.getElementById('slug').value = res.detected_slug;
+                    }
+                    if (res.detected_title) {
+                        document.getElementById('title').value = res.detected_title;
+                    }
+                    if (res.detected_authors) {
+                        document.getElementById('authors').value = res.detected_authors;
+                    }
+                    if (res.detected_lang && res.detected_lang !== 'auto') {
+                        document.getElementById('source_lang').value = res.detected_lang;
+                    } else {
+                        document.getElementById('source_lang').value = 'auto';
+                    }
+                    showUploadStatus('Metadata detected and pre-filled successfully!', 'success');
+                } else {
+                    showUploadStatus('Failed to parse metadata: ' + res.message, 'error');
+                }
+            } catch (err) {
+                showUploadStatus('Metadata detection failed: ' + err.message, 'error');
+            }
+        });
+
         document.getElementById('addBookForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const slug = document.getElementById('slug').value.trim();
             const title = document.getElementById('title').value.trim();
             const authors = document.getElementById('authors').value.trim();
             const lang = document.getElementById('lang').value;
+            const source_lang = document.getElementById('source_lang').value;
             const fileInput = document.getElementById('file_upload');
             const pdf_path = document.getElementById('pdf_path').value.trim();
+            
+            const submitBtn = document.getElementById('addBookSubmit');
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Adding Book...';
 
             if (fileInput.files.length > 0) {
+                showUploadStatus('Uploading book file and extracting content (this may take a few seconds)...', 'info');
+                
                 const formData = new FormData();
                 formData.append('slug', slug);
                 formData.append('title', title);
                 formData.append('authors', authors);
                 formData.append('lang', lang);
+                formData.append('source_lang', source_lang);
                 formData.append('file', fileInput.files[0]);
 
                 try {
@@ -625,20 +750,26 @@ def dashboard():
                     });
                     const res = await response.json();
                     if (response.ok) {
-                        alert('Book uploaded and added successfully!');
+                        showUploadStatus('Book uploaded and added successfully!', 'success');
                         document.getElementById('addBookForm').reset();
                         fetchBooks();
                     } else {
-                        alert('Error: ' + res.message);
+                        showUploadStatus('Error: ' + res.message, 'error');
                     }
                 } catch (err) {
-                    alert('Upload failed: ' + err.message);
+                    showUploadStatus('Upload failed: ' + err.message, 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Add Book';
                 }
             } else {
                 if (!pdf_path) {
-                    alert('Please upload a file or specify a local PDF path.');
+                    showUploadStatus('Please upload a file or specify a local PDF path.', 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Add Book';
                     return;
                 }
+                showUploadStatus('Adding local book on system...', 'info');
                 try {
                     const response = await fetch('/api/add', {
                         method: 'POST',
@@ -647,21 +778,38 @@ def dashboard():
                     });
                     const res = await response.json();
                     if (response.ok) {
-                        alert('Book added successfully!');
+                        showUploadStatus('Book added successfully!', 'success');
                         document.getElementById('addBookForm').reset();
                         fetchBooks();
                     } else {
-                        alert('Error: ' + res.message);
+                        showUploadStatus('Error: ' + res.message, 'error');
                     }
                 } catch (err) {
-                    alert('Request failed: ' + err.message);
+                    showUploadStatus('Request failed: ' + err.message, 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Add Book';
                 }
             }
         });
 
+        function handleVoiceChange(slug, voiceValue) {
+            const speakerSelect = document.getElementById(`speaker-${slug}`);
+            if (!speakerSelect) return;
+            
+            if (voiceValue === 'ukrainian_tts') {
+                speakerSelect.innerHTML = `
+                    <option value="0">Lada [0]</option>
+                    <option value="1">Mykyta [1]</option>
+                    <option value="2" selected>Tetiana [2]</option>
+                `;
+            } else {
+                speakerSelect.innerHTML = `<option value="0" selected>Default [0]</option>`;
+            }
+        }
+
         async function fetchBooks() {
             try {
-                // Save current state, values, and focus to prevent form resetting during polling
                 const openDetails = {};
                 const formValues = {};
                 const activeId = document.activeElement ? document.activeElement.id : null;
@@ -671,7 +819,6 @@ def dashboard():
                     selEnd = document.activeElement.selectionEnd;
                 }
 
-                // Query existing elements before fetching
                 const cards = document.querySelectorAll('.book-card');
                 cards.forEach(card => {
                     const slugEl = card.querySelector('code');
@@ -713,6 +860,36 @@ def dashboard():
                     const badgeClass = book.is_running ? 'badge-running' : 'badge-idle';
                     const badgeText = book.is_running ? 'Running' : 'Idle';
                     const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
+                    
+                    let voiceOptions = '';
+                    let speakerOptions = '';
+                    
+                    if (book.target_lang === 'ru') {
+                        voiceOptions = `
+                            <option value="irina" ${book.tts_voice === 'irina' ? 'selected' : ''}>irina (ru)</option>
+                            <option value="denis" ${book.tts_voice === 'denis' ? 'selected' : ''}>denis (ru)</option>
+                            <option value="dmitri" ${book.tts_voice === 'dmitri' ? 'selected' : ''}>dmitri (ru)</option>
+                            <option value="ruslan" ${book.tts_voice === 'ruslan' ? 'selected' : ''}>ruslan (ru)</option>
+                        `;
+                        speakerOptions = `<option value="0" selected>Default [0]</option>`;
+                    } else if (book.target_lang === 'uk') {
+                        voiceOptions = `
+                            <option value="ukrainian_tts" ${book.tts_voice === 'ukrainian_tts' ? 'selected' : ''}>ukrainian_tts (uk)</option>
+                            <option value="lada" ${book.tts_voice === 'lada' ? 'selected' : ''}>lada (uk)</option>
+                        `;
+                        if (book.tts_voice === 'ukrainian_tts') {
+                            speakerOptions = `
+                                <option value="0" ${book.tts_speaker_id === 0 ? 'selected' : ''}>Lada [0]</option>
+                                <option value="1" ${book.tts_speaker_id === 1 ? 'selected' : ''}>Mykyta [1]</option>
+                                <option value="2" ${book.tts_speaker_id === 2 ? 'selected' : ''}>Tetiana [2]</option>
+                            `;
+                        } else {
+                            speakerOptions = `<option value="0" selected>Default [0]</option>`;
+                        }
+                    } else {
+                        voiceOptions = `<option value="default" selected>default</option>`;
+                        speakerOptions = `<option value="0" selected>Default [0]</option>`;
+                    }
                     
                     return `
                         <div class="glass-card book-card">
@@ -766,17 +943,14 @@ def dashboard():
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label for="voice-${book.slug}">Voice</label>
-                                        <select id="voice-${book.slug}" class="form-control" style="padding: 0.5rem;">
-                                            <option value="ukrainian_tts" ${book.tts_voice === 'ukrainian_tts' ? 'selected' : ''}>ukrainian_tts</option>
-                                            <option value="lada" ${book.tts_voice === 'lada' ? 'selected' : ''}>lada</option>
+                                        <select id="voice-${book.slug}" class="form-control" style="padding: 0.5rem;" onchange="handleVoiceChange('${book.slug}', this.value)">
+                                            ${voiceOptions}
                                         </select>
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label for="speaker-${book.slug}">Speaker</label>
                                         <select id="speaker-${book.slug}" class="form-control" style="padding: 0.5rem;">
-                                            <option value="0" ${book.tts_speaker_id === 0 ? 'selected' : ''}>Lada [0]</option>
-                                            <option value="1" ${book.tts_speaker_id === 1 ? 'selected' : ''}>Mykyta [1]</option>
-                                            <option value="2" ${book.tts_speaker_id === 2 ? 'selected' : ''}>Tetiana [2]</option>
+                                            ${speakerOptions}
                                         </select>
                                     </div>
                                     <div class="slider-group">
@@ -805,8 +979,8 @@ def dashboard():
                                     </div>
                                     
                                     <div class="preview-section">
-                                        <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Live Preview (Ukrainian)</label>
-                                        <textarea id="preview-text-${book.slug}" class="preview-text" placeholder="Введіть речення українською для тестування..."></textarea>
+                                        <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Live Preview (TTS Language)</label>
+                                        <textarea id="preview-text-${book.slug}" class="preview-text" placeholder="Enter test sentence..."></textarea>
                                         <div class="preview-controls">
                                             <button type="button" onclick="generatePreview('${book.slug}')" id="preview-btn-${book.slug}" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Hear Preview</button>
                                             <audio id="preview-audio-${book.slug}" controls style="display: none; height: 32px; flex-grow: 1;"></audio>
@@ -1129,6 +1303,8 @@ def add_book_api():
     try:
         # Create folder structure
         paths = resolve_book_paths(repo_dir, slug)
+        if os.path.exists(paths["config_path"]):
+            return jsonify({"status": "error", "message": "Book with this slug already exists. Use a different slug or delete the existing book first"}), 409
         book_dir = paths["book_dir"]
         
         os.makedirs(book_dir, exist_ok=True)
@@ -1170,6 +1346,86 @@ def add_book_api():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/parse-metadata", methods=["POST"])
+def parse_metadata_api():
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+    file = request.files["file"]
+    filename = file.filename
+    ext = os.path.splitext(filename)[1].lower()
+    
+    title = ""
+    authors = ""
+    slug = ""
+    detected_lang = "auto"
+    
+    if ext == ".epub":
+        try:
+            import zipfile
+            import xml.etree.ElementTree as ET
+            import tempfile
+            import shutil
+            
+            temp_dir = tempfile.mkdtemp()
+            temp_path = os.path.join(temp_dir, "temp.epub")
+            file.save(temp_path)
+            
+            with zipfile.ZipFile(temp_path, 'r') as z:
+                container_content = z.read("META-INF/container.xml")
+                container_root = ET.fromstring(container_content)
+                root_file_el = container_root.find(".//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile")
+                if root_file_el is None:
+                    root_file_el = container_root.find(".//rootfile")
+                opf_rel_path = root_file_el.attrib["full-path"]
+                
+                opf_content = z.read(opf_rel_path)
+                opf_root = ET.fromstring(opf_content)
+                
+                title_el = opf_root.find('.//{http://purl.org/dc/elements/1.1/}title')
+                if title_el is None:
+                    title_el = opf_root.find('.//title')
+                if title_el is not None:
+                    title = title_el.text or ""
+                    
+                creator_el = opf_root.find('.//{http://purl.org/dc/elements/1.1/}creator')
+                if creator_el is None:
+                    creator_el = opf_root.find('.//creator')
+                if creator_el is not None:
+                    authors = creator_el.text or ""
+                    
+                lang_el = opf_root.find('.//{http://purl.org/dc/elements/1.1/}language')
+                if lang_el is None:
+                    lang_el = opf_root.find('.//language')
+                if lang_el is not None and lang_el.text:
+                    detected_lang = lang_el.text.split('-')[0].lower()
+                    
+            shutil.rmtree(temp_dir)
+            title = title.strip()
+            authors = authors.strip()
+            
+            if title:
+                slug_base = title.lower()
+            else:
+                slug_base = os.path.splitext(filename)[0].lower()
+            slug = re.sub(r'[^a-z0-9_-]', '-', slug_base)
+            slug = re.sub(r'-+', '-', slug).strip('-')
+        except Exception:
+            pass
+            
+    elif ext in [".pdf", ".txt", ".md"]:
+        slug_base = os.path.splitext(filename)[0].lower()
+        slug = re.sub(r'[^a-z0-9_-]', '-', slug_base)
+        slug = re.sub(r'-+', '-', slug).strip('-')
+        title = os.path.splitext(filename)[0]
+        
+    return jsonify({
+        "status": "success",
+        "detected_title": title,
+        "detected_authors": authors,
+        "detected_slug": slug,
+        "detected_lang": detected_lang
+    })
+
 @app.route("/api/upload", methods=["POST"])
 def upload_file_api():
     if "file" not in request.files:
@@ -1180,6 +1436,7 @@ def upload_file_api():
     title = request.form.get("title", "").strip()
     authors = request.form.get("authors", "").strip()
     lang = request.form.get("lang", "").strip()
+    source_lang = request.form.get("source_lang", "").strip() or lang
     
     if not slug or not title or not authors or not lang:
         return jsonify({"status": "error", "message": "All fields (slug, title, authors, lang) are required"}), 400
@@ -1187,15 +1444,17 @@ def upload_file_api():
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
         
+    paths = resolve_book_paths(repo_dir, slug)
+    if os.path.exists(paths["config_path"]):
+        return jsonify({"status": "error", "message": "Book with this slug already exists. Use a different slug or delete the existing book first"}), 409
+        
     filename = uploaded_file.filename
     ext = os.path.splitext(filename)[1].lower()
     if ext not in [".pdf", ".epub", ".txt", ".md"]:
         return jsonify({"status": "error", "message": f"Unsupported file extension '{ext}'"}), 400
         
     try:
-        paths = resolve_book_paths(repo_dir, slug)
         book_dir = paths["book_dir"]
-        
         os.makedirs(book_dir, exist_ok=True)
         os.makedirs(paths["cache_dir"], exist_ok=True)
         os.makedirs(paths["batches_dir"], exist_ok=True)
@@ -1214,35 +1473,54 @@ def upload_file_api():
             page_ranges = [[1, pages]]
             
         elif ext == ".epub":
-            epub_out_path = os.path.join(paths["output_dir"], f"{slug}_translated_{lang}.epub")
-            uploaded_file.save(epub_out_path)
+            temp_epub_path = os.path.join(book_dir, f"uploaded_temp.epub")
+            uploaded_file.save(temp_epub_path)
             
-            merged_md_path = os.path.join(paths["translated_dir"], f"merged_translated_{lang}.md")
+            if source_lang == "auto":
+                source_lang = detect_epub_lang(temp_epub_path) or lang
+                
+            if source_lang == lang:
+                target_md_name = f"merged_translated_{lang}.md"
+            else:
+                target_md_name = f"merged_source_{source_lang}.md"
+                
+            merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
             cmd = [
                 sys.executable,
                 os.path.join(repo_dir, "bin", "extract_epub_text.py"),
-                "-i", epub_out_path,
+                "-i", temp_epub_path,
                 "-o", merged_md_path
             ]
             res = subprocess.run(cmd, capture_output=True, text=True)
+            if os.path.exists(temp_epub_path):
+                os.remove(temp_epub_path)
+                
             if res.returncode != 0:
                 raise Exception(f"Failed to extract text from EPUB: {res.stderr}")
                 
         elif ext in [".txt", ".md"]:
-            merged_md_path = os.path.join(paths["translated_dir"], f"merged_translated_{lang}.md")
+            if source_lang == "auto":
+                source_lang = lang
+                
+            if source_lang == lang:
+                target_md_name = f"merged_translated_{lang}.md"
+            else:
+                target_md_name = f"merged_source_{source_lang}.md"
+                
+            merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
             uploaded_file.save(merged_md_path)
             
         config_data = {
             "slug": slug,
             "title": title,
             "authors": authors,
-            "source_lang": "ru" if ext == ".pdf" else lang,
+            "source_lang": source_lang,
             "target_lang": lang,
             "pdf_path": pdf_path,
             "generate_audiobook": True,
-            "tts_voice": "ukrainian_tts",
+            "tts_voice": "ukrainian_tts" if lang == "uk" else "irina",
             "tts_voice_quality": "medium",
-            "tts_speaker_id": 2,
+            "tts_speaker_id": 2 if lang == "uk" else 0,
             "tts_speed": 1.0,
             "tts_noise_scale": 0.667,
             "tts_noise_w": 0.8,

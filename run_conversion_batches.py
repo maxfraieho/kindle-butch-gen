@@ -112,11 +112,43 @@ def main():
     final_merged_md_path = os.path.join(paths["translated_dir"], merged_md_name)
 
     if not has_pdf:
-        log("No source PDF found or configured. Checking for existing merged Markdown...", log_path)
-        if not os.path.exists(final_merged_md_path):
-            log(f"Error: Neither PDF file nor merged Markdown file '{final_merged_md_path}' exists.", log_path)
-            sys.exit(1)
-        log("Merged Markdown exists. Skipping extraction and translation stages.", log_path)
+        log("No source PDF found or configured. Checking for existing merged files...", log_path)
+        source_md_name = f"merged_source_{paths['source_lang']}.md"
+        source_md_path = os.path.join(paths["translated_dir"], source_md_name)
+        
+        should_translate = (paths["target_lang"] != paths["source_lang"]) and not args.no_translate
+        
+        if should_translate:
+            if not os.path.exists(final_merged_md_path):
+                if os.path.exists(source_md_path):
+                    log(f"Merged source Markdown exists at '{source_md_path}'. Translating to '{final_merged_md_path}'...", log_path)
+                    cmd_translate = [
+                        "python3", os.path.join(repo_dir, "translate_stage.py"),
+                        "--input", source_md_path,
+                        "--output", final_merged_md_path,
+                        "--cache", paths["translate_cache"],
+                        "--target-lang", paths["target_lang"],
+                        "--book", slug
+                    ]
+                    if args.config:
+                        cmd_translate.extend(["--config", args.config])
+                    log(f"Running translation command: {' '.join(cmd_translate)}", log_path)
+                    res_trans = subprocess.run(cmd_translate)
+                    if res_trans.returncode != 0:
+                        log("Error: Translation of merged source markdown failed!", log_path)
+                        sys.exit(1)
+                else:
+                    log(f"Error: Target translated markdown '{final_merged_md_path}' does not exist, and no source markdown '{source_md_path}' found.", log_path)
+                    sys.exit(1)
+        else:
+            # No translation needed, make sure the file is in final_merged_md_path
+            if not os.path.exists(final_merged_md_path):
+                if os.path.exists(source_md_path):
+                    shutil.copy2(source_md_path, final_merged_md_path)
+                else:
+                    log(f"Error: Neither target markdown '{final_merged_md_path}' nor source markdown '{source_md_path}' exists.", log_path)
+                    sys.exit(1)
+        log("Merged Markdown is ready. Skipping extraction stage.", log_path)
     else:
         log(f"PDF Path: {pdf_path}", log_path)
         log(f"Output Directory: {paths['output_dir']}", log_path)
