@@ -302,40 +302,72 @@ def main():
             # Preprocess chunks: run stressify_batch.py inside PRoot container if using supertonic3 (and Ukrainian)
             if tts_engine == "supertonic3":
                 try:
-                    log("Running batch stressifier and NFD normalization in PRoot container...")
-                    temp_input = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
-                    temp_output = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
-                    
-                    with open(temp_input, "w", encoding="utf-8") as f:
-                        json.dump({
-                            "chunks": unique_missing_chunks,
-                            "lang": target_lang
-                        }, f, ensure_ascii=False, indent=2)
-                    
-                    cmd_stress = [
-                        "proot-distro", "login", "ubuntu", "--",
-                        "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py"
-                    ]
-                    subprocess.run(cmd_stress, check=True)
-                    
-                    if os.path.exists(temp_output):
-                        with open(temp_output, "r", encoding="utf-8") as f:
-                            stressed_data = json.load(f)
+                    stress_cache_path = os.path.join(book_dir, "translated", f"stress_cache_{target_lang}.json")
+                    stress_cache = {}
+                    if os.path.exists(stress_cache_path):
+                        try:
+                            with open(stress_cache_path, "r", encoding="utf-8") as f:
+                                stress_cache = json.load(f)
+                            log(f"Loaded stress cache with {len(stress_cache)} entries.")
+                        except Exception as e:
+                            log(f"Warning: Failed to load stress cache: {e}")
+
+                    # Determine which chunks need to be stressified (those not in stress_cache)
+                    to_stressify = []
+                    for mc in unique_missing_chunks:
+                        h = mc["hash"]
+                        if h in stress_cache:
+                            mc["text"] = stress_cache[h]
+                        else:
+                            to_stressify.append(mc)
+
+                    if to_stressify:
+                        log(f"Running batch stressifier on {len(to_stressify)} new chunks in PRoot container...")
+                        temp_input = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
+                        temp_output = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
                         
-                        stressed_map = {c["hash"]: c["text"] for c in stressed_data.get("chunks", [])}
-                        for mc in unique_missing_chunks:
-                            h = mc["hash"]
-                            if h in stressed_map:
-                                mc["text"] = stressed_map[h]
-                                
-                        log("Successfully loaded stressed and NFD-normalized chunks.")
+                        with open(temp_input, "w", encoding="utf-8") as f:
+                            json.dump({
+                                "chunks": to_stressify,
+                                "lang": target_lang
+                            }, f, ensure_ascii=False, indent=2)
+                        
+                        cmd_stress = [
+                            "proot-distro", "login", "ubuntu", "--",
+                            "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py"
+                        ]
+                        subprocess.run(cmd_stress, check=True)
+                        
+                        if os.path.exists(temp_output):
+                            with open(temp_output, "r", encoding="utf-8") as f:
+                                stressed_data = json.load(f)
+                            
+                            # Update stress_cache and unique_missing_chunks
+                            for c in stressed_data.get("chunks", []):
+                                h = c["hash"]
+                                t = c["text"]
+                                stress_cache[h] = t
+                                # Update mc in unique_missing_chunks
+                                for mc in unique_missing_chunks:
+                                    if mc["hash"] == h:
+                                        mc["text"] = t
+
+                            # Save updated stress_cache
+                            try:
+                                with open(stress_cache_path, "w", encoding="utf-8") as f:
+                                    json.dump(stress_cache, f, ensure_ascii=False, indent=2)
+                                log("Saved updated stress cache.")
+                            except Exception as e:
+                                log(f"Warning: Failed to save stress cache: {e}")
+                        else:
+                            log("Warning: temp_stressed.json not found. Proceeding with raw text.")
+                            
+                        if os.path.exists(temp_input):
+                            os.remove(temp_input)
+                        if os.path.exists(temp_output):
+                            os.remove(temp_output)
                     else:
-                        log("Warning: temp_stressed.json not found. Proceeding with raw text.")
-                        
-                    if os.path.exists(temp_input):
-                        os.remove(temp_input)
-                    if os.path.exists(temp_output):
-                        os.remove(temp_output)
+                        log("All chunks already exist in stress cache. Skipping stressifier.")
                 except Exception as e:
                     log(f"Warning: Preprocessing (stressifier/NFD) failed: {e}. Proceeding with raw text.")
 
