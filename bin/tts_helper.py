@@ -68,7 +68,9 @@ def run_supertonic3(payload):
     gen_config.extra["lang"] = lang
 
     # Load cache dynamically
-    cache_path = os.path.join(os.path.dirname(output_dir), "tts_cache_supertonic-3-tts-int8.json")
+    cache_path = payload.get("cache_path")
+    if not cache_path:
+        cache_path = os.path.join(os.path.dirname(output_dir), "tts_cache_supertonic-3-tts-int8.json")
     cache = {}
     if os.path.exists(cache_path):
         try:
