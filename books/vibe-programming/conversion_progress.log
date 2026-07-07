@@ -77,3 +77,34 @@
 [2026-07-07 01:23:06] Triggering audio stage synthesis...
 [2026-07-07 01:24:13] Copied MP3 audiobook file to /sdcard/Download.
 [2026-07-07 01:24:13] === Pipeline run fully completed successfully! ===
+[2026-07-07 11:16:17] === Starting pipeline for book: vibe-programming ===
+[2026-07-07 11:16:17] PDF Path: /sdcard/Download/Ван Вэньцзе - Вайб-программирование - 2026.pdf
+[2026-07-07 11:16:17] Output Directory: /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/output
+[2026-07-07 11:16:17] Starting marker batch 0-49...
+[2026-07-07 11:41:01] === Starting pipeline for book: vibe-programming ===
+[2026-07-07 11:41:01] PDF Path: /sdcard/Download/Ван Вэньцзе - Вайб-программирование - 2026.pdf
+[2026-07-07 11:41:01] Output Directory: /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/output
+[2026-07-07 11:41:01] Marker batch 0-49 already completed. Skipping extraction.
+[2026-07-07 11:41:01] Translating batch 0-49 to uk...
+[2026-07-07 11:41:01] Running translation command: python3 /data/data/com.termux/files/home/kindle-butch-gen/translate_stage.py --input /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_0_49/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026.md --output /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_0_49/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026_translated_uk.md --cache /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/cache/translate_cache.json --target-lang uk --book vibe-programming
+[2026-07-07 11:50:31] Marker batch 50-99 already completed. Skipping extraction.
+[2026-07-07 11:50:31] Translating batch 50-99 to uk...
+[2026-07-07 11:50:31] Running translation command: python3 /data/data/com.termux/files/home/kindle-butch-gen/translate_stage.py --input /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_50_99/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026.md --output /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_50_99/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026_translated_uk.md --cache /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/cache/translate_cache.json --target-lang uk --book vibe-programming
+[2026-07-07 11:57:03] Marker batch 100-149 already completed. Skipping extraction.
+[2026-07-07 11:57:03] Translated batch 100-149 already exists. Skipping translation.
+[2026-07-07 11:57:03] Marker batch 150-199 already completed. Skipping extraction.
+[2026-07-07 11:57:03] Translating batch 150-199 to uk...
+[2026-07-07 11:57:03] Running translation command: python3 /data/data/com.termux/files/home/kindle-butch-gen/translate_stage.py --input /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_150_199/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026.md --output /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_150_199/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026_translated_uk.md --cache /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/cache/translate_cache.json --target-lang uk --book vibe-programming
+[2026-07-07 12:03:30] Marker batch 200-247 already completed. Skipping extraction.
+[2026-07-07 12:03:30] Translating batch 200-247 to uk...
+[2026-07-07 12:03:30] Running translation command: python3 /data/data/com.termux/files/home/kindle-butch-gen/translate_stage.py --input /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_200_247/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026.md --output /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/batches/batch_200_247/Ван Вэньцзе - Вайб-программирование - 2026/Ван Вэньцзе - Вайб-программирование - 2026_translated_uk.md --cache /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/cache/translate_cache.json --target-lang uk --book vibe-programming
+[2026-07-07 12:13:52] Merging batch results...
+[2026-07-07 12:13:52] Merged markdown saved to: /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/translated/merged_translated_uk.md
+[2026-07-07 12:13:52] Converting merged markdown to EPUB: /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/output/vibe-programming_translated_uk.epub...
+[2026-07-07 12:13:58] Validating EPUB at /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/output/vibe-programming_translated_uk.epub...
+[2026-07-07 12:13:58] EPUB validation completed successfully!
+[2026-07-07 12:13:58] EPUB generated and validated successfully.
+[2026-07-07 12:13:58] Converting merged markdown to AZW3: /data/data/com.termux/files/home/kindle-butch-gen/books/vibe-programming/output/vibe-programming_translated_uk.azw3...
+[2026-07-07 12:14:07] AZW3 generated successfully.
+[2026-07-07 12:14:07] Copied EPUB/AZW3 files to /sdcard/Download.
+[2026-07-07 12:14:07] === Pipeline run fully completed successfully! ===

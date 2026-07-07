@@ -14,6 +14,13 @@ class PlaceholderManager:
     def protect(self, text):
         if not text:
             return ""
+            
+        # 0. Standalone image lines — protect the ENTIRE line, not just the URL,
+        # so the LLM never sees markdown image syntax at all
+        def image_line_repl(match):
+            return self.add(match.group(0), "IMAGE_LINE")
+        text = re.sub(r"^!\[[^\]]*\]\([^)]+\)\s*$", image_line_repl, text, flags=re.MULTILINE)
+
         # 1. Code blocks
         def cb_repl(match):
             return self.add(match.group(0), "CODE_BLOCK")
