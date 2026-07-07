@@ -1757,20 +1757,59 @@ def tts_preview(slug):
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
             
+        target_lang = config.get("target_lang", "uk")
         voice = config.get("tts_voice", "ukrainian_tts")
         voice_quality = config.get("tts_voice_quality", "medium")
         
-        if voice == "ukrainian_tts" or voice_quality == "medium":
-            model_filename = "uk_UA-ukrainian_tts-medium.onnx"
-        else:
-            model_filename = "uk_UA-lada-x_low.onnx"
+        # Resolve voice details
+        lang_info = {
+            "uk": {
+                "code": "uk_UA",
+                "hf_dir": "uk/uk_UA",
+                "default_voice": "ukrainian_tts",
+                "default_quality": "medium",
+                "valid_voices": ["ukrainian_tts", "lada"]
+            },
+            "ru": {
+                "code": "ru_RU",
+                "hf_dir": "ru/ru_RU",
+                "default_voice": "irina",
+                "default_quality": "medium",
+                "valid_voices": ["irina", "denis", "dmitri", "ruslan"]
+            }
+        }
+        
+        info = lang_info.get(target_lang, lang_info["uk"])
+        if voice not in info["valid_voices"]:
+            voice = info["default_voice"]
+        if voice_quality not in ["low", "medium", "high", "x_low"]:
+            voice_quality = info["default_quality"]
             
-        model_path = os.path.join(repo_dir, "models", "piper", model_filename)
-        if not os.path.exists(model_path):
-            return jsonify({"status": "error", "message": f"Voice model file not found at {model_path}"}), 400
-            
+        lang_code = info["code"]
+        hf_dir = info["hf_dir"]
+        
+        model_filename = f"{lang_code}-{voice}-{voice_quality}.onnx"
+        url_base = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{hf_dir}/{voice}/{voice_quality}/"
+        
+        model_dir = os.path.join(repo_dir, "models", "piper")
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, model_filename)
+        
+        # Download if missing
+        model_json_path = model_path + ".json"
+        if not os.path.exists(model_path) or not os.path.exists(model_json_path):
+            for ext in ["", ".json"]:
+                file_to_download = model_filename + ext
+                url = url_base + file_to_download
+                target_file_path = model_path + ext
+                tmp_file_path = target_file_path + ".tmp"
+                
+                cmd = ["curl", "-L", "-o", tmp_file_path, url]
+                subprocess.run(cmd, check=True)
+                os.rename(tmp_file_path, target_file_path)
+                
         # Read parameters from config
-        speaker_id = int(config.get("tts_speaker_id", 2))
+        speaker_id = int(config.get("tts_speaker_id", 2) if target_lang == "uk" else 0)
         speed = float(config.get("tts_speed", 1.0))
         noise_scale = float(config.get("tts_noise_scale", 0.667))
         noise_w = float(config.get("tts_noise_w", 0.8))
@@ -1781,18 +1820,20 @@ def tts_preview(slug):
         preview_wav_path = os.path.join(paths["cache_dir"], "preview.wav")
         os.makedirs(os.path.dirname(preview_wav_path), exist_ok=True)
         
-        # Stressify and normalize text
-        stress_cmd = [
-            "proot-distro", "login", "ubuntu", "--",
-            "python3", "-c",
-            "import sys; from ukrainian_word_stress import Stressifier; print(Stressifier()(sys.stdin.read()).replace('\\u00b4', '\\u0301'), end='')"
-        ]
-        
-        try:
-            res = subprocess.run(stress_cmd, input=text, capture_output=True, text=True, check=True)
-            stressed_text = res.stdout
-        except Exception as e:
-            # Fallback to normalized text
+        # Stressify and normalize text if target language is Ukrainian
+        stressed_text = text
+        if target_lang == "uk":
+            stress_cmd = [
+                "proot-distro", "login", "ubuntu", "--",
+                "python3", "-c",
+                "import sys; from ukrainian_word_stress import Stressifier; print(Stressifier()(sys.stdin.read()).replace('\\u00b4', '\\u0301'), end='')"
+            ]
+            try:
+                res = subprocess.run(stress_cmd, input=text, capture_output=True, text=True, check=True)
+                stressed_text = res.stdout
+            except Exception:
+                stressed_text = text.replace("\u00b4", "\u0301")
+        else:
             stressed_text = text.replace("\u00b4", "\u0301")
             
         # Run piper C++ binary inside Ubuntu container via proot-distro
