@@ -176,46 +176,9 @@ def main():
     lang_code = info["code"]
     hf_dir = info["hf_dir"]
     
-    tts_engine = paths.get("tts_engine", "piper")
-
-    if tts_engine == "supertonic3":
-        voice_slug = "supertonic-3-tts-int8"
-        model_path = ""
-    else:
-        model_filename = f"{lang_code}-{voice}-{voice_quality}.onnx"
-        url_base = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{hf_dir}/{voice}/{voice_quality}/"
-
-        model_dir = os.path.join(repo_dir, "models", "piper")
-        os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, model_filename)
-
-        # Automatic voice model download
-        model_json_path = model_path + ".json"
-        if not os.path.exists(model_path) or not os.path.exists(model_json_path):
-            log(f"Model or config file not found. Downloading from Hugging Face...")
-            for ext in ["", ".json"]:
-                file_to_download = model_filename + ext
-                url = url_base + file_to_download
-                target_file_path = model_path + ext
-                tmp_file_path = target_file_path + ".tmp"
-                log(f"Downloading {url} to {tmp_file_path}...")
-                
-                cmd = ["curl", "-L", "-o", tmp_file_path, url]
-                try:
-                    subprocess.run(cmd, check=True)
-                    os.rename(tmp_file_path, target_file_path)
-                    log(f"Successfully downloaded {file_to_download}")
-                except subprocess.CalledProcessError as e:
-                    log(f"Error downloading {file_to_download}: {e}")
-                    if os.path.exists(tmp_file_path):
-                        try:
-                            os.remove(tmp_file_path)
-                        except Exception:
-                            pass
-                    sys.exit(1)
-
-        model_path = os.path.abspath(model_path)
-        voice_slug = os.path.splitext(os.path.basename(model_path))[0]
+    tts_engine = "supertonic3"
+    voice_slug = "supertonic-3-tts-int8"
+    model_path = ""
 
     # Set up directories
     book_dir = paths["book_dir"]
@@ -386,17 +349,10 @@ def main():
 
             helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
             
-            if tts_engine == "piper":
-                # Call tts_helper.py inside the Ubuntu container via proot-distro
-                cmd = [
-                    "proot-distro", "login", "ubuntu", "--",
-                    "python3", helper_path
-                ]
-            else:
-                # Call tts_helper.py natively in Termux
-                cmd = [
-                    sys.executable, helper_path
-                ]
+            # Call tts_helper.py natively in Termux
+            cmd = [
+                sys.executable, helper_path
+            ]
             
             log(f"Invoking tts_helper.py (engine: {tts_engine})...")
             subprocess.run(
