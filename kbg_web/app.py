@@ -15,6 +15,17 @@ if repo_dir not in sys.path:
 from common.book_paths import resolve_book_paths
 from kbg_web.status_helper import calculate_progress, get_pdf_page_count
 
+TTS_ENGINES = {
+    "supertonic3": {
+        "languages": ["ar", "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hi", "hu", "id", "it", "ja", "ko", "lv", "lt", "pl", "pt", "ro", "ru", "sk", "sl", "es", "sv", "tr", "uk", "vi", "na"],
+        "label": "Supertonic 3 (Flow Matching, 31 мова)"
+    },
+    "styletts2": {
+        "languages": ["uk"],
+        "label": "StyleTTS2 (спеціалізована для української)"
+    },
+}
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
@@ -1003,30 +1014,23 @@ def dashboard():
         }
 
         function handleEngineChange(slug, engineValue, targetLang) {
-            const voiceSelect = document.getElementById(`voice-${slug}`);
             const speakerSelect = document.getElementById(`speaker-${slug}`);
-            if (!voiceSelect || !speakerSelect) return;
+            if (!speakerSelect) return;
             
-            if (engineValue === 'supertonic3') {
-                voiceSelect.innerHTML = `<option value="supertonic3" selected>Supertonic 3 (Multilingual)</option>`;
+            if (engineValue === 'styletts2') {
+                if (targetLang !== 'uk') {
+                    alert(`StyleTTS2 supports only Ukrainian language. This book's language is '${targetLang}'. Switching back to Supertonic 3.`);
+                    document.getElementById(`engine-${slug}`).value = 'supertonic3';
+                    handleEngineChange(slug, 'supertonic3', targetLang);
+                    return;
+                }
+                speakerSelect.innerHTML = `<option value="0" selected>Single Speaker (Filatov)</option>`;
+                speakerSelect.disabled = true;
+            } else if (engineValue === 'supertonic3') {
+                speakerSelect.disabled = false;
                 speakerSelect.innerHTML = Array.from({length: 10}, (_, i) => 
                     `<option value="${i}">Speaker [${i}]</option>`
                 ).join('');
-            } else {
-                if (targetLang === 'ru') {
-                    voiceSelect.innerHTML = `
-                        <option value="irina">irina (ru)</option>
-                        <option value="denis">denis (ru)</option>
-                        <option value="dmitri">dmitri (ru)</option>
-                        <option value="ruslan">ruslan (ru)</option>
-                    `;
-                } else {
-                    voiceSelect.innerHTML = `
-                        <option value="ukrainian_tts">ukrainian_tts (uk)</option>
-                        <option value="lada">lada (uk)</option>
-                    `;
-                }
-                handleVoiceChange(slug, voiceSelect.value);
             }
         }
 
@@ -1050,7 +1054,7 @@ def dashboard():
                         if (detailsEl) {
                             openDetails[slug] = detailsEl.open;
                             
-                            const voiceEl = document.getElementById(`voice-${slug}`);
+                            const engineEl = document.getElementById(`engine-${slug}`);
                             const speakerEl = document.getElementById(`speaker-${slug}`);
                             const speedEl = document.getElementById(`speed-${slug}`);
                             const noiseEl = document.getElementById(`noise-scale-${slug}`);
@@ -1058,7 +1062,7 @@ def dashboard():
                             const previewEl = document.getElementById(`preview-text-${slug}`);
                             
                             formValues[slug] = {
-                                voice: voiceEl ? voiceEl.value : null,
+                                engine: engineEl ? engineEl.value : null,
                                 speaker: speakerEl ? speakerEl.value : null,
                                 speed: speedEl ? speedEl.value : null,
                                 noise_scale: noiseEl ? noiseEl.value : null,
@@ -1083,10 +1087,16 @@ def dashboard():
                     const badgeText = book.is_running ? 'Running' : 'Idle';
                     const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
                     
-                    const voiceOptions = `<option value="supertonic3" selected>Supertonic 3 (Multilingual)</option>`;
-                    const speakerOptions = Array.from({length: 10}, (_, i) => 
-                        `<option value="${i}" ${book.tts_speaker_id === i ? 'selected' : ''}>Speaker [${i}]</option>`
-                    ).join('');
+                    let speakerOptions = '';
+                    let speakerDisabled = '';
+                    if (book.tts_engine === 'styletts2') {
+                        speakerOptions = `<option value="0" selected>Single Speaker (Filatov)</option>`;
+                        speakerDisabled = 'disabled';
+                    } else {
+                        speakerOptions = Array.from({length: 10}, (_, i) => 
+                            `<option value="${i}" ${book.tts_speaker_id === i ? 'selected' : ''}>Speaker [${i}]</option>`
+                        ).join('');
+                    }
                     
                     return `
                         <div class="glass-card book-card">
@@ -1140,8 +1150,15 @@ def dashboard():
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
 
                                     <div class="form-group" style="margin-bottom:0;">
-                                        <label for="speaker-${book.slug}">Speaker</label>
-                                        <select id="speaker-${book.slug}" class="form-control" style="padding: 0.5rem;">
+                                        <label for="engine-${book.slug}">TTS Engine</label>
+                                        <select id="engine-${book.slug}" class="form-control" style="padding: 0.5rem;" onchange="handleEngineChange('${book.slug}', this.value, '${book.target_lang}')">
+                                            <option value="supertonic3" ${book.tts_engine === 'supertonic3' ? 'selected' : ''}>Supertonic 3 (Flow Matching, 31 мова)</option>
+                                            <option value="styletts2" ${book.tts_engine === 'styletts2' ? 'selected' : ''}>StyleTTS2 (українська)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom:0;">
+                                        <label for="speaker-${book.slug}">Speaker / Voice</label>
+                                        <select id="speaker-${book.slug}" class="form-control" style="padding: 0.5rem;" ${speakerDisabled}>
                                             ${speakerOptions}
                                         </select>
                                     </div>
@@ -1207,8 +1224,13 @@ def dashboard():
                     const slug = book.slug;
                     const vals = formValues[slug];
                     if (vals) {
-                        if (vals.voice !== null) document.getElementById(`voice-${slug}`).value = vals.voice;
-                        if (vals.speaker !== null) document.getElementById(`speaker-${slug}`).value = vals.speaker;
+                        if (vals.engine !== null && document.getElementById(`engine-${slug}`)) {
+                            document.getElementById(`engine-${slug}`).value = vals.engine;
+                            handleEngineChange(slug, vals.engine, book.target_lang);
+                        }
+                        if (vals.speaker !== null && document.getElementById(`speaker-${slug}`)) {
+                            document.getElementById(`speaker-${slug}`).value = vals.speaker;
+                        }
                         if (vals.speed !== null) {
                             document.getElementById(`speed-${slug}`).value = vals.speed;
                             document.getElementById(`speed-val-${slug}`).innerText = vals.speed;
@@ -1338,8 +1360,8 @@ def dashboard():
 
         async function saveTtsSettings(event, slug) {
             event.preventDefault();
-            const tts_engine = 'supertonic3';
-            const tts_voice = 'supertonic3';
+            const tts_engine = document.getElementById(`engine-${slug}`).value;
+            const tts_voice = tts_engine;
             const tts_voice_quality = 'medium';
             const tts_speaker_id = parseInt(document.getElementById(`speaker-${slug}`).value);
             const tts_speed = parseFloat(document.getElementById(`speed-${slug}`).value);
@@ -2050,8 +2072,12 @@ def update_tts_settings(slug):
         tts_voice_quality = str(data.get("tts_voice_quality", config.get("tts_voice_quality", "medium"))).strip()
         
         # Validations
-        if tts_engine not in ["supertonic3", "styletts2"]:
+        if tts_engine not in TTS_ENGINES:
             return jsonify({"status": "error", "message": "Invalid tts_engine"}), 400
+            
+        target_lang = config.get("target_lang", "uk")
+        if target_lang not in TTS_ENGINES[tts_engine]["languages"]:
+            return jsonify({"status": "error", "message": f"TTS engine '{tts_engine}' does not support book language '{target_lang}'"}), 400
             
         tts_speaker_id = int(data.get("tts_speaker_id", config.get("tts_speaker_id", 2)))
         tts_speed = float(data.get("tts_speed", config.get("tts_speed", 1.0)))
@@ -2108,6 +2134,11 @@ def tts_preview(slug):
         target_lang = config.get("target_lang", "uk")
         tts_engine = config.get("tts_engine", "supertonic3")
         
+        if tts_engine not in TTS_ENGINES:
+            return jsonify({"status": "error", "message": f"Unsupported tts_engine '{tts_engine}'"}), 400
+        if target_lang not in TTS_ENGINES[tts_engine]["languages"]:
+            return jsonify({"status": "error", "message": f"TTS engine '{tts_engine}' does not support language '{target_lang}'"}), 400
+            
         # Read parameters from config
         speaker_id = int(config.get("tts_speaker_id", 2) if target_lang == "uk" else 0)
         speed = float(config.get("tts_speed", 1.0))
@@ -2123,7 +2154,7 @@ def tts_preview(slug):
                 pass
         os.makedirs(os.path.dirname(preview_wav_path), exist_ok=True)
         
-        if tts_engine == "supertonic3":
+        if tts_engine in ["supertonic3", "styletts2"]:
             # Prepare payload for tts_helper.py
             payload = {
                 "tts_engine": tts_engine,
@@ -2139,7 +2170,7 @@ def tts_preview(slug):
             ]
             res = subprocess.run(cmd, input=json.dumps(payload, ensure_ascii=False), capture_output=True, text=True)
             if res.returncode != 0:
-                return jsonify({"status": "error", "message": f"Supertonic 3 preview failed: {res.stderr}"}), 500
+                return jsonify({"status": "error", "message": f"{tts_engine} preview failed: {res.stderr}"}), 500
         else:
             return jsonify({"status": "error", "message": f"TTS preview is not supported for engine: {tts_engine}"}), 400
                 
