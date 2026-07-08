@@ -1400,11 +1400,18 @@ def dashboard():
             btn.innerText = 'Generating...';
             audio.style.display = 'none';
             
+            // Read current unsaved form values
+            const tts_engine = document.getElementById(`engine-${slug}`).value;
+            const tts_speaker_id = parseInt(document.getElementById(`speaker-${slug}`).value);
+            const tts_speed = parseFloat(document.getElementById(`speed-${slug}`).value);
+            const tts_noise_scale = parseFloat(document.getElementById(`noise-scale-${slug}`).value);
+            const tts_noise_w = parseFloat(document.getElementById(`noise-w-${slug}`).value);
+            
             try {
                 const response = await fetch(`/api/tts-preview/${slug}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
+                    body: JSON.stringify({ text, tts_engine, tts_speaker_id, tts_speed, tts_noise_scale, tts_noise_w })
                 });
                 
                 if (response.ok) {
@@ -2132,18 +2139,18 @@ def tts_preview(slug):
             config = json.load(f)
             
         target_lang = config.get("target_lang", "uk")
-        tts_engine = config.get("tts_engine", "supertonic3")
+        tts_engine = str(data.get("tts_engine", config.get("tts_engine", "supertonic3"))).strip()
         
         if tts_engine not in TTS_ENGINES:
             return jsonify({"status": "error", "message": f"Unsupported tts_engine '{tts_engine}'"}), 400
         if target_lang not in TTS_ENGINES[tts_engine]["languages"]:
             return jsonify({"status": "error", "message": f"TTS engine '{tts_engine}' does not support language '{target_lang}'"}), 400
             
-        # Read parameters from config
-        speaker_id = int(config.get("tts_speaker_id", 2) if target_lang == "uk" else 0)
-        speed = float(config.get("tts_speed", 1.0))
-        noise_scale = float(config.get("tts_noise_scale", 0.667))
-        noise_w = float(config.get("tts_noise_w", 0.8))
+        # Read parameters from request JSON data or config
+        speaker_id = int(data.get("tts_speaker_id", config.get("tts_speaker_id", 2) if target_lang == "uk" else 0))
+        speed = float(data.get("tts_speed", config.get("tts_speed", 1.0)))
+        noise_scale = float(data.get("tts_noise_scale", config.get("tts_noise_scale", 0.667)))
+        noise_w = float(data.get("tts_noise_w", config.get("tts_noise_w", 0.8)))
         
         # Prepare target path
         preview_wav_path = os.path.join(paths["cache_dir"], "preview.wav")
