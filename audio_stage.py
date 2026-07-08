@@ -211,11 +211,60 @@ def main():
     paragraphs = re.split(r'\n\s*\n', content)
     log(f"Total paragraphs read: {len(paragraphs)}")
 
+    # Filter out TOC, publisher technical pages, and other metadata
+    filtered_paragraphs = []
+    skip_section = False
+    
+    skip_heading_keywords = [
+        "зміст", 
+        "передмова від видавництва", 
+        "про авторів", 
+        "предметний покажчик", 
+        "відгуки", 
+        "список помилок", 
+        "порушення авторських прав"
+    ]
+    
+    for p in paragraphs:
+        p_clean = p.strip()
+        if not p_clean:
+            continue
+            
+        # Check if the paragraph is a heading
+        is_heading = p_clean.startswith("#")
+        if is_heading:
+            heading_text = re.sub(r'[#*_\s]+', ' ', p_clean).strip().lower()
+            if any(keyword in heading_text for keyword in skip_heading_keywords):
+                skip_section = True
+                log(f"[AudioStage] Skipping section under heading: '{p_clean}'")
+            else:
+                skip_section = False
+                
+        if skip_section:
+            continue
+            
+        # Check if it is a standalone copyright/publication details block
+        p_lower = p_clean.lower()
+        is_publication_page = (
+            ("удк" in p_lower and "ббк" in p_lower) or 
+            ("isbn" in p_lower and "видавництво" in p_lower) or 
+            ("isbn" in p_lower and "издательство" in p_lower) or
+            ("усі права захищені" in p_lower) or
+            ("все права защищены" in p_lower)
+        )
+        if is_publication_page:
+            log(f"[AudioStage] Skipping publication/copyright page paragraph: '{p_clean[:60]}...'")
+            continue
+            
+        filtered_paragraphs.append(p)
+
+    log(f"Filtered paragraphs count (excluding TOC and technical details): {len(filtered_paragraphs)}")
+
     # Clean formatting and split paragraphs if they exceed 1000 characters
     # For StyleTTS2 we enforce a much lower max_chars limit to avoid ONNX broadcast errors
     max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
     chunk_texts = []
-    for p in paragraphs:
+    for p in filtered_paragraphs:
         chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
         for chunk in chunks:
             chunk = chunk.strip()
