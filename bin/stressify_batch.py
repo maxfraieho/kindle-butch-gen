@@ -4,57 +4,40 @@ import os
 import json
 import unicodedata
 
-from ukrainian_word_stress.stressify_ import _parse_dictionary_value
-import marisa_trie
 import re
+import unicodedata
 
-class FastStressifier:
+class NeuralStressifier:
     def __init__(self, stress_symbol="+"):
-        try:
-            import ukrainian_word_stress
-            dict_path = os.path.join(os.path.dirname(ukrainian_word_stress.__file__), "data/stress.trie")
-        except Exception:
-            dict_path = "/usr/local/lib/python3.14/dist-packages/ukrainian_word_stress/data/stress.trie"
-            
-        self.dict = marisa_trie.BytesTrie()
-        self.dict.load(dict_path)
+        from stress_uk import Stressifier
+        self.stressifier = Stressifier()
         self.stress_symbol = stress_symbol
 
-    def __call__(self, text):
-        tokens = re.split(r'(\w+)', text)
+    def remove_monosyllabic_stresses(self, text):
+        tokens = re.split(r'([a-zA-Zа-яіїєґА-ЯІЇЄҐ\u0301]+)', text)
         result = []
         for token in tokens:
-            if not token.isalnum():
+            if not token:
+                continue
+            # Check if this token is a word (contains letters)
+            if not re.match(r'[a-zA-Zа-яіїєґА-ЯІЇЄҐ]', token):
                 result.append(token)
                 continue
             
-            # Count Ukrainian vowels to skip monosyllabic words
-            vowels = re.findall(r'[аеєиіїоуюяАЕЄИІЇОУЮЯ]', token)
+            clean_token = token.replace("\u0301", "")
+            vowels = re.findall(r'[аеєиіїоуюяАЕЄИІЇОУЮЯ]', clean_token)
             if len(vowels) <= 1:
-                result.append(token)
-                continue
-                
-            accents = []
-            for word in (token, token.lower(), token.title()):
-                if word in self.dict:
-                    values = self.dict[word]
-                    accents_by_tags = _parse_dictionary_value(values[0])
-                    if accents_by_tags:
-                        accents = accents_by_tags[0][1]
-                    break
-            
-            if accents:
-                accented_word = token
-                for position in sorted(accents, reverse=True):
-                    accented_word = accented_word[:position] + self.stress_symbol + accented_word[position:]
-                result.append(accented_word)
+                result.append(clean_token)
             else:
                 result.append(token)
-                
         return "".join(result)
 
+    def __call__(self, text):
+        stressed = self.stressifier.stressify_text(text)
+        stressed = self.remove_monosyllabic_stresses(stressed)
+        return stressed.replace("\u0301", self.stress_symbol)
+
 def normalize_accents(text):
-    # Convert spacing acute accent (´, \u00b4) to combining acute accent (́, \u0301)
     return text.replace("\u00b4", "\u0301")
 
 def main():
@@ -78,10 +61,10 @@ def main():
     stressifier = None
     if lang == "uk":
         try:
-            stressifier = FastStressifier(stress_symbol="+")
-            print("[StressifyBatch] Initialized FastStressifier successfully.", flush=True)
+            stressifier = NeuralStressifier(stress_symbol="+")
+            print("[StressifyBatch] Initialized NeuralStressifier (stress-uk) successfully.", flush=True)
         except Exception as e:
-            print(f"[StressifyBatch] Warning: Failed to load FastStressifier: {e}. Stress will not be added.", file=sys.stderr)
+            print(f"[StressifyBatch] Warning: Failed to load NeuralStressifier: {e}. Stress will not be added.", file=sys.stderr)
 
     total = len(chunks)
     print(f"[StressifyBatch] Stressifying and normalizing {total} chunks...", flush=True)
