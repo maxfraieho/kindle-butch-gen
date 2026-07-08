@@ -1623,7 +1623,7 @@ def list_books():
                 "tts_speed": float(cfg.get("tts_speed", 1.0)),
                 "tts_noise_scale": float(cfg.get("tts_noise_scale", 0.667)),
                 "tts_noise_w": float(cfg.get("tts_noise_w", 0.8)),
-                "tts_engine": cfg.get("tts_engine", "piper")
+                "tts_engine": cfg.get("tts_engine", "supertonic3")
             })
             
     return jsonify(books)
@@ -2045,29 +2045,20 @@ def update_tts_settings(slug):
             config = json.load(f)
             
         # Parse inputs
-        tts_engine = str(data.get("tts_engine", config.get("tts_engine", "piper"))).strip()
-        tts_voice = str(data.get("tts_voice", config.get("tts_voice", "ukrainian_tts"))).strip()
+        tts_engine = str(data.get("tts_engine", config.get("tts_engine", "supertonic3"))).strip()
+        tts_voice = str(data.get("tts_voice", config.get("tts_voice", "supertonic3"))).strip()
         tts_voice_quality = str(data.get("tts_voice_quality", config.get("tts_voice_quality", "medium"))).strip()
         
         # Validations
-        if tts_engine not in ["piper", "supertonic3"]:
+        if tts_engine not in ["supertonic3", "styletts2"]:
             return jsonify({"status": "error", "message": "Invalid tts_engine"}), 400
             
-        if tts_engine == "piper":
-            if tts_voice not in ["lada", "ukrainian_tts"]:
-                return jsonify({"status": "error", "message": "Invalid tts_voice"}), 400
-            if tts_voice_quality not in ["medium", "x_low"]:
-                return jsonify({"status": "error", "message": "Invalid tts_voice_quality"}), 400
-                
         tts_speaker_id = int(data.get("tts_speaker_id", config.get("tts_speaker_id", 2)))
         tts_speed = float(data.get("tts_speed", config.get("tts_speed", 1.0)))
         tts_noise_scale = float(data.get("tts_noise_scale", config.get("tts_noise_scale", 0.667)))
         tts_noise_w = float(data.get("tts_noise_w", config.get("tts_noise_w", 0.8)))
         
-        if tts_engine == "piper":
-            if not (0 <= tts_speaker_id <= 2):
-                return jsonify({"status": "error", "message": "tts_speaker_id must be between 0 and 2 for Piper"}), 400
-        elif tts_engine == "supertonic3":
+        if tts_engine == "supertonic3":
             if not (0 <= tts_speaker_id <= 9):
                 return jsonify({"status": "error", "message": "tts_speaker_id must be between 0 and 9 for Supertonic 3"}), 400
                 
@@ -2115,7 +2106,7 @@ def tts_preview(slug):
             config = json.load(f)
             
         target_lang = config.get("target_lang", "uk")
-        tts_engine = config.get("tts_engine", "piper")
+        tts_engine = config.get("tts_engine", "supertonic3")
         
         # Read parameters from config
         speaker_id = int(config.get("tts_speaker_id", 2) if target_lang == "uk" else 0)
@@ -2150,93 +2141,7 @@ def tts_preview(slug):
             if res.returncode != 0:
                 return jsonify({"status": "error", "message": f"Supertonic 3 preview failed: {res.stderr}"}), 500
         else:
-            voice = config.get("tts_voice", "ukrainian_tts")
-            voice_quality = config.get("tts_voice_quality", "medium")
-            
-            # Resolve voice details
-            lang_info = {
-                "uk": {
-                    "code": "uk_UA",
-                    "hf_dir": "uk/uk_UA",
-                    "default_voice": "ukrainian_tts",
-                    "default_quality": "medium",
-                    "valid_voices": ["ukrainian_tts", "lada"]
-                },
-                "ru": {
-                    "code": "ru_RU",
-                    "hf_dir": "ru/ru_RU",
-                    "default_voice": "irina",
-                    "default_quality": "medium",
-                    "valid_voices": ["irina", "denis", "dmitri", "ruslan"]
-                }
-            }
-            
-            info = lang_info.get(target_lang, lang_info["uk"])
-            if voice not in info["valid_voices"]:
-                voice = info["default_voice"]
-            if voice_quality not in ["low", "medium", "high", "x_low"]:
-                voice_quality = info["default_quality"]
-                
-            lang_code = info["code"]
-            hf_dir = info["hf_dir"]
-            
-            model_filename = f"{lang_code}-{voice}-{voice_quality}.onnx"
-            url_base = f"https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{hf_dir}/{voice}/{voice_quality}/"
-            
-            model_dir = os.path.join(repo_dir, "models", "piper")
-            os.makedirs(model_dir, exist_ok=True)
-            model_path = os.path.join(model_dir, model_filename)
-            
-            # Download if missing
-            model_json_path = model_path + ".json"
-            if not os.path.exists(model_path) or not os.path.exists(model_json_path):
-                for ext in ["", ".json"]:
-                    file_to_download = model_filename + ext
-                    url = url_base + file_to_download
-                    target_file_path = model_path + ext
-                    tmp_file_path = target_file_path + ".tmp"
-                    
-                    cmd = ["curl", "-L", "-o", tmp_file_path, url]
-                    subprocess.run(cmd, check=True)
-                    os.rename(tmp_file_path, target_file_path)
-                    
-            length_scale = 1.0 / speed
-            
-            # Stressify and normalize text if target language is Ukrainian
-            stressed_text = text
-            if target_lang == "uk":
-                stress_cmd = [
-                    "proot-distro", "login", "ubuntu", "--",
-                    "python3", "-c",
-                    "import sys; from ukrainian_word_stress import Stressifier; print(Stressifier()(sys.stdin.read()).replace('\\u00b4', '\\u0301'), end='')"
-                ]
-                try:
-                    res = subprocess.run(stress_cmd, input=text, capture_output=True, text=True, check=True)
-                    stressed_text = res.stdout
-                except Exception:
-                    stressed_text = text.replace("\u00b4", "\u0301")
-            else:
-                stressed_text = text.replace("\u00b4", "\u0301")
-                
-            # Run piper C++ binary inside Ubuntu container via proot-distro
-            piper_binary = "/data/data/com.termux/files/home/kindle-butch-gen/bin/piper/piper"
-            piper_lib_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/piper"
-            
-            cmd = [
-                "proot-distro", "login", "ubuntu", "--",
-                "env", f"LD_LIBRARY_PATH={piper_lib_path}",
-                piper_binary,
-                "-m", model_path,
-                "-s", str(speaker_id),
-                "--length_scale", str(length_scale),
-                "--noise_scale", str(noise_scale),
-                "--noise_w", str(noise_w),
-                "-f", preview_wav_path
-            ]
-            
-            res = subprocess.run(cmd, input=stressed_text, capture_output=True, text=True)
-            if res.returncode != 0:
-                return jsonify({"status": "error", "message": f"Piper synthesis failed: {res.stderr}"}), 500
+            return jsonify({"status": "error", "message": f"TTS preview is not supported for engine: {tts_engine}"}), 400
                 
         if not os.path.exists(preview_wav_path):
             return jsonify({"status": "error", "message": "Failed to generate preview WAV file"}), 500
