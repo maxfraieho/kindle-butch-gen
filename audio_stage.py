@@ -269,8 +269,8 @@ def main():
             log(f"Warning: termux-wake-lock failed: {e}")
 
         try:
-            # Preprocess chunks: run stressify_batch.py inside PRoot container if using supertonic3 (and Ukrainian)
-            if tts_engine == "supertonic3":
+            # Preprocess chunks: run stressify_batch.py inside PRoot container if target language is Ukrainian
+            if target_lang == "uk":
                 try:
                     stress_cache_path = os.path.join(book_dir, "translated", f"stress_cache_{target_lang}.json")
                     stress_cache = {}

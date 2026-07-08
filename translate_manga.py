@@ -341,6 +341,10 @@ def main():
             if not page_ocr_texts:
                 log("No text recognized. Copying original page.")
                 cv2.imwrite(os.path.join(temp_out, os.path.basename(page_path)), img)
+                if args.output.lower().endswith('.cbz'):
+                    cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
+                    os.makedirs(cleaned_dir, exist_ok=True)
+                    cv2.imwrite(os.path.join(cleaned_dir, os.path.basename(page_path)), img)
                 continue
                 
             # Translate recognized texts
@@ -348,6 +352,10 @@ def main():
             
             # Clean image (Inpaint original text bubbles using mask)
             inpainted = cv2.inpaint(img, mask_refined, 3, cv2.INPAINT_TELEA)
+            if args.output.lower().endswith('.cbz'):
+                cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
+                os.makedirs(cleaned_dir, exist_ok=True)
+                cv2.imwrite(os.path.join(cleaned_dir, os.path.basename(page_path)), inpainted)
             
             # Typeset translated text back onto bubble
             pil_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))

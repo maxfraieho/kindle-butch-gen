@@ -2456,7 +2456,7 @@ def view_book_stages(slug):
         /* Manga Side-by-Side Viewer */
         .manga-viewer {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 1.5rem;
             margin-top: 1rem;
         }
@@ -2683,7 +2683,7 @@ def view_book_stages(slug):
             const area = document.getElementById("content-area");
             if (!bookData.source_pages || bookData.source_pages.length === 0) {
                 area.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:3rem 0;">
-                    No manga pages found. Run the Manga Translation pipeline first.
+                    Сторінок манги не знайдено. Запустіть процес перекладу манги.
                 </div>`;
                 return;
             }
@@ -2691,26 +2691,43 @@ def view_book_stages(slug):
             const showPage = (idx) => {
                 currentMangaPage = idx;
                 const srcFile = bookData.source_pages[idx];
+                const cleanFile = bookData.cleaned_pages && bookData.cleaned_pages.length > idx ? bookData.cleaned_pages[idx] : null;
                 const tgtFile = bookData.translated_pages && bookData.translated_pages.length > idx ? bookData.translated_pages[idx] : null;
 
                 document.getElementById("manga-page-img-src").src = `/api/preview/manga-file/${slug}/source/${srcFile}`;
-                document.getElementById("manga-page-title-src").textContent = `Original Page: ${srcFile}`;
+                document.getElementById("manga-page-title-src").textContent = `Оригінал: ${srcFile}`;
 
+                // Clean Page
+                const cleanImg = document.getElementById("manga-page-img-clean");
+                const cleanTitle = document.getElementById("manga-page-title-clean");
+                const cleanEmpty = document.getElementById("manga-empty-clean");
+                if (cleanFile) {
+                    cleanImg.src = `/api/preview/manga-file/${slug}/cleaned/${cleanFile}`;
+                    cleanImg.style.display = "block";
+                    cleanTitle.textContent = `Очищено: ${cleanFile}`;
+                    cleanEmpty.style.display = "none";
+                } else {
+                    cleanImg.style.display = "none";
+                    cleanTitle.textContent = "Очищено";
+                    cleanEmpty.style.display = "flex";
+                }
+
+                // Translated Page
                 const tgtImg = document.getElementById("manga-page-img-tgt");
                 const tgtTitle = document.getElementById("manga-page-title-tgt");
-
+                const tgtEmpty = document.getElementById("manga-empty-tgt");
                 if (tgtFile) {
                     tgtImg.src = `/api/preview/manga-file/${slug}/translated/${tgtFile}`;
                     tgtImg.style.display = "block";
-                    tgtTitle.textContent = `Translated Page (Ukrainian): ${tgtFile}`;
-                    document.getElementById("manga-empty-tgt").style.display = "none";
+                    tgtTitle.textContent = `Переклад (Українська): ${tgtFile}`;
+                    tgtEmpty.style.display = "none";
                 } else {
                     tgtImg.style.display = "none";
-                    tgtTitle.textContent = "Translated Page";
-                    document.getElementById("manga-empty-tgt").style.display = "flex";
+                    tgtTitle.textContent = "Переклад";
+                    tgtEmpty.style.display = "flex";
                 }
 
-                document.getElementById("page-indicator").textContent = `Page ${idx + 1} of ${bookData.source_pages.length}`;
+                document.getElementById("page-indicator").textContent = `Сторінка ${idx + 1} з ${bookData.source_pages.length}`;
                 document.getElementById("btn-prev").disabled = idx === 0;
                 document.getElementById("btn-next").disabled = idx === bookData.source_pages.length - 1;
             };
@@ -2718,22 +2735,30 @@ def view_book_stages(slug):
             area.innerHTML = `
                 <div class="manga-viewer">
                     <div class="manga-panel">
-                        <div class="panel-header" id="manga-page-title-src">Original Page</div>
+                        <div class="panel-header" id="manga-page-title-src">Оригінал</div>
                         <img id="manga-page-img-src" class="manga-img" src="" alt="Source Page">
                     </div>
                     <div class="manga-panel">
-                        <div class="panel-header" id="manga-page-title-tgt">Translated Page</div>
+                        <div class="panel-header" id="manga-page-title-clean">Очищено від тексту</div>
+                        <div id="manga-empty-clean" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:50vh; color:var(--text-secondary)">
+                            <div>Не очищено</div>
+                            <div style="font-size:0.8rem; margin-top:0.5rem">Запустіть процес перекладу манги</div>
+                        </div>
+                        <img id="manga-page-img-clean" class="manga-img" src="" alt="Clean Page" style="display:none">
+                    </div>
+                    <div class="manga-panel">
+                        <div class="panel-header" id="manga-page-title-tgt">Переклад</div>
                         <div id="manga-empty-tgt" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:50vh; color:var(--text-secondary)">
-                            <div>Not translated yet</div>
-                            <div style="font-size:0.8rem; margin-top:0.5rem">Start manga translation pipeline in dashboard</div>
+                            <div>Не перекладено</div>
+                            <div style="font-size:0.8rem; margin-top:0.5rem">Запустіть процес перекладу манги</div>
                         </div>
                         <img id="manga-page-img-tgt" class="manga-img" src="" alt="Translated Page" style="display:none">
                     </div>
                 </div>
                 <div class="manga-controls">
-                    <button class="manga-btn" id="btn-prev">← Previous</button>
-                    <span class="page-indicator" id="page-indicator">Page ...</span>
-                    <button class="manga-btn" id="btn-next">Next →</button>
+                    <button class="manga-btn" id="btn-prev">← Назад</button>
+                    <span class="page-indicator" id="page-indicator">Сторінка ...</span>
+                    <button class="manga-btn" id="btn-next">Вперед →</button>
                 </div>
             `;
 
@@ -2874,6 +2899,7 @@ def preview_manga(slug):
     preview_cache = os.path.join(paths["book_dir"], "preview_cache")
     os.makedirs(preview_cache, exist_ok=True)
     
+    # 1. Source pages extraction
     src_preview_dir = os.path.join(preview_cache, "source")
     os.makedirs(src_preview_dir, exist_ok=True)
     if not os.listdir(src_preview_dir):
@@ -2887,6 +2913,19 @@ def preview_manga(slug):
         except Exception:
             pass
             
+    # 2. Cleaned pages extraction (copying from books/slug/cleaned/)
+    cleaned_preview_dir = os.path.join(preview_cache, "cleaned")
+    os.makedirs(cleaned_preview_dir, exist_ok=True)
+    actual_cleaned_dir = os.path.join(paths["book_dir"], "cleaned")
+    if os.path.exists(actual_cleaned_dir) and not os.listdir(cleaned_preview_dir):
+        try:
+            for f in os.listdir(actual_cleaned_dir):
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    shutil.copy(os.path.join(actual_cleaned_dir, f), os.path.join(cleaned_preview_dir, f))
+        except Exception:
+            pass
+            
+    # 3. Translated pages extraction
     tgt_preview_dir = os.path.join(preview_cache, "translated")
     os.makedirs(tgt_preview_dir, exist_ok=True)
     if os.path.exists(translated_file) and not os.listdir(tgt_preview_dir):
@@ -2896,19 +2935,21 @@ def preview_manga(slug):
             pass
             
     from natsort import natsorted
-    src_files = natsorted([f for f in os.listdir(src_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
-    tgt_files = natsorted([f for f in os.listdir(tgt_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    src_files = natsorted([f for f in os.listdir(src_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+    clean_files = natsorted([f for f in os.listdir(cleaned_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+    tgt_files = natsorted([f for f in os.listdir(tgt_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
     
     return jsonify({
         "status": "success",
         "source_pages": src_files[:10],
+        "cleaned_pages": clean_files[:10],
         "translated_pages": tgt_files[:10]
     })
 
 @app.route("/api/preview/manga-file/<slug>/<folder>/<filename>")
 @auth.login_required
 def serve_manga_preview_file(slug, folder, filename):
-    if not validate_slug(slug) or folder not in ["source", "translated"]:
+    if not validate_slug(slug) or folder not in ["source", "translated", "cleaned"]:
         return "Invalid parameters", 400
     paths = resolve_book_paths(repo_dir, slug)
     file_path = os.path.join(paths["book_dir"], "preview_cache", folder, filename)

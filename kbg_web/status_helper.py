@@ -201,7 +201,6 @@ def calculate_progress(slug):
                 pass
                 
         completed_trans_pages = 0.0
-        pm = PlaceholderManager()
         pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
         total_pages = sum(end - start + 1 for start, end in page_ranges)
         
@@ -212,6 +211,7 @@ def calculate_progress(slug):
             
             if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
                 try:
+                    pm = PlaceholderManager()
                     with open(marker_md_file, "r", encoding="utf-8") as f:
                         text = f.read()
                     protected_text = pm.protect(text)
