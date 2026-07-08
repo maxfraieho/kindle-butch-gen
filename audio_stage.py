@@ -212,9 +212,11 @@ def main():
     log(f"Total paragraphs read: {len(paragraphs)}")
 
     # Clean formatting and split paragraphs if they exceed 1000 characters
+    # For StyleTTS2 we enforce a much lower max_chars limit to avoid ONNX broadcast errors
+    max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
     chunk_texts = []
     for p in paragraphs:
-        chunks = split_paragraph_to_chunks(p, max_chars=1000)
+        chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
         for chunk in chunks:
             chunk = chunk.strip()
             if chunk:

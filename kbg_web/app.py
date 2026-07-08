@@ -1245,6 +1245,7 @@ def dashboard():
                                     : `<button onclick="runConversion('${book.slug}')" class="btn btn-success">Run Conversion</button>`
                                 }
                                 <button onclick="selectBookForLogs('${book.slug}', '${book.title}')" class="btn btn-secondary">Console Logs</button>
+                                <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center;">Visual Preview</a>
                             </div>
 
                             ${book.output_files && book.output_files.length > 0 ? `
@@ -1875,7 +1876,8 @@ def upload_file_api():
         
     filename = uploaded_file.filename
     ext = os.path.splitext(filename)[1].lower()
-    if ext not in [".pdf", ".epub", ".txt", ".md"]:
+    manga_extensions = [".cbz", ".cbr", ".cb7", ".zip", ".rar"]
+    if ext not in [".pdf", ".epub", ".txt", ".md"] + manga_extensions:
         return jsonify({"status": "error", "message": f"Unsupported file extension '{ext}'"}), 400
         
     try:
@@ -1935,6 +1937,12 @@ def upload_file_api():
             merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
             uploaded_file.save(merged_md_path)
             
+        is_manga = ext in manga_extensions or request.form.get("is_manga", "false").lower() == "true"
+        
+        if is_manga and ext in manga_extensions:
+            dest_manga = os.path.join(book_dir, f"{slug}{ext}")
+            uploaded_file.save(dest_manga)
+            
         config_data = {
             "slug": slug,
             "title": title,
@@ -1942,7 +1950,8 @@ def upload_file_api():
             "source_lang": source_lang,
             "target_lang": lang,
             "pdf_path": pdf_path,
-            "generate_audiobook": True,
+            "is_manga": is_manga,
+            "generate_audiobook": not is_manga,
             "tts_voice": "ukrainian_tts" if lang == "uk" else "irina",
             "tts_voice_quality": "medium",
             "tts_speaker_id": 2 if lang == "uk" else 0,
@@ -1976,16 +1985,64 @@ def run_conversion_api(slug):
             
     data = request.get_json() or {}
     
-    # Construct subprocess command securely (list of arguments, shell=False)
-    cmd = [sys.executable, "run_conversion_batches.py", "--book", slug]
-    if data.get("clean"):
-        cmd.append("--clean")
-    if data.get("no_translate"):
-        cmd.append("--no-translate")
-    if data.get("no_ebook"):
-        cmd.append("--no-ebook")
-    if data.get("no_audio"):
-        cmd.append("--no-audio")
+    config_path = paths["config_path"]
+    is_manga = False
+    cfg = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                is_manga = cfg.get("is_manga", False)
+        except Exception:
+            pass
+            
+    if is_manga:
+        # Determine source file
+        source_ext = ""
+        for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf"]:
+            if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
+                source_ext = possible_ext
+                break
+                
+        if not source_ext:
+            return jsonify({"status": "error", "message": "Manga source file not found"}), 400
+            
+        manga_input = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
+        manga_output_dir = os.path.join(paths["book_dir"], "output")
+        os.makedirs(manga_output_dir, exist_ok=True)
+        manga_output = os.path.join(manga_output_dir, f"{slug}_translated_{cfg.get('target_lang', 'uk')}.cbz")
+        
+        # Reset progress file
+        progress_file = os.path.join(paths["book_dir"], "manga_progress.json")
+        try:
+            with open(progress_file, "w", encoding="utf-8") as pf:
+                json.dump({"current_page": 0, "total_pages": 1}, pf)
+        except Exception:
+            pass
+            
+        # Run translate_manga.py inside PRoot Ubuntu container
+        cmd = [
+            "proot-distro", "login", "ubuntu", "--", 
+            "python3", "/data/data/com.termux/files/home/kindle-butch-gen/translate_manga.py",
+            "--input", manga_input,
+            "--output", manga_output,
+            "--lang", cfg.get("source_lang", "en"),
+            "--progress-file", progress_file
+        ]
+        # Include glossary if it exists
+        glossary_path = os.path.join(paths["book_dir"], "glossary.json")
+        if os.path.exists(glossary_path):
+            cmd.extend(["--glossary", glossary_path])
+    else:
+        cmd = [sys.executable, "run_conversion_batches.py", "--book", slug]
+        if data.get("clean"):
+            cmd.append("--clean")
+        if data.get("no_translate"):
+            cmd.append("--no-translate")
+        if data.get("no_ebook"):
+            cmd.append("--no-ebook")
+        if data.get("no_audio"):
+            cmd.append("--no-audio")
         
     log_path = paths["log_path"]
     
@@ -2287,6 +2344,680 @@ def set_output_root():
 @app.route("/api/settings")
 def get_settings():
     return jsonify(load_global_settings())
+
+# -------------------------------------------------------------
+# VISUAL STAGE VIEWER / QUALITY ASSURANCE ROUTES
+# -------------------------------------------------------------
+
+@app.route("/view/<slug>")
+@auth.login_required
+def view_book_stages(slug):
+    if not validate_slug(slug):
+        return "Invalid slug format", 400
+    # Serve visualizer page
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kindle Butch Gen - Quality Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-hover: #7c3aed;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg-dark: #09090b;
+            --card-bg: rgba(20, 20, 35, 0.65);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at top right, #1e1b4b, #09090b);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        header {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 0;
+            background: linear-gradient(135deg, #a78bfa, #8b5cf6, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 0.2rem;
+        }
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.6rem 1.2rem;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        .visualizer-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            backdrop-filter: blur(8px);
+            margin-bottom: 2rem;
+        }
+        .loader {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: var(--text-secondary);
+        }
+        .loader-spinner {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Manga Side-by-Side Viewer */
+        .manga-viewer {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+        .manga-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .panel-header {
+            padding: 0.8rem;
+            background: rgba(255,255,255,0.03);
+            width: 100%;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .manga-img {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+            background: #18181b;
+        }
+        .manga-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        .manga-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.7rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .manga-btn:hover { background: var(--primary-hover); }
+        .manga-btn:disabled {
+            background: rgba(255,255,255,0.06);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+        .page-indicator {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        /* Regular Book Stage Table */
+        .book-stages-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        .paragraph-card {
+            background: rgba(15, 15, 25, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.2rem;
+            transition: border-color 0.2s ease;
+        }
+        .paragraph-card:hover {
+            border-color: rgba(139, 92, 246, 0.3);
+        }
+        .card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.8rem;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            padding-bottom: 0.5rem;
+        }
+        .grid-stages {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .stage-box {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+        .stage-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stage-content {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            background: rgba(255,255,255,0.02);
+            padding: 0.8rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.03);
+            white-space: pre-wrap;
+        }
+        .audio-wrapper {
+            margin-top: 1rem;
+            padding: 0.8rem;
+            background: rgba(139, 92, 246, 0.08);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .audio-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        audio {
+            height: 34px;
+            border-radius: 4px;
+        }
+        .stage-stressed {
+            font-family: 'Outfit', sans-serif;
+            color: #d8b4fe; /* Accentuated color */
+        }
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-audio { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+        .badge-no-audio { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+        
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .filter-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .filter-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        .filter-btn:hover:not(.active) {
+            background: rgba(255,255,255,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1 id="book-title">Loading book...</h1>
+                <div class="subtitle" id="book-slug">Slug: ...</div>
+            </div>
+            <a href="/" class="btn-back">← Back to Dashboard</a>
+        </header>
+
+        <div id="viewer-container" class="visualizer-card">
+            <div class="loader" id="loader">
+                <div style="text-align: center;">
+                    <div class="loader-spinner" style="margin: 0 auto 1rem auto;"></div>
+                    <div>Loading visualizer dataset...</div>
+                </div>
+            </div>
+            <div id="content-area" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const slug = "{{ slug }}";
+        let isManga = false;
+        let bookData = null;
+        let currentMangaPage = 0;
+
+        async function fetchBookData() {
+            try {
+                // First, check list of books to find metadata
+                const resBooks = await fetch("/api/books");
+                const books = await resBooks.json();
+                const book = books.find(b => b.slug === slug);
+                if (book) {
+                    document.getElementById("book-title").textContent = book.title;
+                    document.getElementById("book-slug").textContent = `Author: ${book.authors} | Target: ${book.target_lang.toUpperCase()} | Engine: ${book.tts_engine}`;
+                    isManga = book.is_manga || false;
+                }
+
+                if (isManga) {
+                    const resManga = await fetch(`/api/preview/manga/${slug}`);
+                    bookData = await resManga.json();
+                    renderManga();
+                } else {
+                    const resBook = await fetch(`/api/preview/book/${slug}`);
+                    bookData = await resBook.json();
+                    renderBook();
+                }
+                
+                document.getElementById("loader").style.display = "none";
+                document.getElementById("content-area").style.display = "block";
+            } catch (err) {
+                console.error(err);
+                document.getElementById("loader").innerHTML = `<div style="color:var(--danger)">Failed to load preview data. Make sure pipeline has run.</div>`;
+            }
+        }
+
+        function renderManga() {
+            const area = document.getElementById("content-area");
+            if (!bookData.source_pages || bookData.source_pages.length === 0) {
+                area.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:3rem 0;">
+                    No manga pages found. Run the Manga Translation pipeline first.
+                </div>`;
+                return;
+            }
+
+            const showPage = (idx) => {
+                currentMangaPage = idx;
+                const srcFile = bookData.source_pages[idx];
+                const tgtFile = bookData.translated_pages && bookData.translated_pages.length > idx ? bookData.translated_pages[idx] : null;
+
+                document.getElementById("manga-page-img-src").src = `/api/preview/manga-file/${slug}/source/${srcFile}`;
+                document.getElementById("manga-page-title-src").textContent = `Original Page: ${srcFile}`;
+
+                const tgtImg = document.getElementById("manga-page-img-tgt");
+                const tgtTitle = document.getElementById("manga-page-title-tgt");
+
+                if (tgtFile) {
+                    tgtImg.src = `/api/preview/manga-file/${slug}/translated/${tgtFile}`;
+                    tgtImg.style.display = "block";
+                    tgtTitle.textContent = `Translated Page (Ukrainian): ${tgtFile}`;
+                    document.getElementById("manga-empty-tgt").style.display = "none";
+                } else {
+                    tgtImg.style.display = "none";
+                    tgtTitle.textContent = "Translated Page";
+                    document.getElementById("manga-empty-tgt").style.display = "flex";
+                }
+
+                document.getElementById("page-indicator").textContent = `Page ${idx + 1} of ${bookData.source_pages.length}`;
+                document.getElementById("btn-prev").disabled = idx === 0;
+                document.getElementById("btn-next").disabled = idx === bookData.source_pages.length - 1;
+            };
+
+            area.innerHTML = `
+                <div class="manga-viewer">
+                    <div class="manga-panel">
+                        <div class="panel-header" id="manga-page-title-src">Original Page</div>
+                        <img id="manga-page-img-src" class="manga-img" src="" alt="Source Page">
+                    </div>
+                    <div class="manga-panel">
+                        <div class="panel-header" id="manga-page-title-tgt">Translated Page</div>
+                        <div id="manga-empty-tgt" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:50vh; color:var(--text-secondary)">
+                            <div>Not translated yet</div>
+                            <div style="font-size:0.8rem; margin-top:0.5rem">Start manga translation pipeline in dashboard</div>
+                        </div>
+                        <img id="manga-page-img-tgt" class="manga-img" src="" alt="Translated Page" style="display:none">
+                    </div>
+                </div>
+                <div class="manga-controls">
+                    <button class="manga-btn" id="btn-prev">← Previous</button>
+                    <span class="page-indicator" id="page-indicator">Page ...</span>
+                    <button class="manga-btn" id="btn-next">Next →</button>
+                </div>
+            `;
+
+            document.getElementById("btn-prev").addEventListener("click", () => {
+                if (currentMangaPage > 0) showPage(currentMangaPage - 1);
+            });
+            document.getElementById("btn-next").addEventListener("click", () => {
+                if (currentMangaPage < bookData.source_pages.length - 1) showPage(currentMangaPage + 1);
+            });
+
+            // Keyboard navigation
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "ArrowLeft" && currentMangaPage > 0) {
+                    showPage(currentMangaPage - 1);
+                } else if (e.key === "ArrowRight" && currentMangaPage < bookData.source_pages.length - 1) {
+                    showPage(currentMangaPage + 1);
+                }
+            });
+
+            showPage(0);
+        }
+
+        function renderBook() {
+            const area = document.getElementById("content-area");
+            if (!bookData.paragraphs || bookData.paragraphs.length === 0) {
+                area.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:3rem 0;">
+                    No paragraphs found. Run the translation pipeline first.
+                </div>`;
+                return;
+            }
+
+            area.innerHTML = `
+                <div class="filters">
+                    <button class="filter-btn active" data-filter="all">Show All</button>
+                    <button class="filter-btn" data-filter="audio">With Audio Only</button>
+                    <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                </div>
+                <div class="book-stages-list" id="paragraphs-list"></div>
+            `;
+
+            const list = document.getElementById("paragraphs-list");
+
+            const renderItems = (filter) => {
+                list.innerHTML = "";
+                bookData.paragraphs.forEach((p, idx) => {
+                    if (filter === "audio" && !p.has_audio) return;
+                    if (filter === "no-audio" && p.has_audio) return;
+
+                    const card = document.createElement("div");
+                    card.className = "paragraph-card";
+                    card.innerHTML = `
+                        <div class="card-meta">
+                            <span>Paragraph #${idx + 1} | Hash: ${p.hash.substring(0, 8)}...</span>
+                            <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
+                                ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
+                            </span>
+                        </div>
+                        <div class="grid-stages">
+                            <div class="stage-box">
+                                <div class="stage-title">Original (RU / EN)</div>
+                                <div class="stage-content">${p.original}</div>
+                            </div>
+                            <div class="stage-box">
+                                <div class="stage-title">Translated & Accents (UK)</div>
+                                <div class="stage-content stage-stressed">${p.stressed}</div>
+                            </div>
+                        </div>
+                        ${p.has_audio ? `
+                        <div class="audio-wrapper">
+                            <span class="audio-label">🔊 Listen Segment Preview:</span>
+                            <audio controls src="/api/preview/audio/${slug}/${p.hash}"></audio>
+                        </div>
+                        ` : ''}
+                    `;
+                    list.appendChild(card);
+                });
+            };
+
+            const filters = document.querySelectorAll(".filter-btn");
+            filters.forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    filters.forEach(b => b.classList.remove("active"));
+                    btn.classList.add("active");
+                    renderItems(btn.dataset.filter);
+                });
+            });
+
+            renderItems("all");
+        }
+
+        fetchBookData();
+    </script>
+</body>
+</html>"""
+    return render_template_string(html_content, slug=slug)
+
+@app.route("/api/preview/audio/<slug>/<chunk_hash>")
+@auth.login_required
+def preview_audio(slug, chunk_hash):
+    if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
+        return "Invalid parameters", 400
+    paths = resolve_book_paths(repo_dir, slug)
+    for voice_slug in ["styletts2", "supertonic-3-tts-int8"]:
+        wav_path = os.path.join(paths["audio_dir"], f"chunks_{voice_slug}", f"{chunk_hash}.wav")
+        if os.path.exists(wav_path):
+            return send_file(wav_path, mimetype="audio/wav")
+    return "Audio not found", 404
+
+@app.route("/api/preview/manga/<slug>")
+@auth.login_required
+def preview_manga(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+        
+    paths = resolve_book_paths(repo_dir, slug)
+    config_path = paths["config_path"]
+    if not os.path.exists(config_path):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+        
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+        
+    if not cfg.get("is_manga", False):
+        return jsonify({"status": "error", "message": "Not a manga"}), 400
+        
+    source_ext = ""
+    for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf"]:
+        if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
+            source_ext = possible_ext
+            break
+            
+    if not source_ext:
+        return jsonify({"status": "error", "message": "Manga source file not found"}), 400
+        
+    source_file = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
+    translated_file = os.path.join(paths["book_dir"], "output", f"{slug}_translated_{cfg.get('target_lang', 'uk')}.cbz")
+    
+    preview_cache = os.path.join(paths["book_dir"], "preview_cache")
+    os.makedirs(preview_cache, exist_ok=True)
+    
+    src_preview_dir = os.path.join(preview_cache, "source")
+    os.makedirs(src_preview_dir, exist_ok=True)
+    if not os.listdir(src_preview_dir):
+        try:
+            if source_ext in [".zip", ".cbz"]:
+                subprocess.run(["unzip", "-j", source_file, "*.png", "*.jpg", "*.jpeg", "-d", src_preview_dir], capture_output=True)
+            elif source_ext in [".rar", ".cbr"]:
+                subprocess.run(["unrar", "e", source_file, "-d", src_preview_dir], capture_output=True)
+            elif source_ext == ".pdf":
+                subprocess.run(["pdftoppm", "-png", "-f", "1", "-l", "5", "-r", "100", source_file, os.path.join(src_preview_dir, "page")], capture_output=True)
+        except Exception:
+            pass
+            
+    tgt_preview_dir = os.path.join(preview_cache, "translated")
+    os.makedirs(tgt_preview_dir, exist_ok=True)
+    if os.path.exists(translated_file) and not os.listdir(tgt_preview_dir):
+        try:
+            subprocess.run(["unzip", "-j", translated_file, "*.png", "*.jpg", "*.jpeg", "-d", tgt_preview_dir], capture_output=True)
+        except Exception:
+            pass
+            
+    from natsort import natsorted
+    src_files = natsorted([f for f in os.listdir(src_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    tgt_files = natsorted([f for f in os.listdir(tgt_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    
+    return jsonify({
+        "status": "success",
+        "source_pages": src_files[:10],
+        "translated_pages": tgt_files[:10]
+    })
+
+@app.route("/api/preview/manga-file/<slug>/<folder>/<filename>")
+@auth.login_required
+def serve_manga_preview_file(slug, folder, filename):
+    if not validate_slug(slug) or folder not in ["source", "translated"]:
+        return "Invalid parameters", 400
+    paths = resolve_book_paths(repo_dir, slug)
+    file_path = os.path.join(paths["book_dir"], "preview_cache", folder, filename)
+    if os.path.exists(file_path):
+        return send_file(file_path)
+    return "Not found", 404
+
+@app.route("/api/preview/book/<slug>")
+@auth.login_required
+def preview_book_stages(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+        
+    paths = resolve_book_paths(repo_dir, slug)
+    config_path = paths["config_path"]
+    if not os.path.exists(config_path):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+        
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+        
+    target_lang = cfg.get("target_lang", "uk")
+    source_lang = cfg.get("source_lang", "ru")
+    
+    trans_cache = {}
+    if os.path.exists(paths["translate_cache"]):
+        try:
+            with open(paths["translate_cache"], "r", encoding="utf-8") as f:
+                trans_cache = json.load(f)
+        except Exception:
+            pass
+            
+    stress_cache = {}
+    stress_cache_path = os.path.join(paths["book_dir"], "translated", f"stress_cache_{target_lang}.json")
+    if os.path.exists(stress_cache_path):
+        try:
+            with open(stress_cache_path, "r", encoding="utf-8") as f:
+                stress_cache = json.load(f)
+        except Exception:
+            pass
+            
+    import hashlib
+    def get_hash(text):
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
+        
+    from kbg_web.status_helper import split_paragraph_to_chunks
+    
+    tts_engine = cfg.get("tts_engine", "supertonic3")
+    voice_slug = "styletts2" if tts_engine == "styletts2" else "supertonic-3-tts-int8"
+    chunks_dir = os.path.join(paths["audio_dir"], f"chunks_{voice_slug}")
+    
+    suffix = f"_translated_{target_lang}" if (target_lang != source_lang) else ""
+    if suffix:
+        target_md_file = os.path.join(paths["translated_dir"], f"merged_translated_{target_lang}.md")
+    else:
+        target_md_file = os.path.join(paths["translated_dir"], f"merged_source_{source_lang}.md")
+        
+    paragraphs = []
+    if os.path.exists(target_md_file):
+        try:
+            with open(target_md_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            raw_paragraphs = re.split(r'\n\s*\n', content)
+            
+            max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
+            
+            count = 0
+            for p in raw_paragraphs:
+                p = p.strip()
+                if not p or p.startswith("#"):
+                    continue
+                chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
+                for chunk in chunks:
+                    chunk = chunk.strip()
+                    if not chunk:
+                        continue
+                    h = get_hash(chunk)
+                    
+                    original = ""
+                    for k, v in trans_cache.items():
+                        if v.strip() == chunk:
+                            original = k
+                            break
+                    if not original:
+                        original = chunk
+                        
+                    stressed = stress_cache.get(h, chunk)
+                    has_audio = os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
+                    
+                    paragraphs.append({
+                        "hash": h,
+                        "original": original,
+                        "translated": chunk,
+                        "stressed": stressed,
+                        "has_audio": has_audio
+                    })
+                    count += 1
+                    if count >= 30:
+                        break
+                if count >= 30:
+                    break
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Error parsing book: {e}"}), 500
+            
+    return jsonify({
+        "status": "success",
+        "tts_engine": tts_engine,
+        "paragraphs": paragraphs
+    })
 
 if __name__ == "__main__":
     import argparse

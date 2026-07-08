@@ -237,6 +237,7 @@ def main():
     parser.add_argument("--lang", default="en", choices=["en", "ja"], help="Manga source language (en=English, ja=Japanese)")
     parser.add_argument("--glossary", help="Path to glossary.json file")
     parser.add_argument("--api-url", default="http://127.0.0.1:8081/v1/chat/completions", help="llama-server API Endpoint")
+    parser.add_argument("--progress-file", help="Path to write progress JSON")
     args = parser.parse_args()
 
     # Load glossary if provided
@@ -284,6 +285,12 @@ def main():
 
         for idx, page_path in enumerate(pages):
             log(f"Page {idx+1}/{len(pages)}: {os.path.basename(page_path)}")
+            if args.progress_file:
+                try:
+                    with open(args.progress_file, "w", encoding="utf-8") as pf:
+                        json.dump({"current_page": idx + 1, "total_pages": len(pages)}, pf)
+                except Exception:
+                    pass
             img = cv2.imread(page_path)
             if img is None:
                 log(f"Warning: Failed to read page {page_path}")
@@ -376,6 +383,12 @@ def main():
             for f in os.listdir(temp_out):
                 shutil.copy(os.path.join(temp_out, f), os.path.join(args.output, f))
                 
+        if args.progress_file:
+            try:
+                with open(args.progress_file, "w", encoding="utf-8") as pf:
+                    json.dump({"current_page": len(pages), "total_pages": len(pages)}, pf)
+            except Exception:
+                pass
         log("Manga translation completed successfully!")
         
     finally:
