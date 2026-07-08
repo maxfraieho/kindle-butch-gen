@@ -176,9 +176,14 @@ def main():
     lang_code = info["code"]
     hf_dir = info["hf_dir"]
     
-    tts_engine = "supertonic3"
-    voice_slug = "supertonic-3-tts-int8"
-    model_path = ""
+    tts_engine = paths.get("tts_engine", "supertonic3")
+    if tts_engine == "styletts2":
+        voice_slug = "styletts2"
+        model_path = os.path.join(repo_dir, "models", "styletts2", "model.onnx")
+    else:
+        tts_engine = "supertonic3"
+        voice_slug = "supertonic-3-tts-int8"
+        model_path = ""
 
     # Set up directories
     book_dir = paths["book_dir"]

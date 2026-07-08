@@ -345,6 +345,7 @@ def dashboard():
 
         .fill-marker { background: #3b82f6; }
         .fill-translation { background: #8b5cf6; }
+        .fill-stress { background: #f59e0b; }
         .fill-tts { background: #10b981; }
 
         /* Control Panel */
@@ -1129,6 +1130,15 @@ def dashboard():
                                 </div>
                                 <div class="progress-item">
                                     <div class="progress-label">
+                                        <span>Stressifier (NLP)</span>
+                                        <span>${book.progress.stress_percent}%</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div class="progress-bar-fill fill-stress" style="width: ${book.progress.stress_percent}%"></div>
+                                    </div>
+                                </div>
+                                <div class="progress-item">
+                                    <div class="progress-label">
                                         <span>TTS Audio</span>
                                         <span>${book.progress.tts_percent}%</span>
                                     </div>
@@ -1628,7 +1638,7 @@ def list_books():
             # Calculate progress
             prog = calculate_progress(entry)
             if "error" in prog:
-                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "tts_percent": 0.0}
+                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
                 
             # Scan output files
             output_dir = os.path.join(entry_path, "output")
@@ -2034,6 +2044,7 @@ def status_api(slug):
         "is_running": is_running,
         "marker_percent": prog["marker_percent"],
         "translation_percent": prog["translation_percent"],
+        "stress_percent": prog["stress_percent"],
         "tts_percent": prog["tts_percent"],
         "logs": log_lines
     })

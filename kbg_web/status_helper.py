@@ -197,13 +197,11 @@ def calculate_progress(slug):
         translation_percent = (completed_trans_pages / total_pages * 100) if total_pages > 0 else 0.0
 
     # 3. TTS Progress
-    voice = paths.get("tts_voice", "ukrainian_tts")
-    voice_quality = paths.get("tts_voice_quality", "medium")
-    if voice == "ukrainian_tts" or voice_quality == "medium":
-        model_filename = "uk_UA-ukrainian_tts-medium.onnx"
+    tts_engine = paths.get("tts_engine", "supertonic3")
+    if tts_engine == "styletts2":
+        voice_slug = "styletts2"
     else:
-        model_filename = "uk_UA-lada-x_low.onnx"
-    voice_slug = os.path.splitext(model_filename)[0]
+        voice_slug = "supertonic-3-tts-int8"
     
     tts_cache_path = os.path.join(paths["cache_dir"], f"tts_cache_{voice_slug}.json")
     tts_cache = {}
@@ -216,13 +214,22 @@ def calculate_progress(slug):
             
     chunks_dir = os.path.join(paths["audio_dir"], f"chunks_{voice_slug}")
     
-    # Calculate directly from the merged markdown file if it exists
+    # 4. Stressifier Progress
+    stress_cache_path = os.path.join(paths["book_dir"], "translated", f"stress_cache_{paths['target_lang']}.json")
+    stress_cache = {}
+    if os.path.exists(stress_cache_path):
+        try:
+            with open(stress_cache_path, "r", encoding="utf-8") as f:
+                stress_cache = json.load(f)
+        except Exception:
+            pass
+
     suffix = f"_translated_{paths['target_lang']}" if (paths["target_lang"] != paths["source_lang"]) else ""
     if suffix:
         target_md_file = os.path.join(paths["translated_dir"], f"merged_translated_{paths['target_lang']}.md")
     else:
         target_md_file = os.path.join(paths["translated_dir"], f"merged_source_{paths['source_lang']}.md")
-        
+
     if os.path.exists(target_md_file) and os.path.getsize(target_md_file) > 0:
         try:
             with open(target_md_file, "r", encoding="utf-8") as f:
@@ -238,23 +245,30 @@ def calculate_progress(slug):
             
             if chunk_texts:
                 completed_chunks = 0
+                completed_stress = 0
                 for text in chunk_texts:
                     h = get_hash(text)
                     wav_file = os.path.join(chunks_dir, f"{h}.wav")
                     if h in tts_cache and os.path.exists(wav_file):
                         completed_chunks += 1
+                    if h in stress_cache:
+                        completed_stress += 1
                 tts_percent = (completed_chunks / len(chunk_texts) * 100)
+                stress_percent = (completed_stress / len(chunk_texts) * 100)
             else:
                 tts_percent = 100.0
+                stress_percent = 100.0
         except Exception:
             tts_percent = 0.0
+            stress_percent = 0.0
     else:
-        # Fallback to 0 if the merged file does not exist yet
         tts_percent = 0.0
+        stress_percent = 0.0
     
     return {
         "marker_percent": round(marker_percent, 1),
         "translation_percent": round(translation_percent, 1),
+        "stress_percent": round(stress_percent, 1),
         "tts_percent": round(tts_percent, 1)
     }
 
