@@ -208,6 +208,24 @@ def run_styletts2(payload):
                 indexes.append(vocab_dict[char])
         tokens = np.array(indexes, dtype=np.int64)
 
+        if len(tokens) == 0:
+            print(f"[TTSHelper] Warning: Token list is empty for chunk {chunk_hash} ('{text}'). Generating silent WAV.", file=sys.stderr)
+            output_file = os.path.join(output_dir, f"{chunk_hash}.wav")
+            silence_samples = [0] * 2400
+            try:
+                with wave.open(output_file, "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(24000)
+                    packed_data = struct.pack(f"{len(silence_samples)}h", *silence_samples)
+                    wav_file.writeframes(packed_data)
+                cache[chunk_hash] = text
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(cache, f, ensure_ascii=False, indent=2)
+            except Exception as ce:
+                print(f"[TTSHelper] Error writing silent WAV: {ce}", file=sys.stderr)
+            continue
+
         output_file = os.path.join(output_dir, f"{chunk_hash}.wav")
 
         if i < 5:

@@ -135,6 +135,37 @@ def calculate_progress(slug):
             "tts_percent": 0.0,
             "error": "Book directory does not exist"
         }
+        
+    # Check if manga
+    config_path = paths["config_path"]
+    is_manga = False
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                is_manga = cfg.get("is_manga", False)
+        except Exception:
+            pass
+            
+    if is_manga:
+        manga_progress_path = os.path.join(book_dir, "manga_progress.json")
+        manga_percent = 0.0
+        if os.path.exists(manga_progress_path):
+            try:
+                with open(manga_progress_path, "r", encoding="utf-8") as f:
+                    mp = json.load(f)
+                    curr = mp.get("current_page", 0)
+                    tot = mp.get("total_pages", 0)
+                    if tot > 0:
+                        manga_percent = round((curr / tot) * 100.0, 1)
+            except Exception:
+                pass
+        return {
+            "marker_percent": manga_percent,
+            "translation_percent": manga_percent,
+            "stress_percent": manga_percent,
+            "tts_percent": manga_percent
+        }
     
     pdf_path = paths.get("pdf_path")
     has_pdf = pdf_path and os.path.exists(pdf_path)
@@ -236,8 +267,9 @@ def calculate_progress(slug):
                 content = f.read()
             paragraphs = re.split(r'\n\s*\n', content)
             chunk_texts = []
+            max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
             for p in paragraphs:
-                chunks = split_paragraph_to_chunks(p, max_chars=1000)
+                chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
                 for chunk in chunks:
                     chunk = chunk.strip()
                     if chunk:
