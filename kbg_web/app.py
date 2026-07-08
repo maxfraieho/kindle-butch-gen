@@ -29,6 +29,37 @@ TTS_ENGINES = {
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
+from flask_httpauth import HTTPBasicAuth
+from werkzeug.security import generate_password_hash, check_password_hash
+
+auth = HTTPBasicAuth()
+
+credentials_file = os.path.join(repo_dir, "web_credentials.json")
+if os.path.exists(credentials_file):
+    try:
+        with open(credentials_file, "r") as f:
+            users_data = json.load(f)
+    except Exception:
+        users_data = {"vokov": generate_password_hash("0523")}
+else:
+    users_data = {"vokov": generate_password_hash("0523")}
+    try:
+        with open(credentials_file, "w") as f:
+            json.dump({"vokov": generate_password_hash("0523")}, f)
+    except Exception:
+        pass
+
+@auth.verify_password
+def verify_password(username, password):
+    if username in users_data:
+        return check_password_hash(users_data.get(username), password)
+    return False
+
+@app.before_request
+@auth.login_required
+def require_login():
+    pass
+
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return jsonify({"status": "error", "message": "File is too large (maximum allowed size is 200MB)"}), 413
@@ -2264,5 +2295,5 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Run in Flask debug mode")
     args = parser.parse_args()
     
-    app.run(host="127.0.0.1", port=args.port, debug=args.debug)
+    app.run(host="0.0.0.0", port=args.port, debug=args.debug)
 
