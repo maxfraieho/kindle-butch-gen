@@ -29,7 +29,9 @@ log "Starting deployment of kindle-butch-gen on OnePlus 13..."
 # -------------------------------------------------------------
 log "Installing host Termux packages..."
 pkg update -y
-pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg
+pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip
+pip install --upgrade pip || true
+pip install Flask flask-httpauth requests ukrainian_word_stress ipa-uk tqdm marisa-trie blinker
 success "Termux host packages installed."
 
 # -------------------------------------------------------------
@@ -73,7 +75,7 @@ set -euo pipefail
 
 echo "=== [Ubuntu Setup] ==="
 apt update
-apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg
+apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg tesseract-ocr unrar-free p7zip-full libfreetype6-dev
 
 # 1. Configure OpenCL ICD for Qualcomm Adreno GPU
 echo "Configuring Adreno GPU OpenCL drivers..."
@@ -105,15 +107,12 @@ make -j$(nproc)
 cp bin/llama-cli bin/llama-server /usr/local/bin/
 echo "llama.cpp compiled and installed to /usr/local/bin/."
 
-# 3. Setup Python Virtual Environment for OCR (Marker) and PyTorch
-echo "Setting up Python virtual environment for OCR..."
-cd /home/vokov || mkdir -p /home/vokov && cd /home/vokov
-python3 -m venv venv-ocr
-source venv-ocr/bin/activate
-pip install --upgrade pip
+# 3. Setup Python OCR, Manga translation, and ML dependencies
+echo "Installing Python dependencies (PyTorch, Transformers, Marker, Manga-OCR, Mokuro, PyTesseract)..."
+pip install --upgrade pip --break-system-packages || true
 # Install PyTorch (CPU version is optimized with OpenMP on Snapdragon ARM64)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install marker-pdf pydantic transformers
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --break-system-packages
+pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract --break-system-packages
 
 echo "=== [Ubuntu Setup Completed] ==="
 EOF
