@@ -189,7 +189,8 @@ def calculate_progress(slug):
     
     # 2. Translation Progress
     should_translate = paths["target_lang"] != paths["source_lang"]
-    if not should_translate or not has_pdf or not page_ranges:
+    merged_translated = os.path.join(book_dir, "translated", f"merged_translated_{paths['target_lang']}.md")
+    if not should_translate or not has_pdf or not page_ranges or (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0):
         translation_percent = 100.0
     else:
         translate_cache = {}
