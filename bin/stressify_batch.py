@@ -40,6 +40,27 @@ class NeuralStressifier:
 def normalize_accents(text):
     return text.replace("\u00b4", "\u0301")
 
+def replace_numbers_with_words(text, lang="uk"):
+    import re
+    try:
+        import num2words
+    except ImportError:
+        return text
+
+    pattern = r'\d+([.,]\d+)?'
+    def repl(match):
+        val_str = match.group(0)
+        val_str_normalized = val_str.replace(",", ".")
+        try:
+            if "." in val_str_normalized:
+                val = float(val_str_normalized)
+            else:
+                val = int(val_str_normalized)
+            return num2words.num2words(val, lang=lang)
+        except Exception:
+            return val_str
+    return re.sub(pattern, repl, text)
+
 def main():
     input_path = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
     output_path = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
@@ -74,7 +95,11 @@ def main():
         h = chunk.get("hash")
         text = chunk.get("text", "")
 
-        # 1. Add word stress if Ukrainian
+        # 1. Expand numbers to words for Ukrainian
+        if lang == "uk":
+            text = replace_numbers_with_words(text, lang="uk")
+
+        # 2. Add word stress if Ukrainian
         if lang == "uk" and stressifier is not None:
             try:
                 stressed_text = stressifier(text)

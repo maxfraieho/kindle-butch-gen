@@ -17,28 +17,124 @@ from common.epub_validate import sanitize_xhtml_for_xml_parser
 from common.book_paths import resolve_book_paths
 
 
+def translate_epub_images(temp_dir, source_lang, repo_dir):
+    # Walk temp_dir and find all images
+    image_extensions = [".png", ".jpg", ".jpeg", ".webp"]
+    images_to_translate = []
+    
+    for root, dirs, files in os.walk(temp_dir):
+        for file in files:
+            ext = os.path.splitext(file)[1].lower()
+            if ext in image_extensions:
+                # Skip cover images to avoid translating cover text
+                if "cover" in file.lower():
+                    continue
+                images_to_translate.append(os.path.join(root, file))
+                
+    if not images_to_translate:
+        log("No illustration images found to translate.")
+        return
+        
+    log(f"Found {len(images_to_translate)} illustration image(s) to process via Manga Translator.")
+    
+    # Process each image using translate_manga.py inside PRoot container
+    for img_idx, img_path in enumerate(images_to_translate):
+        log(f"Processing image {img_idx+1}/{len(images_to_translate)}: {os.path.basename(img_path)}")
+        
+        # Create a temporary output dir for this image
+        out_dir = os.path.join(os.path.dirname(img_path), "manga_out_temp")
+        os.makedirs(out_dir, exist_ok=True)
+        
+        cmd = [
+            "proot-distro", "login", "ubuntu", "--",
+            "python3", os.path.join(repo_dir, "translate_manga.py"),
+            "--input", img_path,
+            "--output", out_dir,
+            "--lang", source_lang
+        ]
+        
+        try:
+            import subprocess
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                basename = os.path.basename(img_path)
+                processed_img = os.path.join(out_dir, basename)
+                if os.path.exists(processed_img):
+                    shutil.copy2(processed_img, img_path)
+                    log(f"  Successfully replaced illustration: {basename}")
+                else:
+                    files_in_out = os.listdir(out_dir)
+                    if files_in_out:
+                        shutil.copy2(os.path.join(out_dir, files_in_out[0]), img_path)
+                        log(f"  Replaced illustration with: {files_in_out[0]}")
+            else:
+                log(f"  Warning: Manga translator failed on image: {res.stderr}")
+        except Exception as e:
+            log(f"  Warning: Failed to run manga translator on image: {e}")
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+
 def log(message):
     print(f"[EPUB-Translate] {message}", flush=True)
 
 def get_hash(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
-def translate_text(text, api_url, target_lang="uk", temperature=0.7):
+def to_xml_format(text):
+    prefix_map = {
+        "IMAGE_LINE": "img",
+        "CODE_BLOCK": "code",
+        "MATH_BLOCK": "math",
+        "MATH_INLINE": "mi",
+        "INLINE_CODE": "ic",
+        "LINK_URL": "link",
+        "RAW_URL": "url",
+        "HTML_TAG": "tag"
+    }
+    def repl(match):
+        prefix = match.group(1)
+        num = match.group(2)
+        short = prefix_map.get(prefix, "t")
+        return f"[{short}{num}]"
+    return re.sub(r"__([A-Z_]+?)_(\d+)__", repl, text)
+
+def to_prefix_format(text, pm):
+    def repl(match):
+        num = match.group(2)
+        suffix = f"_{num}__"
+        for key in pm.placeholders.keys():
+            if key.endswith(suffix):
+                return key
+        return match.group(0)
+    return re.sub(r"\[\s*([a-zA-Z]+)[-_\s]*(\d+)\s*\]", repl, text)
+
+def translate_text(text, api_url, target_lang="uk", temperature=0.2):
     lang_map = {
         "uk": "Ukrainian",
         "ru": "Russian",
         "en": "English"
     }
     target_lang_full = lang_map.get(target_lang, "Ukrainian")
-    prompt = f"Translate the following text into {target_lang_full}:\n\n{text}"
+    
+    prompt = (
+        f"Виконай роль професійного перекладача на {target_lang_full} мову. Переклади наданий текст.\n"
+        "Суворі правила обробки:\n"
+        "1. Перекладений текст має повністю відповідати вхідному за структурою та змістом.\n"
+        "2. Категорично заборонено перекладати, змінювати, видаляти або переміщувати будь-які службові мітки та теги з подвійними підкресленнями (наприклад, __HTML_TAG_1__, __HTML_TAG_2__ тощо). Збережи їх у точності так, як вони вказані у вхідному тексті.\n"
+        "3. Поверни виключно перекладений текст без будь-яких додаткових пояснень, вступних слів чи коментарів.\n\n"
+        f"Вхідний текст для перекладу:\n{text}"
+    )
+    
     headers = {"Content-Type": "application/json"}
+    # Calculate a safe dynamic token limit based on text size (approx 4 chars per token)
+    calc_max_tokens = min(2048, max(256, len(text) * 3))
     data = {
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
-        "top_p": 0.6,
-        "top_k": 20,
-        "repetition_penalty": 1.05,
-        "max_tokens": 4096
+        "top_p": 1.0,
+        "max_tokens": calc_max_tokens,
+        "stop": ["<|im_end|>", "<|im_start|>", "<|endoftext|>", "user\n", "assistant\n"]
     }
     
     try:
@@ -54,7 +150,8 @@ def translate_text(text, api_url, target_lang="uk", temperature=0.7):
             f"here is the translation into {target_lang_full.lower()}:",
             f"переклад {target_lang_full.lower()}ською:",
             "translation:",
-            "ось переклад:"
+            "ось переклад:",
+            "переклад:"
         ]
         for pref in clean_prefixes:
             if translated.lower().startswith(pref):
@@ -75,6 +172,8 @@ def validate_translation_segment(original, translated):
     
     if missing or extra:
         log("Validation failure: Placeholders mismatch!")
+        log(f"Original segment: {original!r}")
+        log(f"Translated segment: {translated!r}")
         if missing:
             log(f"Missing in translation: {missing}")
         if extra:
@@ -84,21 +183,47 @@ def validate_translation_segment(original, translated):
 
 def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3):
     temp = 0.7
+    xml_segment = to_xml_format(segment)
+    orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", segment))
+    last_translated = None
+    
     for attempt in range(max_retries):
         if attempt > 0:
             temp = 0.1
             log(f"Retrying translation of segment (attempt {attempt+1}/{max_retries}) with temperature {temp}...")
             
-        translated = translate_text(segment, api_url, target_lang=target_lang, temperature=temp)
+        translated = translate_text(xml_segment, api_url, target_lang=target_lang, temperature=temp)
         if not translated:
             continue
             
+        translated = to_prefix_format(translated, pm)
         translated = pm.normalize_placeholders(translated)
+        
+        last_translated = translated
             
         if validate_translation_segment(segment, translated):
             return translated
         else:
             log(f"Segment validation failed on attempt {attempt+1}.")
+            
+    # If all attempts failed, rescue by adjusting missing/extra placeholders
+    if last_translated:
+        trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", last_translated))
+        missing = orig_placeholders - trans_placeholders
+        extra = trans_placeholders - orig_placeholders
+        
+        rescued = last_translated
+        if extra:
+            log(f"Stripping extra placeholders from translation: {extra}")
+            for ex in extra:
+                rescued = rescued.replace(ex, "")
+                
+        if missing:
+            log(f"Appending missing placeholders to translation: {missing}")
+            rescued = rescued + " " + " ".join(sorted(list(missing)))
+            
+        if validate_translation_segment(segment, rescued):
+            return rescued
             
     log("Warning: Segment validation failed after all retries. Falling back to ORIGINAL protected segment to preserve placeholders (images/links/code).")
     return segment
@@ -196,15 +321,18 @@ def main():
         except Exception as e:
             log(f"Warning: Failed to load cache: {e}. Starting fresh.")
             
-    # Unpack EPUB to temp folder
-    temp_dir = tempfile.mkdtemp(prefix="epub_trans_")
+    # Unpack EPUB to temp folder inside book directory (accessible to PRoot container)
+    temp_dir = os.path.join(paths["book_dir"], "temp_epub_trans")
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir, exist_ok=True)
     log(f"Extracting EPUB to temporary directory: {temp_dir}")
     try:
         with zipfile.ZipFile(args.input, "r") as z:
             z.extractall(temp_dir)
     except Exception as e:
         log(f"Error: Failed to extract EPUB file: {e}")
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         sys.exit(1)
         
     # Locate OPF file via container.xml
@@ -273,6 +401,29 @@ def main():
     total_translated_blocks = 0
     total_cached_blocks = 0
     
+    # Count total block elements to translate
+    total_blocks = 0
+    for item_href in xhtml_items:
+        f_path = os.path.join(opf_dir, item_href)
+        if os.path.exists(f_path):
+            try:
+                with open(f_path, "rb") as f:
+                    r_bytes = f.read()
+                sanitized_xml = sanitize_xhtml_for_xml_parser(r_bytes)
+                h_root = ET.fromstring(sanitized_xml.encode('utf-8'))
+                for el in h_root.iter():
+                    if el.tag in block_tags:
+                        text = el.text or ''
+                        children_str = ''.join(ET.tostring(child, encoding='utf-8').decode('utf-8') for child in el)
+                        inner_xml = text + children_str
+                        if inner_xml.strip():
+                            total_blocks += 1
+            except Exception:
+                pass
+    log(f"Total block elements to translate across all files: {total_blocks}")
+    
+    completed_blocks_count = 0
+    
     for item_idx, item_href in enumerate(xhtml_items):
         file_path = os.path.join(opf_dir, item_href)
         log(f"Translating file {item_idx+1}/{len(xhtml_items)}: {item_href}")
@@ -301,6 +452,20 @@ def main():
                     
                     if not inner_xml.strip():
                         continue
+                        
+                    completed_blocks_count += 1
+                    try:
+                        prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
+                        with open(prog_path, "w", encoding="utf-8") as pf:
+                            json.dump({
+                                "current_file": item_idx + 1,
+                                "total_files": len(xhtml_items),
+                                "percent": round((completed_blocks_count / total_blocks) * 100.0, 1) if total_blocks > 0 else 0.0,
+                                "completed_blocks": completed_blocks_count,
+                                "total_blocks": total_blocks
+                            }, pf)
+                    except Exception:
+                        pass
                         
                     # Calculate hash
                     h = get_hash(inner_xml)
@@ -389,6 +554,9 @@ def main():
     except Exception as e:
         log(f"Warning: Failed to update language metadata in OPF file: {e}")
         
+    # Translate illustrations/images using Manga Translator
+    translate_epub_images(temp_dir, paths.get("source_lang", "en"), repo_dir)
+        
     # Re-pack EPUB to final output path (Kindle-compatible ZIP layout)
     log(f"Re-packaging translated EPUB to: {args.output}")
     if os.path.exists(args.output):
@@ -416,6 +584,17 @@ def main():
         log(f"Error: Failed to re-package EPUB: {e}")
     finally:
         shutil.rmtree(temp_dir)
+        
+    try:
+        prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
+        with open(prog_path, "w", encoding="utf-8") as pf:
+            json.dump({
+                "current_file": len(xhtml_items),
+                "total_files": len(xhtml_items),
+                "percent": 100.0
+            }, pf)
+    except Exception:
+        pass
         
     log("=== EPUB TRANSLATION PIPELINE FULLY COMPLETED ===")
 

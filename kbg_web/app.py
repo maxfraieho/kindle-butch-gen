@@ -29,6 +29,13 @@ TTS_ENGINES = {
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
+@app.after_request
+def add_header(response):
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '-1'
+    return response
+
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -66,6 +73,44 @@ def request_entity_too_large(error):
 
 # Registry of active background processes: {slug: subprocess.Popen}
 active_processes = {}
+completed_copied = set()
+
+def is_book_process_running(slug):
+    # Scan /proc for running python processes that match this book slug
+    import os
+    try:
+        for pid_str in os.listdir("/proc"):
+            if pid_str.isdigit():
+                try:
+                    with open(f"/proc/{pid_str}/cmdline", "r") as f:
+                        cmdline = f.read()
+                    if slug in cmdline and ("translate_epub.py" in cmdline or "translate_manga.py" in cmdline or "run_conversion_batches.py" in cmdline):
+                        return True
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return False
+
+def handle_process_completion(slug, proc):
+    if proc.poll() == 0:
+        try:
+            settings = load_global_settings()
+            out_root = settings.get("output_root")
+            if out_root:
+                os.makedirs(out_root, exist_ok=True)
+                paths = resolve_book_paths(repo_dir, slug)
+                local_out_dir = paths["output_dir"]
+                if os.path.exists(local_out_dir):
+                    import shutil
+                    for filename in os.listdir(local_out_dir):
+                        src_path = os.path.join(local_out_dir, filename)
+                        if os.path.isfile(src_path):
+                            dest_path = os.path.join(out_root, filename)
+                            shutil.copy2(src_path, dest_path)
+                            print(f"[CompletionHelper] Copied {filename} to {dest_path}")
+        except Exception as e:
+            print(f"[CompletionHelper] Error copying completion files: {e}")
 
 def validate_slug(slug):
     return bool(re.match(r"^[a-z0-9_-]+$", slug))
@@ -376,6 +421,7 @@ def dashboard():
 
         .fill-marker { background: #3b82f6; }
         .fill-translation { background: #8b5cf6; }
+        .fill-edit { background: #ec4899; }
         .fill-stress { background: #f59e0b; }
         .fill-tts { background: #10b981; }
 
@@ -865,6 +911,10 @@ def dashboard():
                             <option value="en">English (en)</option>
                         </select>
                     </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 1.5rem;">
+                        <input type="checkbox" id="is_manga" style="width: auto; margin: 0; cursor: pointer;">
+                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Is Manga / Comic (Images)</label>
+                    </div>
                     <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
                 </form>
             </div>
@@ -964,6 +1014,7 @@ def dashboard():
             const source_lang = document.getElementById('source_lang').value;
             const fileInput = document.getElementById('file_upload');
             const pdf_path = document.getElementById('pdf_path').value.trim();
+            const is_manga = document.getElementById('is_manga').checked;
             
             const submitBtn = document.getElementById('addBookSubmit');
             submitBtn.disabled = true;
@@ -979,6 +1030,7 @@ def dashboard():
                 formData.append('lang', lang);
                 formData.append('source_lang', source_lang);
                 formData.append('file', fileInput.files[0]);
+                formData.append('is_manga', is_manga ? 'true' : 'false');
 
                 try {
                     const response = await fetch('/api/upload', {
@@ -1011,7 +1063,7 @@ def dashboard():
                     const response = await fetch('/api/add', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ slug, pdf_path, title, authors, lang })
+                        body: JSON.stringify({ slug, pdf_path, title, authors, lang, source_lang, is_manga })
                     });
                     const res = await response.json();
                     if (response.ok) {
@@ -1130,16 +1182,32 @@ def dashboard():
                         ).join('');
                     }
                     
-                    return `
-                        <div class="glass-card book-card">
-                            <div class="book-header">
-                                <div class="book-info">
-                                    <h3>${book.title}</h3>
-                                    <p>by ${book.authors} | Slug: <code>${book.slug}</code> | Lang: ${book.target_lang}</p>
+                    let progressHtml = '';
+                    let optionsHtml = '';
+                    if (book.progress.is_manga) {
+                        const comp = book.progress.manga_pages_completed || 0;
+                        const tot = book.progress.manga_total_pages || 0;
+                        const pct = book.progress.manga_percent || 0;
+                        progressHtml = `
+                            <div class="progress-section">
+                                <div class="progress-item">
+                                    <div class="progress-label">
+                                        <span>Manga Page Translation</span>
+                                        <span>${pct}% (${comp} of ${tot} pages)</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div class="progress-bar-fill fill-translation" style="width: ${pct}%"></div>
+                                    </div>
                                 </div>
-                                <span class="badge ${badgeClass}">${badgeText}</span>
                             </div>
-
+                        `;
+                        optionsHtml = `
+                            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
+                                📖 <strong>Manga Mode:</strong> Translates speech bubbles and packs layout images into a .cbz archive.
+                            </div>
+                        `;
+                    } else {
+                        progressHtml = `
                             <div class="progress-section">
                                 <div class="progress-item">
                                     <div class="progress-label">
@@ -1161,6 +1229,15 @@ def dashboard():
                                 </div>
                                 <div class="progress-item">
                                     <div class="progress-label">
+                                        <span>Proofreading (GEC)</span>
+                                        <span>${book.progress.edit_percent || 0}%</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div class="progress-bar-fill fill-edit" style="width: ${book.progress.edit_percent || 0}%"></div>
+                                    </div>
+                                </div>
+                                <div class="progress-item">
+                                    <div class="progress-label">
                                         <span>Stressifier (NLP)</span>
                                         <span>${book.progress.stress_percent}%</span>
                                     </div>
@@ -1178,13 +1255,30 @@ def dashboard():
                                     </div>
                                 </div>
                             </div>
-
+                        `;
+                        optionsHtml = `
                             <div class="options-group" id="opts-${book.slug}">
                                 <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Clean</label>
                                 <label class="option-checkbox"><input type="checkbox" id="notrans-${book.slug}"> No Translate</label>
                                 <label class="option-checkbox"><input type="checkbox" id="noebook-${book.slug}"> No Ebook</label>
                                 <label class="option-checkbox"><input type="checkbox" id="noaudio-${book.slug}"> No Audio</label>
                             </div>
+                        `;
+                    }
+
+                    return `
+                        <div class="glass-card book-card">
+                            <div class="book-header">
+                                <div class="book-info">
+                                    <h3>${book.title}</h3>
+                                    <p>by ${book.authors} | Slug: <code>${book.slug}</code> | Lang: ${book.target_lang}</p>
+                                </div>
+                                <span class="badge ${badgeClass}">${badgeText}</span>
+                            </div>
+
+                            ${progressHtml}
+
+                            ${optionsHtml}
 
                             <details class="settings-details" id="details-${book.slug}" ${detailsOpenAttr}>
                                 <summary>🛠️ TTS Settings</summary>
@@ -1243,6 +1337,10 @@ def dashboard():
                                 ${book.is_running 
                                     ? `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger">Stop Conversion</button>`
                                     : `<button onclick="runConversion('${book.slug}')" class="btn btn-success">Run Conversion</button>`
+                                }
+                                ${!book.is_running && book.output_files && book.output_files.length > 0
+                                    ? `<button onclick="rerunConversion('${book.slug}')" class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); color: white; border: none;">🔄 Re-run</button>`
+                                    : ''
                                 }
                                 <button onclick="selectBookForLogs('${book.slug}', '${book.title}')" class="btn btn-secondary">Console Logs</button>
                                 <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center;">Visual Preview</a>
@@ -1308,10 +1406,10 @@ def dashboard():
         }
 
         async function runConversion(slug) {
-            const clean = document.getElementById(`clean-${slug}`).checked;
-            const no_translate = document.getElementById(`notrans-${slug}`).checked;
-            const no_ebook = document.getElementById(`noebook-${slug}`).checked;
-            const no_audio = document.getElementById(`noaudio-${slug}`).checked;
+            const clean = document.getElementById(`clean-${slug}`)?.checked || false;
+            const no_translate = document.getElementById(`notrans-${slug}`)?.checked || false;
+            const no_ebook = document.getElementById(`noebook-${slug}`)?.checked || false;
+            const no_audio = document.getElementById(`noaudio-${slug}`)?.checked || false;
 
             try {
                 const response = await fetch(`/api/run/${slug}`, {
@@ -1325,6 +1423,30 @@ def dashboard():
                     selectBookForLogs(slug, slug);
                 } else {
                     alert('Error starting conversion: ' + res.message);
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            }
+        }
+
+        async function rerunConversion(slug) {
+            if (!confirm(`Re-run full conversion for "${slug}"? This will restart the pipeline from scratch (translation cache is preserved).`)) return;
+            const clean = document.getElementById(`clean-${slug}`)?.checked || false;
+            const no_translate = document.getElementById(`notrans-${slug}`)?.checked || false;
+            const no_ebook = document.getElementById(`noebook-${slug}`)?.checked || false;
+            const no_audio = document.getElementById(`noaudio-${slug}`)?.checked || false;
+            try {
+                const response = await fetch(`/api/run/${slug}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: true, clean, no_translate, no_ebook, no_audio })
+                });
+                const res = await response.json();
+                if (response.ok) {
+                    fetchBooks();
+                    selectBookForLogs(slug, slug);
+                } else {
+                    alert('Error re-running conversion: ' + res.message);
                 }
             } catch (err) {
                 alert('Request failed: ' + err.message);
@@ -1517,8 +1639,6 @@ def dashboard():
             const listEl = document.getElementById("fsList");
             listEl.innerHTML = `<p style="padding: 1rem; color: var(--text-secondary); text-align: center;">Loading folder contents...</p>`;
             
-            document.getElementById("fsCurrentPath").textContent = path;
-            
             try {
                 const res = await fetch(`/api/browse-fs?path=${encodeURIComponent(path)}`);
                 const data = await res.json();
@@ -1530,6 +1650,8 @@ def dashboard():
                 
                 activeFsPath = data.current;
                 parentFsPath = data.parent;
+                
+                document.getElementById("fsCurrentPath").value = data.current;
                 
                 // Show/hide up button
                 const parentBtn = document.getElementById("fsParentBtn");
@@ -1578,13 +1700,15 @@ def dashboard():
             btn.disabled = true;
             btn.textContent = "Saving...";
             
+            const selectedPath = document.getElementById("fsCurrentPath").value.trim();
+            
             try {
                 const res = await fetch("/api/settings/output-root", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({ path: activeFsPath })
+                    body: JSON.stringify({ path: selectedPath })
                 });
                 const data = await res.json();
                 if (data.status === "success") {
@@ -1621,8 +1745,8 @@ def dashboard():
                     <!-- Dynamic folder list -->
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.5rem;">
-                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Currently selected path:</label>
-                    <div class="fs-path-container" id="fsCurrentPath">/storage/emulated/0</div>
+                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Currently selected path (press Enter to browse):</label>
+                    <input type="text" class="fs-path-container" id="fsCurrentPath" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.15); box-sizing: border-box; outline: none; background: rgba(0,0,0,0.4);" value="/storage/emulated/0" onkeydown="if(event.key === 'Enter') loadDirectory(this.value)">
                 </div>
             </div>
             <div class="modal-footer">
@@ -1666,11 +1790,16 @@ def list_books():
                 proc = active_processes[entry]
                 if proc.poll() is None:
                     is_running = True
+                elif entry not in completed_copied:
+                    handle_process_completion(entry, proc)
+                    completed_copied.add(entry)
+            if not is_running:
+                is_running = is_book_process_running(entry)
                     
             # Calculate progress
             prog = calculate_progress(entry)
             if "error" in prog:
-                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
+                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "edit_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
                 
             # Scan output files
             output_dir = os.path.join(entry_path, "output")
@@ -1707,12 +1836,17 @@ def add_book_api():
     title = data.get("title", "").strip()
     authors = data.get("authors", "").strip()
     lang = data.get("lang", "").strip()
+    source_lang = data.get("source_lang", "").strip() or "ru"
+    is_manga = bool(data.get("is_manga", False))
     
     if not slug or not pdf_path or not title or not authors or not lang:
         return jsonify({"status": "error", "message": "All fields are required"}), 400
         
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        
+    if source_lang == "auto":
+        return jsonify({"status": "error", "message": "Auto-detect source language is not supported for local PDF paths. Please select the correct language."}), 400
         
     if not os.path.exists(pdf_path):
         return jsonify({"status": "error", "message": "Source PDF file not found"}), 400
@@ -1731,35 +1865,41 @@ def add_book_api():
         os.makedirs(paths["output_dir"], exist_ok=True)
         os.makedirs(paths["audio_dir"], exist_ok=True)
         
-        # Copy PDF
-        dest_pdf = os.path.join(book_dir, f"{slug}.pdf")
-        shutil.copy2(pdf_path, dest_pdf)
+        # Copy source file
+        ext = os.path.splitext(pdf_path)[1].lower()
+        dest_file = os.path.join(book_dir, f"{slug}{ext}")
+        shutil.copy2(pdf_path, dest_file)
         
-        # Detect page count
-        pages = get_pdf_page_count(dest_pdf)
+        if ext == ".pdf":
+            pages = get_pdf_page_count(dest_file)
+            page_ranges = [[1, pages]]
+        else:
+            pages = 0
+            page_ranges = []
         
         # Write config.json
         config_data = {
             "slug": slug,
             "title": title,
             "authors": authors,
-            "source_lang": "ru",
+            "source_lang": source_lang,
             "target_lang": lang,
-            "pdf_path": f"books/{slug}/{slug}.pdf",
-            "generate_audiobook": True,
-            "tts_voice": "ukrainian_tts",
+            "pdf_path": f"books/{slug}/{slug}.pdf" if ext == ".pdf" else "",
+            "is_manga": is_manga,
+            "generate_audiobook": not is_manga,
+            "tts_voice": "ukrainian_tts" if lang == "uk" else "irina",
             "tts_voice_quality": "medium",
-            "tts_speaker_id": 2,
+            "tts_speaker_id": 2 if lang == "uk" else 0,
             "tts_speed": 1.0,
             "tts_noise_scale": 0.667,
             "tts_noise_w": 0.8,
-            "page_ranges": [[1, pages]]
+            "page_ranges": page_ranges
         }
         
         with open(paths["config_path"], "w", encoding="utf-8") as f:
             json.dump(config_data, f, ensure_ascii=False, indent=2)
             
-        return jsonify({"status": "success", "message": f"Book '{slug}' added successfully with {pages} pages."})
+        return jsonify({"status": "success", "message": f"Book '{slug}' added successfully."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -1876,11 +2016,16 @@ def upload_file_api():
         
     filename = uploaded_file.filename
     ext = os.path.splitext(filename)[1].lower()
+    if ext != ".epub" and source_lang == "auto":
+        return jsonify({"status": "error", "message": "Auto-detect source language is only supported for EPUB files. Please select the correct language."}), 400
+        
     manga_extensions = [".cbz", ".cbr", ".cb7", ".zip", ".rar"]
     if ext not in [".pdf", ".epub", ".txt", ".md"] + manga_extensions:
         return jsonify({"status": "error", "message": f"Unsupported file extension '{ext}'"}), 400
         
     try:
+        is_manga = ext in manga_extensions or request.form.get("is_manga", "false").lower() == "true"
+        
         book_dir = paths["book_dir"]
         os.makedirs(book_dir, exist_ok=True)
         os.makedirs(paths["cache_dir"], exist_ok=True)
@@ -1892,56 +2037,58 @@ def upload_file_api():
         pdf_path = ""
         page_ranges = []
         
-        if ext == ".pdf":
-            pdf_path = f"books/{slug}/{slug}.pdf"
-            dest_pdf = os.path.join(book_dir, f"{slug}.pdf")
-            uploaded_file.save(dest_pdf)
-            pages = get_pdf_page_count(dest_pdf)
-            page_ranges = [[1, pages]]
-            
-        elif ext == ".epub":
-            temp_epub_path = os.path.join(book_dir, f"uploaded_temp.epub")
-            uploaded_file.save(temp_epub_path)
-            
-            if source_lang == "auto":
-                source_lang = detect_epub_lang(temp_epub_path) or lang
-                
-            if source_lang == lang:
-                target_md_name = f"merged_translated_{lang}.md"
-            else:
-                target_md_name = f"merged_source_{source_lang}.md"
-                
-            merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
-            cmd = [
-                sys.executable,
-                os.path.join(repo_dir, "bin", "extract_epub_text.py"),
-                "-i", temp_epub_path,
-                "-o", merged_md_path
-            ]
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if os.path.exists(temp_epub_path):
-                os.remove(temp_epub_path)
-                
-            if res.returncode != 0:
-                raise Exception(f"Failed to extract text from EPUB: {res.stderr}")
-                
-        elif ext in [".txt", ".md"]:
-            if source_lang == "auto":
-                source_lang = lang
-                
-            if source_lang == lang:
-                target_md_name = f"merged_translated_{lang}.md"
-            else:
-                target_md_name = f"merged_source_{source_lang}.md"
-                
-            merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
-            uploaded_file.save(merged_md_path)
-            
-        is_manga = ext in manga_extensions or request.form.get("is_manga", "false").lower() == "true"
-        
-        if is_manga and ext in manga_extensions:
+        if is_manga:
             dest_manga = os.path.join(book_dir, f"{slug}{ext}")
             uploaded_file.save(dest_manga)
+            if ext == ".pdf":
+                pdf_path = f"books/{slug}/{slug}.pdf"
+                pages = get_pdf_page_count(dest_manga)
+                page_ranges = [[1, pages]]
+        else:
+            if ext == ".pdf":
+                pdf_path = f"books/{slug}/{slug}.pdf"
+                dest_pdf = os.path.join(book_dir, f"{slug}.pdf")
+                uploaded_file.save(dest_pdf)
+                pages = get_pdf_page_count(dest_pdf)
+                page_ranges = [[1, pages]]
+                
+            elif ext == ".epub":
+                temp_epub_path = os.path.join(book_dir, f"uploaded_temp.epub")
+                uploaded_file.save(temp_epub_path)
+                
+                if source_lang == "auto":
+                    source_lang = detect_epub_lang(temp_epub_path) or lang
+                    
+                if source_lang == lang:
+                    target_md_name = f"merged_translated_{lang}.md"
+                else:
+                    target_md_name = f"merged_source_{source_lang}.md"
+                    
+                merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
+                cmd = [
+                    sys.executable,
+                    os.path.join(repo_dir, "bin", "extract_epub_text.py"),
+                    "-i", temp_epub_path,
+                    "-o", merged_md_path
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if os.path.exists(temp_epub_path):
+                    os.remove(temp_epub_path)
+                    
+                if res.returncode != 0:
+                    raise Exception(f"Failed to extract text from EPUB: {res.stderr}")
+                    
+            elif ext in [".txt", ".md"]:
+                if source_lang == "auto":
+                    source_lang = lang
+                    
+                if source_lang == lang:
+                    target_md_name = f"merged_translated_{lang}.md"
+                else:
+                    target_md_name = f"merged_source_{source_lang}.md"
+                    
+                merged_md_path = os.path.join(paths["translated_dir"], target_md_name)
+                uploaded_file.save(merged_md_path)
             
         config_data = {
             "slug": slug,
@@ -1977,13 +2124,56 @@ def run_conversion_api(slug):
     if not os.path.exists(paths["book_dir"]):
         return jsonify({"status": "error", "message": "Book directory not found"}), 404
         
+    data = request.get_json() or {}
+    force = data.get("force", False)
+
     # Check if already running
+    is_running = False
     if slug in active_processes:
         proc = active_processes[slug]
         if proc.poll() is None:
+            is_running = True
+    if not is_running and is_book_process_running(slug):
+        is_running = True
+
+    if is_running:
+        if not force:
             return jsonify({"status": "error", "message": "Conversion is already running"}), 400
+        # force=true: kill existing process and continue
+        try:
+            if slug in active_processes:
+                active_processes[slug].kill()
+                del active_processes[slug]
+            import signal
+            for pid_str in os.listdir("/proc"):
+                if pid_str.isdigit():
+                    try:
+                        with open(f"/proc/{pid_str}/cmdline", "r") as _f:
+                            cmdline = _f.read()
+                        if slug in cmdline and ("translate_epub.py" in cmdline or "translate_manga.py" in cmdline or "run_conversion_batches.py" in cmdline):
+                            os.kill(int(pid_str), signal.SIGKILL)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        import time as _time
+        _time.sleep(1)
+        
+    # Clear stale progress files
+    epub_prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
+    if os.path.exists(epub_prog_path):
+        try:
+            os.remove(epub_prog_path)
+        except Exception:
+            pass
+    manga_prog_path = os.path.join(paths["book_dir"], "manga_progress.json")
+    if os.path.exists(manga_prog_path):
+        try:
+            os.remove(manga_prog_path)
+        except Exception:
+            pass
             
-    data = request.get_json() or {}
+    # data already parsed above (force handling)
     
     config_path = paths["config_path"]
     is_manga = False
@@ -1999,7 +2189,7 @@ def run_conversion_api(slug):
     if is_manga:
         # Determine source file
         source_ext = ""
-        for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf"]:
+        for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
             if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
                 source_ext = possible_ext
                 break
@@ -2034,15 +2224,26 @@ def run_conversion_api(slug):
         if os.path.exists(glossary_path):
             cmd.extend(["--glossary", glossary_path])
     else:
-        cmd = [sys.executable, "run_conversion_batches.py", "--book", slug]
-        if data.get("clean"):
-            cmd.append("--clean")
-        if data.get("no_translate"):
-            cmd.append("--no-translate")
-        if data.get("no_ebook"):
-            cmd.append("--no-ebook")
-        if data.get("no_audio"):
-            cmd.append("--no-audio")
+        # Check if it is an EPUB book (so we use direct EPUB translation)
+        epub_source_file = os.path.join(paths["book_dir"], f"{slug}.epub")
+        if os.path.exists(epub_source_file):
+            cmd = [
+                sys.executable, "translate_epub.py",
+                "--input", epub_source_file,
+                "--output", os.path.join(paths["output_dir"], f"{slug}_translated_{cfg.get('target_lang', 'uk')}.epub"),
+                "--target-lang", cfg.get("target_lang", "uk"),
+                "--book", slug
+            ]
+        else:
+            cmd = [sys.executable, "run_conversion_batches.py", "--book", slug]
+            if data.get("clean"):
+                cmd.append("--clean")
+            if data.get("no_translate"):
+                cmd.append("--no-translate")
+            if data.get("no_ebook"):
+                cmd.append("--no-ebook")
+            if data.get("no_audio"):
+                cmd.append("--no-audio")
         
     log_path = paths["log_path"]
     
@@ -2110,6 +2311,11 @@ def status_api(slug):
         proc = active_processes[slug]
         if proc.poll() is None:
             is_running = True
+        elif slug not in completed_copied:
+            handle_process_completion(slug, proc)
+            completed_copied.add(slug)
+    if not is_running:
+        is_running = is_book_process_running(slug)
             
     # Calculate progress percentages
     prog = calculate_progress(slug)
@@ -2132,6 +2338,7 @@ def status_api(slug):
         "is_running": is_running,
         "marker_percent": prog["marker_percent"],
         "translation_percent": prog["translation_percent"],
+        "edit_percent": prog.get("edit_percent", 0.0),
         "stress_percent": prog["stress_percent"],
         "tts_percent": prog["tts_percent"],
         "logs": log_lines
@@ -2783,70 +2990,327 @@ def view_book_stages(slug):
 
         function renderBook() {
             const area = document.getElementById("content-area");
-            if (!bookData.paragraphs || bookData.paragraphs.length === 0) {
+            const isEpub = bookData.epub_available || bookData.is_epub_book;
+            const hasParagraphs = bookData.paragraphs && bookData.paragraphs.length > 0;
+
+            // For EPUB books without MD paragraphs — go straight to Full Page Viewer
+            if (!hasParagraphs && isEpub) {
+                renderEpubOnlyView(area);
+                return;
+            }
+
+            if (!hasParagraphs && !isEpub) {
                 area.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:3rem 0;">
-                    No paragraphs found. Run the translation pipeline first.
+                    <div style="font-size:3rem;margin-bottom:1rem;">📚</div>
+                    <div style="font-size:1.1rem;margin-bottom:0.5rem;">Немає даних для перегляду</div>
+                    <div style="font-size:0.9rem;">Запустіть конвеєр перекладу щоб побачити результат</div>
                 </div>`;
                 return;
             }
 
             area.innerHTML = `
-                <div class="filters">
-                    <button class="filter-btn active" data-filter="all">Show All</button>
-                    <button class="filter-btn" data-filter="audio">With Audio Only</button>
-                    <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                    <button class="tab-btn active" id="tab-paragraphs" style="background: none; border: none; color: var(--primary); font-size: 1.1rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem; outline: none; transition: all 0.2s ease;">📋 Paragraphs & Audio</button>
+                    <button class="tab-btn" id="tab-page-viewer" style="background: none; border: none; color: var(--text-secondary); font-size: 1.1rem; font-weight: 600; cursor: pointer; padding: 0.5rem 1rem; border-bottom: 2px solid transparent; outline: none; transition: all 0.2s ease;">📖 Full Page Viewer</button>
                 </div>
-                <div class="book-stages-list" id="paragraphs-list"></div>
+                <div id="tab-content-area"></div>
             `;
 
-            const list = document.getElementById("paragraphs-list");
+            const tabContent = document.getElementById("tab-content-area");
+            const btnParagraphs = document.getElementById("tab-paragraphs");
+            const btnPageViewer = document.getElementById("tab-page-viewer");
 
-            const renderItems = (filter) => {
-                list.innerHTML = "";
-                bookData.paragraphs.forEach((p, idx) => {
-                    if (filter === "audio" && !p.has_audio) return;
-                    if (filter === "no-audio" && p.has_audio) return;
-
-                    const card = document.createElement("div");
-                    card.className = "paragraph-card";
-                    card.innerHTML = `
-                        <div class="card-meta">
-                            <span>Paragraph #${idx + 1} | Hash: ${p.hash.substring(0, 8)}...</span>
-                            <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
-                                ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
-                            </span>
-                        </div>
-                        <div class="grid-stages">
-                            <div class="stage-box">
-                                <div class="stage-title">Original (RU / EN)</div>
-                                <div class="stage-content">${p.original}</div>
-                            </div>
-                            <div class="stage-box">
-                                <div class="stage-title">Translated & Accents (UK)</div>
-                                <div class="stage-content stage-stressed">${p.stressed}</div>
-                            </div>
-                        </div>
-                        ${p.has_audio ? `
-                        <div class="audio-wrapper">
-                            <span class="audio-label">🔊 Listen Segment Preview:</span>
-                            <audio controls src="/api/preview/audio/${slug}/${p.hash}"></audio>
-                        </div>
-                        ` : ''}
-                    `;
-                    list.appendChild(card);
-                });
-            };
-
-            const filters = document.querySelectorAll(".filter-btn");
-            filters.forEach(btn => {
-                btn.addEventListener("click", (e) => {
-                    filters.forEach(b => b.classList.remove("active"));
-                    btn.classList.add("active");
-                    renderItems(btn.dataset.filter);
-                });
+            btnParagraphs.addEventListener("click", () => {
+                btnParagraphs.style.color = "var(--primary)";
+                btnParagraphs.style.borderBottomColor = "var(--primary)";
+                btnPageViewer.style.color = "var(--text-secondary)";
+                btnPageViewer.style.borderBottomColor = "transparent";
+                showParagraphsTab();
             });
 
-            renderItems("all");
+            btnPageViewer.addEventListener("click", () => {
+                btnPageViewer.style.color = "var(--primary)";
+                btnPageViewer.style.borderBottomColor = "var(--primary)";
+                btnParagraphs.style.color = "var(--text-secondary)";
+                btnParagraphs.style.borderBottomColor = "transparent";
+                showPageViewerTab();
+            });
+
+            function showParagraphsTab() {
+                tabContent.innerHTML = `
+                    <div class="filters">
+                        <button class="filter-btn active" data-filter="all">Show All</button>
+                        <button class="filter-btn" data-filter="audio">With Audio Only</button>
+                        <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                    </div>
+                    <div class="book-stages-list" id="paragraphs-list"></div>
+                `;
+
+                const list = document.getElementById("paragraphs-list");
+
+                const renderItems = (filter) => {
+                    list.innerHTML = "";
+                    bookData.paragraphs.forEach((p, idx) => {
+                        if (filter === "audio" && !p.has_audio) return;
+                        if (filter === "no-audio" && p.has_audio) return;
+
+                        const card = document.createElement("div");
+                        card.className = "paragraph-card";
+                        card.innerHTML = `
+                            <div class="card-meta">
+                                <span>Paragraph #${idx + 1} | Hash: ${p.hash.substring(0, 8)}...</span>
+                                <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
+                                    ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
+                                </span>
+                            </div>
+                            <div class="grid-stages">
+                                <div class="stage-box">
+                                    <div class="stage-title">Original (RU / EN)</div>
+                                    <div class="stage-content">${p.original}</div>
+                                </div>
+                                <div class="stage-box">
+                                    <div class="stage-title">Translated & Accents (UK)</div>
+                                    <div class="stage-content stage-stressed">${p.stressed}</div>
+                                </div>
+                            </div>
+                            ${p.has_audio ? `
+                            <div class="audio-wrapper">
+                                <span class="audio-label">🔊 Listen Segment Preview:</span>
+                                <audio controls src="/api/preview/audio/${slug}/${p.hash}"></audio>
+                            </div>
+                            ` : ''}
+                        `;
+                        list.appendChild(card);
+                    });
+                };
+
+                const filters = document.querySelectorAll(".filter-btn");
+                filters.forEach(btn => {
+                    btn.addEventListener("click", (e) => {
+                        filters.forEach(b => b.classList.remove("active"));
+                        btn.classList.add("active");
+                        renderItems(btn.dataset.filter);
+                    });
+                });
+
+                renderItems("all");
+            }
+
+            async function showPageViewerTab() {
+                tabContent.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <label for="chapter-select" style="font-weight: 600; color: var(--text-secondary); min-width: 120px;">Select Page/File:</label>
+                        <select id="chapter-select" style="background: #18181b; color: white; border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; flex-grow: 1; outline: none; font-family: inherit; font-size: 0.95rem; cursor: pointer;">
+                            <option value="">-- Loading files from EPUB... --</option>
+                        </select>
+                    </div>
+                    <div class="page-split-viewer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; height: 75vh;">
+                        <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                            <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--text-secondary);">Original Text</div>
+                            <iframe id="iframe-original" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                        </div>
+                        <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                            <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--primary);">Translated Text (Ukrainian)</div>
+                            <iframe id="iframe-translated" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                        </div>
+                    </div>
+                `;
+
+                try {
+                    const res = await fetch(`/api/preview/book-chapters/${slug}`);
+                    const data = await res.json();
+                    if (data.status === "success" && data.chapters) {
+                        const select = document.getElementById("chapter-select");
+                        select.innerHTML = "";
+                        data.chapters.forEach(ch => {
+                            const opt = document.createElement("option");
+                            opt.value = ch.href;
+                            opt.textContent = ch.href;
+                            select.appendChild(opt);
+                        });
+
+                        select.addEventListener("change", (e) => {
+                            if (e.target.value) loadPage(e.target.value);
+                        });
+
+                        if (data.chapters.length > 0) {
+                            loadPage(data.chapters[0].href);
+                        }
+                    } else {
+                        document.getElementById("chapter-select").innerHTML = `<option value="">Error: ${data.message || 'Failed to parse EPUB'}</option>`;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    document.getElementById("chapter-select").innerHTML = `<option value="">Failed to load chapters</option>`;
+                }
+            }
+
+            async function loadPage(href) {
+                const iframeOrig = document.getElementById("iframe-original");
+                const iframeTrans = document.getElementById("iframe-translated");
+                
+                [iframeOrig, iframeTrans].forEach(iframe => {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(`
+                        <body style="background:#09090b; color:#a1a1aa; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+                            <div>Loading content...</div>
+                        </body>
+                    `);
+                    doc.close();
+                });
+
+                try {
+                    const res = await fetch(`/api/preview/book-page/${slug}/${href}`);
+                    const data = await res.json();
+                    if (data.status === "success") {
+                        let docOrig = iframeOrig.contentDocument || iframeOrig.contentWindow.document;
+                        docOrig.open();
+                        docOrig.write(data.original_html);
+                        docOrig.close();
+
+                        let docTrans = iframeTrans.contentDocument || iframeTrans.contentWindow.document;
+                        docTrans.open();
+                        docTrans.write(data.translated_html);
+                        docTrans.close();
+                    } else {
+                        throw new Error(data.message || "Failed to load page content");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    [iframeOrig, iframeTrans].forEach(iframe => {
+                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                        doc.open();
+                        doc.write(`
+                            <body style="background:#09090b; color:#ef4444; font-family:sans-serif; padding:20px;">
+                                <h3>Failed to load page content</h3>
+                                <p>${err.message}</p>
+                            </body>
+                        `);
+                        doc.close();
+                    });
+                }
+            }
+
+            // For EPUB books — default to Full Page Viewer tab
+            if (bookData.is_epub_book || bookData.epub_available) {
+                showPageViewerTab();
+                btnPageViewer.style.color = "var(--primary)";
+                btnPageViewer.style.borderBottomColor = "var(--primary)";
+                btnParagraphs.style.color = "var(--text-secondary)";
+                btnParagraphs.style.borderBottomColor = "transparent";
+            } else {
+                showParagraphsTab();
+            }
+        }
+
+        async function renderEpubOnlyView(area) {
+            // Show stats banner + Full Page Viewer for pure EPUB books
+            const stats = bookData.cache_stats || {};
+            const pct = stats.percent || 0;
+            const currentFile = stats.current_file || 0;
+            const totalFiles = stats.total_files || 0;
+            const translatedBlocks = stats.translated_blocks || 0;
+
+            area.innerHTML = `
+                <div style="background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 1.2rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.3rem;">Прогрес перекладу EPUB</div>
+                        <div style="font-size: 1.4rem; font-weight: 700; color: var(--primary);">${pct.toFixed(1)}%</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top:0.2rem;">Файл ${currentFile}/${totalFiles} · ${translatedBlocks} блоків у кеші</div>
+                    </div>
+                    <div style="flex: 2; min-width: 200px;">
+                        <div style="background: rgba(255,255,255,0.05); border-radius: 6px; height: 8px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, var(--primary), #3b82f6); height: 100%; width: ${Math.min(pct,100)}%; border-radius: 6px; transition: width 0.5s ease;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.8rem; color: #10b981; background: rgba(16,185,129,0.1); padding: 0.3rem 0.8rem; border-radius: 20px; border: 1px solid rgba(16,185,129,0.2);">📖 EPUB Book</span>
+                    </div>
+                </div>
+
+                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                    <button class="tab-btn active" id="tab-page-viewer-only" style="background: none; border: none; color: var(--primary); font-size: 1.1rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem; outline: none; transition: all 0.2s ease;">📖 Переклад по сторінках</button>
+                </div>
+                <div id="epub-page-viewer-area"></div>
+            `;
+
+            await loadEpubPageViewer(document.getElementById("epub-page-viewer-area"));
+        }
+
+        async function loadEpubPageViewer(container) {
+            container.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <label for="chapter-select-epub" style="font-weight: 600; color: var(--text-secondary); min-width: 140px;">📄 Файл розділу:</label>
+                    <select id="chapter-select-epub" style="background: #18181b; color: white; border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; flex-grow: 1; outline: none; font-family: inherit; font-size: 0.95rem; cursor: pointer;">
+                        <option value="">⏳ Завантаження файлів EPUB...</option>
+                    </select>
+                </div>
+                <div class="page-split-viewer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; height: 75vh;">
+                    <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                        <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--text-secondary);">🔤 Оригінал</div>
+                        <iframe id="iframe-original-epub" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                    </div>
+                    <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                        <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--primary);">🇺🇦 Переклад (Українська)</div>
+                        <iframe id="iframe-translated-epub" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                    </div>
+                </div>
+            `;
+
+            try {
+                const res = await fetch(`/api/preview/book-chapters/${slug}`);
+                const data = await res.json();
+                if (data.status === "success" && data.chapters) {
+                    const select = document.getElementById("chapter-select-epub");
+                    select.innerHTML = "";
+                    data.chapters.forEach(ch => {
+                        const opt = document.createElement("option");
+                        opt.value = ch.href;
+                        opt.textContent = ch.href;
+                        select.appendChild(opt);
+                    });
+                    select.addEventListener("change", e => { if (e.target.value) loadEpubPage(e.target.value); });
+                    if (data.chapters.length > 0) loadEpubPage(data.chapters[0].href);
+                } else {
+                    document.getElementById("chapter-select-epub").innerHTML = `<option>❌ ${data.message || 'Не вдалося завантажити розділи'}</option>`;
+                }
+            } catch(err) {
+                document.getElementById("chapter-select-epub").innerHTML = `<option>❌ Помилка: ${err.message}</option>`;
+            }
+        }
+
+        async function loadEpubPage(href) {
+            const iframeOrig = document.getElementById("iframe-original-epub");
+            const iframeTrans = document.getElementById("iframe-translated-epub");
+            if (!iframeOrig || !iframeTrans) return;
+
+            [iframeOrig, iframeTrans].forEach(iframe => {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                doc.open();
+                doc.write(`<body style="background:#09090b;color:#a1a1aa;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;"><div>⏳ Завантаження...</div></body>`);
+                doc.close();
+            });
+
+            try {
+                const res = await fetch(`/api/preview/book-page/${slug}/${href}`);
+                const data = await res.json();
+                if (data.status === "success") {
+                    let docO = iframeOrig.contentDocument || iframeOrig.contentWindow.document;
+                    docO.open(); docO.write(data.original_html); docO.close();
+                    let docT = iframeTrans.contentDocument || iframeTrans.contentWindow.document;
+                    docT.open(); docT.write(data.translated_html); docT.close();
+                } else {
+                    throw new Error(data.message || "Не вдалося завантажити сторінку");
+                }
+            } catch(err) {
+                [iframeOrig, iframeTrans].forEach(iframe => {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(`<body style="background:#09090b;color:#ef4444;font-family:sans-serif;padding:20px;"><h3>Помилка</h3><p>${err.message}</p></body>`);
+                    doc.close();
+                });
+            }
         }
 
         fetchBookData();
@@ -3054,11 +3518,252 @@ def preview_book_stages(slug):
         except Exception as e:
             return jsonify({"status": "error", "message": f"Error parsing book: {e}"}), 500
             
+    # Detect EPUB availability and cache stats
+    epub_path = find_book_epub(paths["book_dir"], slug)
+    epub_available = epub_path is not None and os.path.exists(epub_path)
+
+    # Count translated blocks from cache
+    cache_size = len(trans_cache)
+    is_epub_book = cfg.get("pdf_path", "") == "" and epub_available
+
+    # Check epub_progress for live stats
+    epub_progress = {}
+    epub_progress_path = os.path.join(paths["cache_dir"], "epub_progress.json")
+    if os.path.exists(epub_progress_path):
+        try:
+            with open(epub_progress_path, "r", encoding="utf-8") as f:
+                epub_progress = json.load(f)
+        except Exception:
+            pass
+
     return jsonify({
         "status": "success",
         "tts_engine": tts_engine,
-        "paragraphs": paragraphs
+        "paragraphs": paragraphs,
+        "epub_available": epub_available,
+        "is_epub_book": is_epub_book,
+        "cache_stats": {
+            "translated_blocks": cache_size,
+            "current_file": epub_progress.get("current_file", 0),
+            "total_files": epub_progress.get("total_files", 0),
+            "percent": epub_progress.get("percent", 0),
+            "completed_blocks": epub_progress.get("completed_blocks", 0),
+            "total_blocks": epub_progress.get("total_blocks", 0)
+        }
     })
+
+def find_book_epub(book_dir, slug):
+    import os
+    import glob
+    candidate = os.path.join(book_dir, f"{slug}.epub")
+    if os.path.exists(candidate):
+        return candidate
+    epubs = glob.glob(os.path.join(book_dir, "*.epub"))
+    if epubs:
+        return epubs[0]
+    epubs_input = glob.glob(os.path.join(book_dir, "input", "*.epub"))
+    if epubs_input:
+        return epubs_input[0]
+    return None
+
+@app.route("/api/preview/book-chapters/<slug>")
+@auth.login_required
+def preview_book_chapters(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+        
+    import zipfile
+    import xml.etree.ElementTree as ET
+    
+    paths = resolve_book_paths(repo_dir, slug)
+    epub_path = find_book_epub(paths["book_dir"], slug)
+    if not epub_path or not os.path.exists(epub_path):
+        return jsonify({"status": "error", "message": f"EPUB file not found for book '{slug}'"}), 404
+        
+    try:
+        with zipfile.ZipFile(epub_path, 'r') as z:
+            container_data = z.read("META-INF/container.xml")
+            root = ET.fromstring(container_data)
+            root_file_el = root.find(".//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile")
+            if root_file_el is None:
+                root_file_el = root.find(".//rootfile")
+            if root_file_el is None:
+                return jsonify({"status": "error", "message": "rootfile not found in container.xml"}), 400
+            opf_rel_path = root_file_el.attrib["full-path"]
+            opf_dir = os.path.dirname(opf_rel_path)
+            
+            opf_data = z.read(opf_rel_path)
+            opf_root = ET.fromstring(opf_data)
+            
+            manifest_el = opf_root.find(".//{http://www.idpf.org/2007/opf}manifest")
+            if manifest_el is None:
+                manifest_el = opf_root.find(".//manifest")
+            if manifest_el is None:
+                return jsonify({"status": "error", "message": "manifest not found in OPF"}), 400
+                
+            chapters = []
+            for item in manifest_el.findall(".//{http://www.idpf.org/2007/opf}item"):
+                href = item.attrib.get("href")
+                media_type = item.attrib.get("media-type", "")
+                if href and media_type in ["application/xhtml+xml", "text/html"]:
+                    chapters.append({
+                        "href": href,
+                        "id": item.attrib.get("id", "")
+                    })
+            return jsonify({
+                "status": "success",
+                "chapters": chapters,
+                "opf_dir": opf_dir
+            })
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read EPUB chapters: {e}"}), 500
+
+@app.route("/api/preview/book-page/<slug>/<path:href>")
+@auth.login_required
+def preview_book_page(slug, href):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+        
+    import os
+    import json
+    import zipfile
+    import hashlib
+    import re
+    import xml.etree.ElementTree as ET
+    from common.epub_validate import sanitize_xhtml_for_xml_parser
+    
+    paths = resolve_book_paths(repo_dir, slug)
+    epub_path = find_book_epub(paths["book_dir"], slug)
+    if not epub_path or not os.path.exists(epub_path):
+        return jsonify({"status": "error", "message": "EPUB file not found"}), 404
+        
+    try:
+        with zipfile.ZipFile(epub_path, 'r') as z:
+            container_data = z.read("META-INF/container.xml")
+            c_root = ET.fromstring(container_data)
+            rf_el = c_root.find(".//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile")
+            if rf_el is None:
+                rf_el = c_root.find(".//rootfile")
+            opf_rel_path = rf_el.attrib["full-path"]
+            opf_dir = os.path.dirname(opf_rel_path)
+            
+            full_rel_path = os.path.join(opf_dir, href) if opf_dir else href
+            full_rel_path = full_rel_path.replace("\\", "/")
+            
+            try:
+                raw_bytes = z.read(full_rel_path)
+            except KeyError:
+                return jsonify({"status": "error", "message": f"File {full_rel_path} not found in EPUB"}), 404
+                
+        sanitized = sanitize_xhtml_for_xml_parser(raw_bytes)
+        ET.register_namespace('', 'http://www.w3.org/1999/xhtml')
+        
+        cache = {}
+        if os.path.exists(paths["translate_cache"]):
+            try:
+                with open(paths["translate_cache"], "r", encoding="utf-8") as cf:
+                    cache = json.load(cf)
+            except Exception:
+                pass
+                
+        orig_root = ET.fromstring(sanitized.encode('utf-8'))
+        trans_root = ET.fromstring(sanitized.encode('utf-8'))
+        
+        block_tags = [
+            "{http://www.w3.org/1999/xhtml}p", "{http://www.w3.org/1999/xhtml}li",
+            "{http://www.w3.org/1999/xhtml}h1", "{http://www.w3.org/1999/xhtml}h2",
+            "{http://www.w3.org/1999/xhtml}h3", "{http://www.w3.org/1999/xhtml}h4",
+            "{http://www.w3.org/1999/xhtml}h5", "{http://www.w3.org/1999/xhtml}h6",
+            "{http://www.w3.org/1999/xhtml}blockquote", "{http://www.w3.org/1999/xhtml}td",
+            "{http://www.w3.org/1999/xhtml}th",
+            "p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "td", "th"
+        ]
+        
+        for el in trans_root.iter():
+            if el.tag in block_tags:
+                text = el.text or ''
+                children_str = ''.join(ET.tostring(child, encoding='utf-8').decode('utf-8') for child in el)
+                inner_xml = text + children_str
+                
+                if not inner_xml.strip():
+                    continue
+                    
+                h = hashlib.sha256(inner_xml.encode('utf-8')).hexdigest()
+                if h in cache:
+                    translated_inner_xml = cache[h]
+                    dummy_xml = f'<div xmlns="http://www.w3.org/1999/xhtml">{translated_inner_xml}</div>'
+                    try:
+                        sanitized_dummy = sanitize_xhtml_for_xml_parser(dummy_xml.encode('utf-8'))
+                        dummy_root = ET.fromstring(sanitized_dummy.encode('utf-8'))
+                        el.text = None
+                        el.tail = None
+                        for child in list(el):
+                            el.remove(child)
+                        el.text = dummy_root.text
+                        for child in dummy_root:
+                            el.append(child)
+                    except Exception:
+                        plain_text = re.sub(r'<[^>]+>', '', translated_inner_xml)
+                        el.text = None
+                        el.tail = None
+                        for child in list(el):
+                            el.remove(child)
+                        el.text = plain_text
+                else:
+                    existing_class = el.attrib.get("class", "")
+                    el.attrib["class"] = (existing_class + " untranslated-block").strip()
+                    
+        orig_html = ET.tostring(orig_root, encoding='utf-8').decode('utf-8')
+        trans_html = ET.tostring(trans_root, encoding='utf-8').decode('utf-8')
+        
+        style_inject = """
+        <style>
+            body {
+                background-color: #09090b !important;
+                color: #f4f4f5 !important;
+                font-family: 'Outfit', system-ui, -apple-system, sans-serif !important;
+                line-height: 1.65 !important;
+                padding: 1.5rem !important;
+                margin: 0 !important;
+                font-size: 1.05rem !important;
+            }
+            p, li {
+                margin-bottom: 1.2rem !important;
+            }
+            h1, h2, h3, h4, h5, h6 {
+                color: #a78bfa !important;
+                margin-top: 1.6rem !important;
+                margin-bottom: 0.8rem !important;
+                font-weight: 600 !important;
+            }
+            .untranslated-block {
+                color: #71717a !important;
+                border-left: 2px solid #d97706 !important;
+                padding-left: 10px !important;
+                background-color: rgba(217, 119, 6, 0.04) !important;
+                border-radius: 0 4px 4px 0 !important;
+            }
+        </style>
+        """
+        
+        def inject_style(html_str):
+            if "</head>" in html_str:
+                return html_str.replace("</head>", f"{style_inject}</head>")
+            elif "<body>" in html_str:
+                return html_str.replace("<body>", f"<body>{style_inject}")
+            else:
+                return style_inject + html_str
+                
+        orig_html = inject_style(orig_html)
+        trans_html = inject_style(trans_html)
+        
+        return jsonify({
+            "status": "success",
+            "original_html": orig_html,
+            "translated_html": trans_html
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Error loading book page: {e}"}), 500
 
 if __name__ == "__main__":
     import argparse

@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ncx version="2005-1" xml:lang="en" xmlns="http://www.daisy.org/z3986/2005/ncx/" xmlns:epub="http://www.idpf.org/2007/ops">
+  <head>
+    <meta content="9781975314224" name="dtb:uid"/>
+    <meta content="1" name="dtb:depth"/>
+    <meta content="0" name="dtb:totalPageCount"/>
+    <meta content="0" name="dtb:maxPageNumber"/>
+  </head>
+  <docTitle>
+    <text>Three Days of Happiness</text>
+  </docTitle>
+  <docAuthor>
+    <text>Sugaru Miaki and E9L</text>
+  </docAuthor>
+  <navMap>
+    <navPoint id="cover" playOrder="1">
+      <navLabel>
+        <text>Cover</text>
+      </navLabel>
+      <content src="Text/cover.xhtml"/>
+    </navPoint>
+    <navPoint id="insert001" playOrder="2">
+      <navLabel>
+        <text>Insert</text>
+      </navLabel>
+      <content src="Text/insert001.xhtml"/>
+    </navPoint>
+    <navPoint id="titlepage" playOrder="3">
+      <navLabel>
+        <text>Title Page</text>
+      </navLabel>
+      <content src="Text/titlepage.xhtml"/>
+    </navPoint>
+    <navPoint id="copyright" playOrder="4">
+      <navLabel>
+        <text>Copyright</text>
+      </navLabel>
+      <content src="Text/copyright.xhtml"/>
+    </navPoint>
+    <navPoint id="toc" playOrder="5">
+      <navLabel>
+        <text>Table of Contents</text>
+      </navLabel>
+      <content src="Text/toc.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter001" playOrder="6">
+      <navLabel>
+        <text>Chapter 1. A Promise in Ten Years</text>
+      </navLabel>
+      <content src="Text/chapter001.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter002" playOrder="7">
+      <navLabel>
+        <text>Chapter 2. The Beginning of the End</text>
+      </navLabel>
+      <content src="Text/chapter002.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter003" playOrder="8">
+      <navLabel>
+        <text>Chapter 3. The Seated Monitor</text>
+      </navLabel>
+      <content src="Text/chapter003.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter004" playOrder="9">
+      <navLabel>
+        <text>Chapter 4. Let’s Check the Answer</text>
+      </navLabel>
+      <content src="Text/chapter004.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter005" playOrder="10">
+      <navLabel>
+        <text>Chapter 5. Everything That Happens from This Point On</text>
+      </navLabel>
+      <content src="Text/chapter005.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter006" playOrder="11">
+      <navLabel>
+        <text>Chapter 6. The Person Who Changed, the Person Who Couldn’t</text>
+      </navLabel>
+      <content src="Text/chapter006.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter007" playOrder="12">
+      <navLabel>
+        <text>Chapter 7. Ransacking the Time Capsule</text>
+      </navLabel>
+      <content src="Text/chapter007.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter008" playOrder="13">
+      <navLabel>
+        <text>Chapter 8. Inappropriate Actions</text>
+      </navLabel>
+      <content src="Text/chapter008.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter009" playOrder="14">
+      <navLabel>
+        <text>Chapter 9. Too Good to Be True</text>
+      </navLabel>
+      <content src="Text/chapter009.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter010" playOrder="15">
+      <navLabel>
+        <text>Chapter 10. To My One Old Friend</text>
+      </navLabel>
+      <content src="Text/chapter010.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter011" playOrder="16">
+      <navLabel>
+        <text>Chapter 11. An Argument for a Vending Machine Pilgrimage</text>
+      </navLabel>
+      <content src="Text/chapter011.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter012" playOrder="17">
+      <navLabel>
+        <text>Chapter 12. The Liar and the Little Wish</text>
+      </navLabel>
+      <content src="Text/chapter012.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter013" playOrder="18">
+      <navLabel>
+        <text>Chapter 13. A Sure Thing</text>
+      </navLabel>
+      <content src="Text/chapter013.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter014" playOrder="19">
+      <navLabel>
+        <text>Chapter 14. The Blue Period</text>
+      </navLabel>
+      <content src="Text/chapter014.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-chapter015" playOrder="20">
+      <navLabel>
+        <text>Chapter 15. The Gift of the Magi</text>
+      </navLabel>
+      <content src="Text/chapter015.xhtml"/>
+    </navPoint>
+    <navPoint id="toc-appendix001" playOrder="21">
+      <navLabel>
+        <text>Afterword</text>
+      </navLabel>
+      <content src="Text/appendix001.xhtml"/>
+    </navPoint>
+    <navPoint id="newsletter1" playOrder="22">
+      <navLabel>
+        <text>Yen Newsletter</text>
+      </navLabel>
+      <content src="Text/newsletterSignup.xhtml"/>
+    </navPoint>
+  </navMap>
+  <pageList>
+    <pageTarget id="page-i" playOrder="23" type="normal" value="i">
+      <navLabel>
+        <text>i</text>
+      </navLabel>
+      <content src="Text/titlepage.xhtml#page-i"/>
+    </pageTarget>
+    <pageTarget id="page-ii" playOrder="24" type="normal" value="ii">
+      <navLabel>
+        <text>ii</text>
+      </navLabel>
+      <content src="Text/copyright.xhtml#page-ii"/>
+    </pageTarget>
+    <pageTarget id="page-1" playOrder="25" type="normal" value="1">
+      <navLabel>
+        <text>1</text>
+      </navLabel>
+      <content src="Text/chapter001.xhtml#page-1"/>
+    </pageTarget>
+    <pageTarget id="page-9" playOrder="26" type="normal" value="9">
+      <navLabel>
+        <text>9</text>
+      </navLabel>
+      <content src="Text/chapter002.xhtml#page-9"/>
+    </pageTarget>
+    <pageTarget id="page-25" playOrder="27" type="normal" value="25">
+      <navLabel>
+        <text>25</text>
+      </navLabel>
+      <content src="Text/chapter003.xhtml#page-25"/>
+    </pageTarget>
+    <pageTarget id="page-34" playOrder="28" type="normal" value="34">
+      <navLabel>
+        <text>34</text>
+      </navLabel>
+      <content src="Text/chapter004.xhtml#page-34"/>
+    </pageTarget>
+    <pageTarget id="page-43" playOrder="29" type="normal" value="43">
+      <navLabel>
+        <text>43</text>
+      </navLabel>
+      <content src="Text/chapter005.xhtml#page-43"/>
+    </pageTarget>
+    <pageTarget id="page-50" playOrder="30" type="normal" value="50">
+      <navLabel>
+        <text>50</text>
+      </navLabel>
+      <content src="Text/chapter006.xhtml#page-50"/>
+    </pageTarget>
+    <pageTarget id="page-60" playOrder="31" type="normal" value="60">
+      <navLabel>
+        <text>60</text>
+      </navLabel>
+      <content src="Text/chapter007.xhtml#page-60"/>
+    </pageTarget>
+    <pageTarget id="page-69" playOrder="32" type="normal" value="69">
+      <navLabel>
+        <text>69</text>
+      </navLabel>
+      <content src="Text/chapter008.xhtml#page-69"/>
+    </pageTarget>
+    <pageTarget id="page-76" playOrder="33" type="normal" value="76">
+      <navLabel>
+        <text>76</text>
+      </navLabel>
+      <content src="Text/chapter009.xhtml#page-76"/>
+    </pageTarget>
+    <pageTarget id="page-89" playOrder="34" type="normal" value="89">
+      <navLabel>
+        <text>89</text>
+      </navLabel>
+      <content src="Text/chapter010.xhtml#page-89"/>
+    </pageTarget>
+    <pageTarget id="page-105" playOrder="35" type="normal" value="105">
+      <navLabel>
+        <text>105</text>
+      </navLabel>
+      <content src="Text/chapter011.xhtml#page-105"/>
+    </pageTarget>
+    <pageTarget id="page-122" playOrder="36" type="normal" value="122">
+      <navLabel>
+        <text>122</text>
+      </navLabel>
+      <content src="Text/chapter012.xhtml#page-122"/>
+    </pageTarget>
+    <pageTarget id="page-136" playOrder="37" type="normal" value="136">
+      <navLabel>
+        <text>136</text>
+      </navLabel>
+      <content src="Text/chapter013.xhtml#page-136"/>
+    </pageTarget>
+    <pageTarget id="page-149" playOrder="38" type="normal" value="149">
+      <navLabel>
+        <text>149</text>
+      </navLabel>
+      <content src="Text/chapter014.xhtml#page-149"/>
+    </pageTarget>
+    <pageTarget id="page-163" playOrder="39" type="normal" value="163">
+      <navLabel>
+        <text>163</text>
+      </navLabel>
+      <content src="Text/chapter015.xhtml#page-163"/>
+    </pageTarget>
+    <pageTarget id="page-169" playOrder="40" type="normal" value="169">
+      <navLabel>
+        <text>169</text>
+      </navLabel>
+      <content src="Text/appendix001.xhtml#page-169"/>
+    </pageTarget>
+  </pageList>
+</ncx>

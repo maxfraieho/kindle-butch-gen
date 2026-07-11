@@ -1,0 +1,17 @@
+{
+  "slug": "three-days-of-happiness",
+  "title": "Three Days of Happiness",
+  "authors": "Yen Press",
+  "source_lang": "en",
+  "target_lang": "uk",
+  "pdf_path": "",
+  "is_manga": false,
+  "generate_audiobook": false,
+  "tts_voice": "ukrainian_tts",
+  "tts_voice_quality": "medium",
+  "tts_speaker_id": 2,
+  "tts_speed": 1.0,
+  "tts_noise_scale": 0.667,
+  "tts_noise_w": 0.8,
+  "page_ranges": []
+}

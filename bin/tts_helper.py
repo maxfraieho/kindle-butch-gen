@@ -11,7 +11,24 @@ def normalize_accents(text):
     # Convert spacing acute accent (´, \u00b4) to combining acute accent (́, \u0301)
     return text.replace("\u00b4", "\u0301")
 
-
+def trim_silence(samples, sample_rate, threshold=100, pad_start_ms=30, pad_end_ms=70):
+    first_idx = None
+    for i, s in enumerate(samples):
+        if abs(s) > threshold:
+            first_idx = i
+            break
+    last_idx = None
+    for i in range(len(samples) - 1, -1, -1):
+        if abs(samples[i]) > threshold:
+            last_idx = i
+            break
+    if first_idx is None or last_idx is None:
+        return samples
+    pad_start = int((pad_start_ms / 1000.0) * sample_rate)
+    pad_end = int((pad_end_ms / 1000.0) * sample_rate)
+    start_idx = max(0, first_idx - pad_start)
+    end_idx = min(len(samples), last_idx + pad_end + 1)
+    return samples[start_idx:end_idx]
 
 def run_supertonic3(payload):
     import sherpa_onnx
@@ -110,6 +127,9 @@ def run_supertonic3(payload):
             output_sample_rate = audio.sample_rate // 2
             int16_samples = [int(max(-1.0, min(1.0, s)) * 32767) for s in audio.samples[::2]]
 
+            # Trim leading/trailing silence
+            int16_samples = trim_silence(int16_samples, output_sample_rate)
+
             # Save wav file
             with wave.open(output_file, "wb") as wav_file:
                 wav_file.setnchannels(1)
@@ -168,6 +188,46 @@ def run_styletts2(payload):
     ]
     vocab_dict = {char: idx for idx, char in enumerate(VOCAB)}
 
+    def get_token_count(text):
+        cleaned = text.replace('+', '\u0301')
+        ipa_text = ipa(cleaned)
+        return len([c for c in ipa_text if c in vocab_dict])
+
+    def split_long_text(text, max_tokens=400):
+        if get_token_count(text) <= max_tokens:
+            return [text]
+        parts = re.split(r'([,.;!?\n]+)', text)
+        sub_texts = []
+        current = []
+        for part in parts:
+            temp = "".join(current) + part
+            if get_token_count(temp) <= max_tokens:
+                current.append(part)
+            else:
+                if current:
+                    sub_texts.append("".join(current))
+                current = [part]
+        if current:
+            sub_texts.append("".join(current))
+        final_texts = []
+        for st in sub_texts:
+            if get_token_count(st) <= max_tokens:
+                final_texts.append(st)
+            else:
+                words = st.split(" ")
+                curr_words = []
+                for w in words:
+                    temp_w = " ".join(curr_words + [w])
+                    if get_token_count(temp_w) <= max_tokens:
+                        curr_words.append(w)
+                    else:
+                        if curr_words:
+                            final_texts.append(" ".join(curr_words))
+                        curr_words = [w]
+                if curr_words:
+                    final_texts.append(" ".join(curr_words))
+        return final_texts
+
     # Initialize Session
     sess_options = onnxruntime.SessionOptions()
     sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['NnapiExecutionProvider', 'CPUExecutionProvider'])
@@ -195,21 +255,59 @@ def run_styletts2(payload):
         if not chunk_hash or not text:
             continue
 
-        # Replace '+' with Combining Acute Accent for proper phonemization
-        cleaned_text = text.replace('+', '\u0301')
-
-        # Transcribe to IPA
-        ipa_text = ipa(cleaned_text)
+        # Check token count and split if needed
+        sub_texts = split_long_text(text)
         
-        # Tokenize
-        indexes = []
-        for char in ipa_text:
-            if char in vocab_dict:
-                indexes.append(vocab_dict[char])
-        tokens = np.array(indexes, dtype=np.int64)
+        chunk_audio_samples = []
+        chunk_failed = False
+        
+        for sub_idx, sub_text in enumerate(sub_texts):
+            # Replace '+' with Combining Acute Accent for proper phonemization
+            cleaned_text = sub_text.replace('+', '\u0301')
 
-        if len(tokens) == 0:
-            print(f"[TTSHelper] Warning: Token list is empty for chunk {chunk_hash} ('{text}'). Generating silent WAV.", file=sys.stderr)
+            # Transcribe to IPA
+            ipa_text = ipa(cleaned_text)
+            
+            # Tokenize
+            indexes = []
+            for char in ipa_text:
+                if char in vocab_dict:
+                    indexes.append(vocab_dict[char])
+            tokens = np.array(indexes, dtype=np.int64)
+
+            if len(tokens) == 0:
+                continue
+
+            if i < 5:
+                print(f"[TTSHelper] [{i+1}/{total}] Synthesizing sub-chunk {sub_idx+1}/{len(sub_texts)} of chunk {chunk_hash}:", flush=True)
+                print(f"  - Original sub-text: '{sub_text}'", flush=True)
+                print(f"  - IPA: '{ipa_text}'", flush=True)
+            elif sub_idx == 0:
+                print(f"[TTSHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash} ({len(sub_texts)} parts)...", flush=True)
+
+            try:
+                inputs = {
+                    'tokens': tokens,
+                    'speed': np.array(speed, dtype=np.float32),
+                    's_prev': s_prev
+                }
+                outputs = sess.run(None, inputs)
+                sub_audio = outputs[0]
+                
+                if len(sub_audio) == 0:
+                    print(f"[TTSHelper] Error: Generated sub-audio samples are empty for chunk {chunk_hash} part {sub_idx+1}", file=sys.stderr)
+                    chunk_failed = True
+                    break
+                
+                chunk_audio_samples.append(sub_audio)
+            except Exception as e:
+                print(f"[TTSHelper] Error running StyleTTS2 on chunk {chunk_hash} part {sub_idx+1}: {e}", file=sys.stderr)
+                chunk_failed = True
+                break
+
+        if chunk_failed or not chunk_audio_samples:
+            # If failed, generate a silent WAV
+            print(f"[TTSHelper] Warning: Generating silent WAV for failed/empty chunk {chunk_hash}", file=sys.stderr)
             output_file = os.path.join(output_dir, f"{chunk_hash}.wav")
             silence_samples = [0] * 2400
             try:
@@ -226,30 +324,16 @@ def run_styletts2(payload):
                 print(f"[TTSHelper] Error writing silent WAV: {ce}", file=sys.stderr)
             continue
 
+        # Concatenate audio samples from all sub-chunks
+        audio_samples = np.concatenate(chunk_audio_samples)
         output_file = os.path.join(output_dir, f"{chunk_hash}.wav")
 
-        if i < 5:
-            print(f"[TTSHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash}:", flush=True)
-            print(f"  - Original: '{text}'", flush=True)
-            print(f"  - IPA: '{ipa_text}'", flush=True)
-        else:
-            print(f"[TTSHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash}...", flush=True)
-
         try:
-            inputs = {
-                'tokens': tokens,
-                'speed': np.array(speed, dtype=np.float32),
-                's_prev': s_prev
-            }
-            outputs = sess.run(None, inputs)
-            audio_samples = outputs[0]
-
-            if len(audio_samples) == 0:
-                print(f"[TTSHelper] Error: Generated audio samples are empty for chunk {chunk_hash}", file=sys.stderr)
-                continue
-
             # Normalize samples to int16
             int16_samples = [int(max(-1.0, min(1.0, s)) * 32767) for s in audio_samples]
+
+            # Trim leading/trailing silence (StyleTTS2 native sample rate is 24000 Hz)
+            int16_samples = trim_silence(int16_samples, 24000)
 
             # Save wav file (StyleTTS2 native sample rate is 24000 Hz)
             with wave.open(output_file, "wb") as wav_file:
