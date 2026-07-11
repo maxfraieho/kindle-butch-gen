@@ -136,6 +136,48 @@ def calculate_progress(slug):
             "error": "Book directory does not exist"
         }
         
+    # Check if direct EPUB progress is available
+    epub_prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
+    if os.path.exists(epub_prog_path):
+        try:
+            with open(epub_prog_path, "r", encoding="utf-8") as f:
+                ep = json.load(f)
+                curr = ep.get("current_file", 0)
+                tot = ep.get("total_files", 0)
+                pct = ep.get("percent", 0.0)
+            
+            is_manga = False
+            config_path = paths["config_path"]
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as cf:
+                        is_manga = json.load(cf).get("is_manga", False)
+                except Exception:
+                    pass
+                    
+            edit_percent = 0.0
+            edit_prog_path = os.path.join(paths["cache_dir"], "edit_progress.json")
+            if os.path.exists(edit_prog_path):
+                try:
+                    with open(edit_prog_path, "r", encoding="utf-8") as f:
+                        edit_percent = json.load(f).get("percent", 0.0)
+                except Exception:
+                    pass
+                    
+            return {
+                "is_manga": is_manga,
+                "manga_percent": pct,
+                "manga_pages_completed": curr,
+                "manga_total_pages": tot,
+                "marker_percent": 100.0,
+                "translation_percent": pct,
+                "edit_percent": edit_percent,
+                "stress_percent": 0.0,
+                "tts_percent": 0.0
+            }
+        except Exception:
+            pass
+
     # Check if manga
     config_path = paths["config_path"]
     is_manga = False
@@ -150,6 +192,8 @@ def calculate_progress(slug):
     if is_manga:
         manga_progress_path = os.path.join(book_dir, "manga_progress.json")
         manga_percent = 0.0
+        curr = 0
+        tot = 0
         if os.path.exists(manga_progress_path):
             try:
                 with open(manga_progress_path, "r", encoding="utf-8") as f:
@@ -161,6 +205,10 @@ def calculate_progress(slug):
             except Exception:
                 pass
         return {
+            "is_manga": True,
+            "manga_percent": manga_percent,
+            "manga_pages_completed": curr,
+            "manga_total_pages": tot,
             "marker_percent": manga_percent,
             "translation_percent": manga_percent,
             "stress_percent": manga_percent,
@@ -190,8 +238,10 @@ def calculate_progress(slug):
     # 2. Translation Progress
     should_translate = paths["target_lang"] != paths["source_lang"]
     merged_translated = os.path.join(book_dir, "translated", f"merged_translated_{paths['target_lang']}.md")
-    if not should_translate or not has_pdf or not page_ranges or (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0):
+    if not should_translate or (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0):
         translation_percent = 100.0
+    elif not has_pdf or not page_ranges:
+        translation_percent = 0.0
     else:
         translate_cache = {}
         if os.path.exists(paths["translate_cache"]):
@@ -298,9 +348,20 @@ def calculate_progress(slug):
         tts_percent = 0.0
         stress_percent = 0.0
     
+    edit_percent = 0.0
+    edit_prog_path = os.path.join(paths["cache_dir"], "edit_progress.json")
+    if os.path.exists(edit_prog_path):
+        try:
+            with open(edit_prog_path, "r", encoding="utf-8") as f:
+                edit_percent = json.load(f).get("percent", 0.0)
+        except Exception:
+            pass
+            
     return {
+        "is_manga": False,
         "marker_percent": round(marker_percent, 1),
         "translation_percent": round(translation_percent, 1),
+        "edit_percent": round(edit_percent, 1),
         "stress_percent": round(stress_percent, 1),
         "tts_percent": round(tts_percent, 1)
     }
@@ -314,7 +375,7 @@ def print_status(slug):
     print(f"Translation: {res['translation_percent']}%")
     print(f"TTS: {res['tts_percent']}%")
 
-def add_book(slug, pdf_path, title, authors, lang):
+def add_book(slug, pdf_path, title, authors, lang, source_lang="ru", is_manga=False):
     import shutil
     if not re.match(r"^[a-z0-9_-]+$", slug):
         raise ValueError("Invalid slug")
@@ -328,30 +389,37 @@ def add_book(slug, pdf_path, title, authors, lang):
     os.makedirs(paths["output_dir"], exist_ok=True)
     os.makedirs(paths["audio_dir"], exist_ok=True)
     
-    dest_pdf = os.path.join(paths["book_dir"], f"{slug}.pdf")
-    shutil.copy2(pdf_path, dest_pdf)
+    ext = os.path.splitext(pdf_path)[1].lower()
+    dest_file = os.path.join(paths["book_dir"], f"{slug}{ext}")
+    shutil.copy2(pdf_path, dest_file)
     
-    pages = get_pdf_page_count(dest_pdf)
-    
+    if ext == ".pdf":
+        pages = get_pdf_page_count(dest_file)
+        page_ranges = [[1, pages]]
+    else:
+        pages = 0
+        page_ranges = []
+        
     config_data = {
         "slug": slug,
         "title": title,
         "authors": authors,
-        "source_lang": "ru",
+        "source_lang": source_lang,
         "target_lang": lang,
-        "pdf_path": f"books/{slug}/{slug}.pdf",
-        "generate_audiobook": True,
-        "tts_voice": "ukrainian_tts",
+        "pdf_path": f"books/{slug}/{slug}.pdf" if ext == ".pdf" else "",
+        "is_manga": is_manga,
+        "generate_audiobook": not is_manga,
+        "tts_voice": "ukrainian_tts" if lang == "uk" else "irina",
         "tts_voice_quality": "medium",
-        "tts_speaker_id": 2,
+        "tts_speaker_id": 2 if lang == "uk" else 0,
         "tts_speed": 1.0,
         "tts_noise_scale": 0.667,
         "tts_noise_w": 0.8,
-        "page_ranges": [[1, pages]]
+        "page_ranges": page_ranges
     }
     
     with open(paths["config_path"], "w", encoding="utf-8") as f:
         json.dump(config_data, f, ensure_ascii=False, indent=2)
         
-    print(f"Book '{slug}' added successfully with {pages} pages.")
+    print(f"Book '{slug}' added successfully.")
 

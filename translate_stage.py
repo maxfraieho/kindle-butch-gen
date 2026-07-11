@@ -59,13 +59,144 @@ def split_into_segments(text, max_chars=1200):
         
     return segments
 
-def translate_text(text, api_url, target_lang="uk", temperature=0.7):
+def to_xml_format(text):
+    prefix_map = {
+        "IMAGE_LINE": "img",
+        "CODE_BLOCK": "code",
+        "MATH_BLOCK": "math",
+        "MATH_INLINE": "mi",
+        "INLINE_CODE": "ic",
+        "LINK_URL": "link",
+        "RAW_URL": "url",
+        "HTML_TAG": "tag"
+    }
+    def repl(match):
+        prefix = match.group(1)
+        num = match.group(2)
+        short = prefix_map.get(prefix, "t")
+        return f"[{short}{num}]"
+    return re.sub(r"__([A-Z_]+?)_(\d+)__", repl, text)
+
+def to_prefix_format(text, pm):
+    def repl(match):
+        num = match.group(2)
+        suffix = f"_{num}__"
+        for key in pm.placeholders.keys():
+            if key.endswith(suffix):
+                return key
+        return match.group(0)
+    return re.sub(r"\[\s*([a-zA-Z]+)[-_\s]*(\d+)\s*\]", repl, text)
+
+def _is_hy_mt2_model(base_url):
+    """Detect if running model is Hy-MT2 by checking /props endpoint."""
+    try:
+        props_url = base_url.replace("/v1/chat/completions", "").replace("/completion", "")
+        props_url = props_url.rstrip("/")
+        resp = requests.get(f"{props_url}/props", timeout=5)
+        if resp.status_code == 200:
+            model_name = resp.json().get("model_alias", "") or resp.json().get("model", "")
+            return "hy-mt2" in model_name.lower() or "hy_mt2" in model_name.lower()
+    except Exception:
+        pass
+    # Also check /health for model path
+    try:
+        base = base_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+        slot_resp = requests.get(f"{base}/slots", timeout=5)
+        if slot_resp.status_code == 200:
+            slots = slot_resp.json()
+            if slots and isinstance(slots, list):
+                model_path = str(slots[0].get("model", ""))
+                return "hy-mt2" in model_path.lower() or "hy_mt" in model_path.lower()
+    except Exception:
+        pass
+    return False
+
+
+def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", temperature=0.1):
+    """Translate using Hy-MT2 raw /completion endpoint with correct chat tokens.
+    
+    Hy-MT2-7B chat template (from llama-server log):
+      '<|startoftext|>system<|extra_4|>user<|extra_0|>reply<|eos|><|startoftext|>user<|extra_0|>'
+    Hy-MT2-1.8B chat template:
+      '<|hy_begin▁of▁sentence|><|hy_User|>...<|hy_Assistant|>'
+    """
+    lang_map = {
+        "uk": "Ukrainian",
+        "ru": "Russian",
+        "en": "English"
+    }
+    source_lang_full = lang_map.get(source_lang, "Russian")
+    target_lang_full = lang_map.get(target_lang, "Ukrainian")
+
+    # Check llama-server /props to determine which version (7B vs 1.8B format)
+    base = base_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+    is_7b_format = False
+    try:
+        props = requests.get(f"{base}/props", timeout=5).json()
+        tmpl = props.get("chat_template", "") or props.get("model_alias", "")
+        is_7b_format = "startoftext" in tmpl or "extra_0" in tmpl
+    except Exception:
+        pass
+
+    if is_7b_format:
+        # Hy-MT2-7B format: <|startoftext|>user<|extra_0|>reply<|eos|>
+        raw_prompt = (
+            f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}. "
+            f"Output ONLY the translation, no explanations, no commentary:\n\n{text}<|extra_0|>"
+        )
+        stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>"]
+    else:
+        # Hy-MT2-1.8B format
+        raw_prompt = (
+            f"<|hy_begin\u2581of\u2581sentence|>"
+            f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}. "
+            f"Output only the translation, no explanations:\n\n{text}<|hy_Assistant|>"
+        )
+        stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>"]
+
+    completion_url = base_url.replace("/v1/chat/completions", "/completion").rstrip("/")
+    if not completion_url.endswith("/completion"):
+        completion_url = completion_url.rstrip("/") + "/completion"
+
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "prompt": raw_prompt,
+        "temperature": temperature,
+        "top_p": 0.95,
+        "top_k": 20,
+        "repetition_penalty": 1.05,
+        "n_predict": 4096,
+        "stop": stop_tokens
+    }
+
+    try:
+        resp = requests.post(completion_url, headers=headers, json=data, timeout=300)
+        if resp.status_code != 200:
+            log(f"Hy-MT2 /completion error: {resp.status_code} - {resp.text[:200]}")
+            return None
+        result = resp.json()
+        translated = result.get("content", "").strip()
+        return translated if translated else None
+    except Exception as e:
+        log(f"Hy-MT2 API request failed: {e}")
+        return None
+
+
+
+def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang="ru"):
     lang_map = {
         "uk": "Ukrainian",
         "ru": "Russian",
         "en": "English"
     }
     target_lang_full = lang_map.get(target_lang, "Ukrainian")
+
+    # Auto-detect Hy-MT2 and use raw completion endpoint
+    if _is_hy_mt2_model(api_url):
+        log("Detected Hy-MT2 model — using raw /completion endpoint")
+        return translate_text_hy_mt2(text, api_url, source_lang=source_lang,
+                                     target_lang=target_lang, temperature=0.1)
+
     prompt = f"Translate the following text into {target_lang_full}:\n\n{text}"
     headers = {"Content-Type": "application/json"}
     data = {
@@ -117,6 +248,8 @@ def validate_translation_segment(original, translated):
     
     if missing or extra:
         log(f"Validation failure: Placeholders mismatch!")
+        log(f"Original segment: {original!r}")
+        log(f"Translated segment: {translated!r}")
         if missing:
             log(f"Missing in translation: {missing}")
         if extra:
@@ -127,21 +260,47 @@ def validate_translation_segment(original, translated):
 
 def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3):
     temp = 0.7
+    xml_segment = to_xml_format(segment)
+    orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", segment))
+    last_translated = None
+    
     for attempt in range(max_retries):
         if attempt > 0:
             temp = 0.1
             log(f"Retrying translation of segment (attempt {attempt+1}/{max_retries}) with temperature {temp}...")
             
-        translated = translate_text(segment, api_url, target_lang=target_lang, temperature=temp)
+        translated = translate_text(xml_segment, api_url, target_lang=target_lang, temperature=temp)
         if not translated:
             continue
             
+        translated = to_prefix_format(translated, pm)
         translated = pm.normalize_placeholders(translated)
+        
+        last_translated = translated
             
         if validate_translation_segment(segment, translated):
             return translated
         else:
             log(f"Segment validation failed on attempt {attempt+1}.")
+            
+    # If all attempts failed, rescue by adjusting missing/extra placeholders
+    if last_translated:
+        trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", last_translated))
+        missing = orig_placeholders - trans_placeholders
+        extra = trans_placeholders - orig_placeholders
+        
+        rescued = last_translated
+        if extra:
+            log(f"Stripping extra placeholders from translation: {extra}")
+            for ex in extra:
+                rescued = rescued.replace(ex, "")
+                
+        if missing:
+            log(f"Appending missing placeholders to translation: {missing}")
+            rescued = rescued + " " + " ".join(sorted(list(missing)))
+            
+        if validate_translation_segment(segment, rescued):
+            return rescued
             
     log("Warning: Segment validation failed after all retries. Falling back to ORIGINAL protected segment to preserve placeholders (images/links/code).")
     return segment

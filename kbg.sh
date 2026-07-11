@@ -20,6 +20,7 @@ show_usage() {
   echo "Actions:"
   echo "  add <slug> --pdf <path> --title <title> --authors <authors> --lang <lang>"
   echo "  run <slug> [--clean] [--no-translate] [--no-ebook] [--no-audio]"
+  echo "  edit <slug>"
   echo "  status <slug>"
   echo "  serve [--port <port>] [--dev]"
   exit 1
@@ -44,6 +45,8 @@ case "$ACTION" in
     TITLE=""
     AUTHORS=""
     LANG=""
+    SOURCE_LANG="ru"
+    IS_MANGA=0
     
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -83,6 +86,19 @@ case "$ACTION" in
             exit 1
           fi
           ;;
+        --source-lang)
+          if [ -n "$2" ]; then
+            SOURCE_LANG="$2"
+            shift 2
+          else
+            echo "Error: --source-lang requires a language argument" >&2
+            exit 1
+          fi
+          ;;
+        --manga)
+          IS_MANGA=1
+          shift
+          ;;
         *)
           echo "Error: Unknown argument '$1' for add command" >&2
           exit 1
@@ -96,7 +112,7 @@ case "$ACTION" in
     fi
     
     # Run the add_book python logic securely using environment variables
-    SLUG="$SLUG" PDF_PATH="$PDF_PATH" TITLE="$TITLE" AUTHORS="$AUTHORS" LANG="$LANG" \
+    SLUG="$SLUG" PDF_PATH="$PDF_PATH" TITLE="$TITLE" AUTHORS="$AUTHORS" LANG="$LANG" SOURCE_LANG="$SOURCE_LANG" IS_MANGA="$IS_MANGA" \
     python3 -c "
 import os, sys
 from kbg_web.status_helper import add_book
@@ -106,7 +122,9 @@ try:
         os.environ['PDF_PATH'],
         os.environ['TITLE'],
         os.environ['AUTHORS'],
-        os.environ['LANG']
+        os.environ['LANG'],
+        os.environ.get('SOURCE_LANG', 'ru'),
+        os.environ.get('IS_MANGA', '0') == '1'
     )
 except Exception as e:
     print(f'Error: {e}', file=sys.stderr)
@@ -207,6 +225,76 @@ except Exception:
     
     # Run the orchestrator with safe argument passing
     python3 run_conversion_batches.py --book "$SLUG" "${run_args[@]}"
+    ;;
+
+  edit)
+    SLUG="$2"
+    if [ -z "$SLUG" ]; then
+      echo "Error: Missing book slug" >&2
+      show_usage
+    fi
+    validate_slug "$SLUG"
+    
+    MODEL_DIR="$HOME/models/qwen25-coder-7b"
+    MODEL_PATH="$MODEL_DIR/qwen2.5-coder-7b-instruct-q4_0.gguf"
+    if [ ! -f "$MODEL_PATH" ]; then
+      echo "Editor model (Qwen-2.5-Coder-7B) not found at $MODEL_PATH."
+      echo "Downloading from Hugging Face..."
+      mkdir -p "$MODEL_DIR"
+      curl -L -o "$MODEL_PATH" "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_0.gguf"
+    fi
+    
+    echo "Starting editor server on port 8081..."
+    pkill -f "llama-server.*8081" 2>/dev/null || true
+    sleep 1
+    
+    cd ~/llama.cpp
+    LD_LIBRARY_PATH=$HOME:/system/lib64:/vendor/lib64:$PREFIX/lib nohup ./build/bin/llama-server \
+      -m "$MODEL_PATH" \
+      -c 2048 \
+      -ngl 99 \
+      -t 4 \
+      --host 0.0.0.0 \
+      --port 8081 \
+      > ~/llama-editor-server.log 2>&1 &
+      
+    echo -n "Waiting for editor server to boot..."
+    for i in {1..45}; do
+      if curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
+        echo " Connected!"
+        break
+      fi
+      if ! pgrep -f "llama-server.*8081" >/dev/null; then
+        echo " Error: llama-server process died." >&2
+        exit 1
+      fi
+      echo -n "."
+      sleep 1
+    done
+    
+    if ! curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
+      echo " Error: Editor server failed to load the model on port 8081." >&2
+      exit 1
+    fi
+    
+    cd "$REPO_DIR"
+    
+    echo "Running proofreading/editing pipeline..."
+    python3 edit_epub.py \
+      --input "books/$SLUG/output/${SLUG}_translated_uk.epub" \
+      --output "books/$SLUG/output/${SLUG}_edited_uk.epub" \
+      --book "$SLUG"
+      
+    # Compile the edited EPUB to AZW3
+    echo "Converting edited EPUB to AZW3..."
+    proot-distro login ubuntu -- ebook-convert \
+      "/data/data/com.termux/files/home/kindle-butch-gen/books/$SLUG/output/${SLUG}_edited_uk.epub" \
+      "/data/data/com.termux/files/home/kindle-butch-gen/books/$SLUG/output/${SLUG}_edited_uk.azw3"
+      
+    # Copy both files to /sdcard/Download/
+    cp "books/$SLUG/output/${SLUG}_edited_uk.epub" "/sdcard/Download/${SLUG}_edited_uk.epub"
+    cp "books/$SLUG/output/${SLUG}_edited_uk.azw3" "/sdcard/Download/${SLUG}_edited_uk.azw3"
+    echo "Edited books copied to /sdcard/Download/"
     ;;
 
   status)

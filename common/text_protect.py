@@ -4,6 +4,8 @@ class PlaceholderManager:
     def __init__(self):
         self.placeholders = {}
         self.counter = 0
+        self.added_left_space = set()
+        self.added_right_space = set()
 
     def add(self, text, prefix):
         key = f"__{prefix}_{self.counter}__"
@@ -60,6 +62,18 @@ class PlaceholderManager:
             return self.add(match.group(0), "HTML_TAG")
         text = re.sub(r"<[a-zA-Z/!][^>]*?>", html_tag_repl, text)
 
+        # Ensure placeholders are separated from adjacent words to prevent translation truncation/mangling
+        for key in list(self.placeholders.keys()):
+            left_pattern = re.compile(r"(\w)" + re.escape(key))
+            if left_pattern.search(text):
+                text = left_pattern.sub(r"\1 " + key, text)
+                self.added_left_space.add(key)
+                
+            right_pattern = re.compile(re.escape(key) + r"(\w)")
+            if right_pattern.search(text):
+                text = right_pattern.sub(key + r" \1", text)
+                self.added_right_space.add(key)
+
         return text
 
     def normalize_placeholders(self, text):
@@ -84,6 +98,14 @@ class PlaceholderManager:
         if not text:
             return ""
         text = self.normalize_placeholders(text)
+        
+        # Remove added spaces around placeholder keys in the translated text
+        for key in list(self.placeholders.keys()):
+            if key in self.added_left_space:
+                text = re.sub(r"\s+" + re.escape(key), key, text)
+            if key in self.added_right_space:
+                text = re.sub(re.escape(key) + r"\s+", key, text)
+
         keys = list(self.placeholders.keys())
         keys.reverse()
         for key in keys:
