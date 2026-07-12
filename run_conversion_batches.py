@@ -24,9 +24,28 @@ def log(message, log_path):
     except Exception as e:
         print(f"Failed to write to log path {log_path}: {e}")
 
+def run_command_streaming(cmd, log_path, prefix="", env=None):
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env
+        )
+        for line in process.stdout:
+            log(f"{prefix}{line.strip()}", log_path)
+        process.wait()
+        return process.returncode == 0
+    except Exception as e:
+        log(f"Command failed with exception: {e}", log_path)
+        return False
+
 def run_marker_batch(start, end, pdf_path, batches_dir, log_path):
     log(f"Starting marker batch {start}-{end}...", log_path)
     batch_out_dir = os.path.join(batches_dir, f"batch_{start}_{end}")
+    os.makedirs(batch_out_dir, exist_ok=True)
     
     cmd = [
         "proot-distro", "login", "ubuntu", "--",
@@ -43,18 +62,31 @@ def run_marker_batch(start, end, pdf_path, batches_dir, log_path):
         "--output_dir", batch_out_dir
     ]
     
-    # Run the process
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    
-    # Save marker log
-    os.makedirs(batch_out_dir, exist_ok=True)
     marker_log_path = os.path.join(batch_out_dir, "marker_run.log")
-    with open(marker_log_path, "w", encoding="utf-8") as log_file:
-        log_file.write(result.stdout)
+    returncode = -1
+    try:
+        with open(marker_log_path, "w", encoding="utf-8") as log_file:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            for line in process.stdout:
+                log_file.write(line)
+                log_file.flush()
+                line_lower = line.lower()
+                if any(x in line_lower for x in ["saving", "processing", "rendering", "percent", "page", "success", "error", "warning"]):
+                    log(f"[Marker {start}-{end}] {line.strip()}", log_path)
+            process.wait()
+            returncode = process.returncode
+    except Exception as e:
+        log(f"Error executing marker batch: {e}", log_path)
+        return False
         
-    if result.returncode != 0:
-        log(f"Error: Batch {start}-{end} failed with return code {result.returncode}!", log_path)
-        log("Last 10 lines of marker output:\n" + "\n".join(result.stdout.splitlines()[-10:]), log_path)
+    if returncode != 0:
+        log(f"Error: Batch {start}-{end} failed with return code {returncode}!", log_path)
         return False
     
     log(f"Batch {start}-{end} completed successfully.", log_path)
@@ -133,8 +165,8 @@ def main():
                     if args.config:
                         cmd_translate.extend(["--config", args.config])
                     log(f"Running translation command: {' '.join(cmd_translate)}", log_path)
-                    res_trans = subprocess.run(cmd_translate)
-                    if res_trans.returncode != 0:
+                    success_trans = run_command_streaming(cmd_translate, log_path, prefix="[Translate] ")
+                    if not success_trans:
                         log("Error: Translation of merged source markdown failed!", log_path)
                         sys.exit(1)
                 else:
@@ -200,8 +232,8 @@ def main():
                     if args.config:
                         cmd_translate.extend(["--config", args.config])
                     log(f"Running translation command: {' '.join(cmd_translate)}", log_path)
-                    res_trans = subprocess.run(cmd_translate)
-                    if res_trans.returncode != 0:
+                    success_trans = run_command_streaming(cmd_translate, log_path, prefix=f"[Translate {start}-{end}] ")
+                    if not success_trans:
                         log(f"Error: Translation of batch {start}-{end} failed!", log_path)
                         success = False
                         break
@@ -270,10 +302,9 @@ def main():
         env["LANG"] = lang_locale
         env["LC_ALL"] = lang_locale
         
-        res_epub = subprocess.run(cmd_epub, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if not os.path.exists(epub_out_path):
+        success_epub = run_command_streaming(cmd_epub, log_path, prefix="[Calibre EPUB] ", env=env)
+        if not success_epub or not os.path.exists(epub_out_path):
             log("Error: Calibre EPUB generation failed!", log_path)
-            log(res_epub.stdout, log_path)
             sys.exit(1)
             
         # EPUB Validation
@@ -303,10 +334,9 @@ def main():
         if os.path.exists(paths["cover_path"]):
             cmd_azw.append(f"--cover={paths['cover_path']}")
             
-        res_azw = subprocess.run(cmd_azw, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if not os.path.exists(azw3_out_path):
+        success_azw = run_command_streaming(cmd_azw, log_path, prefix="[Calibre AZW3] ", env=env)
+        if not success_azw or not os.path.exists(azw3_out_path):
             log("Error: Calibre AZW3 generation failed!", log_path)
-            log(res_azw.stdout, log_path)
             sys.exit(1)
             
         log("AZW3 generated successfully.", log_path)
@@ -336,8 +366,8 @@ def main():
         ]
         if args.config:
             cmd_audio.extend(["--config", args.config])
-        res_audio = subprocess.run(cmd_audio)
-        if res_audio.returncode != 0:
+        success_audio = run_command_streaming(cmd_audio, log_path, prefix="[Audio] ")
+        if not success_audio:
             log("Error: Audiobook generation stage failed!", log_path)
             sys.exit(1)
             
