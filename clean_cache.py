@@ -11,50 +11,8 @@ import glob
 
 from common.text_protect import PlaceholderManager
 from common.book_paths import resolve_book_paths
+from common.utils import get_hash, split_into_segments
 
-def get_hash(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
-
-def split_into_segments(text, max_chars=1200):
-    paragraphs = text.split("\n\n")
-    segments = []
-    current_segment = []
-    current_length = 0
-    
-    for p in paragraphs:
-        p_len = len(p)
-        if p_len > max_chars:
-            if current_segment:
-                segments.append("\n\n".join(current_segment))
-                current_segment = []
-                current_length = 0
-            sentences = re.split(r'(?<=[.!?])\s+', p)
-            curr_sent_group = []
-            curr_sent_len = 0
-            for s in sentences:
-                if curr_sent_len + len(s) > max_chars:
-                    if curr_sent_group:
-                        segments.append(" ".join(curr_sent_group))
-                    curr_sent_group = [s]
-                    curr_sent_len = len(s)
-                else:
-                    curr_sent_group.append(s)
-                    curr_sent_len += len(s) + 1
-            if curr_sent_group:
-                segments.append(" ".join(curr_sent_group))
-        else:
-            if current_length + p_len > max_chars:
-                segments.append("\n\n".join(current_segment))
-                current_segment = [p]
-                current_length = p_len
-            else:
-                current_segment.append(p)
-                current_length += p_len + 2
-                
-    if current_segment:
-        segments.append("\n\n".join(current_segment))
-        
-    return segments
 
 def main():
     parser = argparse.ArgumentParser(description="Clean failed entries from translation cache.")

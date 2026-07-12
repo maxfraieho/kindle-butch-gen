@@ -10,12 +10,11 @@ import argparse
 import subprocess
 from common.text_protect import PlaceholderManager
 from common.book_paths import resolve_book_paths
+from common.utils import get_hash
 
 def log(message):
     print(f"[AudioStage] {message}", flush=True)
 
-def get_hash(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 def locate_translated_file(book_dir, target_lang):
     # Check 1: books/<slug>/translated/merged_translated_<target_lang>.md
