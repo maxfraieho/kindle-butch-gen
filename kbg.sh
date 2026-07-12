@@ -197,20 +197,20 @@ except Exception:
 
     if [ "$IS_TRANSLATION_NEEDED" = "true" ] && [ "$NO_TRANSLATE" -eq 0 ]; then
       # Verify translation server connectivity
-      if ! curl -s --connect-timeout 2 "http://127.0.0.1:8081" >/dev/null; then
+      if ! LD_LIBRARY_PATH="" curl -s --connect-timeout 2 "http://127.0.0.1:8081" >/dev/null; then
         echo "Translation server is not running on port 8081. Attempting to start it..."
         if [ -f "$HOME/start-translation-server.sh" ]; then
           bash "$HOME/start-translation-server.sh"
           echo -n "Waiting for translation server to boot..."
           for i in {1..15}; do
-            if curl -s --connect-timeout 1 "http://127.0.0.1:8081" >/dev/null; then
+            if LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081" >/dev/null; then
               echo " Connected!"
               break
             fi
             echo -n "."
             sleep 1
           done
-          if ! curl -s --connect-timeout 1 "http://127.0.0.1:8081" >/dev/null; then
+          if ! LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081" >/dev/null; then
             echo " Error: Translation server failed to start on port 8081." >&2
             exit 1
           fi
@@ -260,7 +260,7 @@ except Exception:
       
     echo -n "Waiting for editor server to boot..."
     for i in {1..45}; do
-      if curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
+      if LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
         echo " Connected!"
         break
       fi
@@ -272,7 +272,7 @@ except Exception:
       sleep 1
     done
     
-    if ! curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
+    if ! LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
       echo " Error: Editor server failed to load the model on port 8081." >&2
       exit 1
     fi
