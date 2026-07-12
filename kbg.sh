@@ -235,8 +235,8 @@ except Exception:
     fi
     validate_slug "$SLUG"
     
-    MODEL_DIR="$HOME/models/qwen25-coder-7b"
-    MODEL_PATH="$MODEL_DIR/qwen2.5-coder-7b-instruct-q4_0.gguf"
+    MODEL_PATH=$(python3 -c "import json, os; print(json.load(open('/data/data/com.termux/files/home/kindle-butch-gen/global_settings.json')).get('editor_model', '/data/data/com.termux/files/home/models/qwen25-coder-7b/qwen2.5-coder-7b-instruct-q4_0.gguf'))")
+    MODEL_DIR=$(dirname "$MODEL_PATH")
     if [ ! -f "$MODEL_PATH" ]; then
       echo "Editor model (Qwen-2.5-Coder-7B) not found at $MODEL_PATH."
       echo "Downloading from Hugging Face..."

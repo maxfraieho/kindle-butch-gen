@@ -933,6 +933,88 @@ def set_output_root():
 def get_settings():
     return jsonify(load_global_settings())
 
+@app.route("/api/models")
+@auth.login_required
+def get_models_info():
+    import socket
+    import glob
+    settings = load_global_settings()
+    translation_model = settings.get("translation_model", "/data/data/com.termux/files/home/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf")
+    editor_model = settings.get("editor_model", "/data/data/com.termux/files/home/models/qwen25-coder-7b/qwen2.5-coder-7b-instruct-q4_0.gguf")
+    
+    models_dir = os.path.expanduser("~/models")
+    available = []
+    if os.path.exists(models_dir):
+        for path in glob.glob(os.path.join(models_dir, "**/*.gguf"), recursive=True):
+            available.append(path)
+            
+    is_open = False
+    try:
+        with socket.create_connection(("127.0.0.1", 8081), timeout=0.5) as s:
+            is_open = True
+    except Exception:
+        pass
+        
+    loaded_model = None
+    if is_open:
+        try:
+            import requests
+            resp = requests.get("http://127.0.0.1:8081/props", timeout=0.5)
+            if resp.status_code == 200:
+                data = resp.json()
+                loaded_model = data.get("model_alias", "") or data.get("model", "")
+        except Exception:
+            pass
+            
+    return jsonify({
+        "translation_model": translation_model,
+        "editor_model": editor_model,
+        "available_models": available,
+        "server_status": {
+            "running": is_open,
+            "loaded_model": loaded_model
+        }
+    })
+
+@app.route("/api/models/configure", methods=["POST"])
+@auth.login_required
+def configure_models():
+    data = request.get_json() or {}
+    translation_model = data.get("translation_model")
+    editor_model = data.get("editor_model")
+    
+    settings = load_global_settings()
+    if translation_model:
+        settings["translation_model"] = translation_model
+    if editor_model:
+        settings["editor_model"] = editor_model
+        
+    save_global_settings(settings)
+    return jsonify({"status": "success"})
+
+@app.route("/api/models/start", methods=["POST"])
+@auth.login_required
+def start_translation_server_api():
+    subprocess.run(["pkill", "-f", "llama-server.*8081"])
+    import time
+    time.sleep(1)
+    
+    sh_script = os.path.expanduser("~/start-translation-server.sh")
+    if not os.path.exists(sh_script):
+        return jsonify({"status": "error", "message": "Translation server script not found"}), 404
+        
+    try:
+        subprocess.Popen(["bash", sh_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+        return jsonify({"status": "success", "message": "Translation server start triggered"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/models/stop", methods=["POST"])
+@auth.login_required
+def stop_translation_server_api():
+    subprocess.run(["pkill", "-f", "llama-server.*8081"])
+    return jsonify({"status": "success", "message": "Translation server stopped"})
+
 # -------------------------------------------------------------
 # VISUAL STAGE VIEWER / QUALITY ASSURANCE ROUTES
 # -------------------------------------------------------------

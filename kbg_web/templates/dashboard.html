@@ -823,9 +823,14 @@
             <div class="glass-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1;">Manage Books</h2>
-                    <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
-                        <span>⚙</span> Save Location
-                    </button>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openModelsSelector()">
+                            <span>🤖</span> Models Manager
+                        </button>
+                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
+                            <span>⚙</span> Save Location
+                        </button>
+                    </div>
                 </div>
                 <div class="save-location-info">
                     <span>📁</span> <strong>Save Location:</strong> <span id="currentSaveLocation">Loading...</span>
@@ -1632,6 +1637,133 @@
             }
         }
 
+        async function openModelsSelector() {
+            const modal = document.getElementById("modelsModal");
+            modal.classList.add("active");
+            await loadModelsData();
+        }
+
+        function closeModelsSelector() {
+            const modal = document.getElementById("modelsModal");
+            modal.classList.remove("active");
+        }
+
+        async function loadModelsData() {
+            try {
+                const res = await fetch("/api/models");
+                const data = await res.json();
+                
+                const dot = document.getElementById("modelsServerDot");
+                const status = document.getElementById("modelsServerStatus");
+                const loaded = document.getElementById("modelsServerLoaded");
+                
+                if (data.server_status.running) {
+                    dot.className = "status-dot active";
+                    status.innerText = "Running";
+                    status.style.color = "var(--success)";
+                    loaded.innerText = "Loaded model: " + (data.server_status.loaded_model || "Unknown");
+                } else {
+                    dot.className = "status-dot";
+                    status.innerText = "Stopped";
+                    status.style.color = "var(--text-secondary)";
+                    loaded.innerText = "Port 8081 is closed";
+                }
+                
+                const tSelect = document.getElementById("modelsTranslationSelect");
+                const eSelect = document.getElementById("modelsEditorSelect");
+                
+                tSelect.innerHTML = "";
+                eSelect.innerHTML = "";
+                
+                if (!data.available_models || data.available_models.length === 0) {
+                    const opt = `<option value="">No .gguf models found in ~/models/</option>`;
+                    tSelect.innerHTML = opt;
+                    eSelect.innerHTML = opt;
+                } else {
+                    data.available_models.forEach(model => {
+                        const filename = model.split('/').pop();
+                        tSelect.innerHTML += `<option value="${model}" ${data.translation_model === model ? 'selected' : ''}>${filename}</option>`;
+                        eSelect.innerHTML += `<option value="${model}" ${data.editor_model === model ? 'selected' : ''}>${filename}</option>`;
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to load models data:", err);
+            }
+        }
+
+        async function saveModelsConfiguration() {
+            const btn = document.getElementById("modelsSaveBtn");
+            btn.disabled = true;
+            btn.textContent = "Saving...";
+            
+            const translation_model = document.getElementById("modelsTranslationSelect").value;
+            const editor_model = document.getElementById("modelsEditorSelect").value;
+            
+            try {
+                const res = await fetch("/api/models/configure", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ translation_model, editor_model })
+                });
+                const data = await res.json();
+                if (data.status === "success") {
+                    alert("Models configuration saved successfully!");
+                    closeModelsSelector();
+                } else {
+                    alert("Error saving configuration: " + data.message);
+                }
+            } catch (err) {
+                alert("Request failed: " + err);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Save Configuration";
+            }
+        }
+
+        async function startTranslationServer() {
+            const btn = document.getElementById("modelsStartBtn");
+            btn.disabled = true;
+            btn.textContent = "Starting...";
+            
+            try {
+                const res = await fetch("/api/models/start", { method: "POST" });
+                const data = await res.json();
+                if (data.status === "success") {
+                    alert("Translation server start triggered! It will take a few seconds to load the model.");
+                    setTimeout(loadModelsData, 4000);
+                } else {
+                    alert("Error starting server: " + data.message);
+                }
+            } catch (err) {
+                alert("Request failed: " + err);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Start Server";
+            }
+        }
+
+        async function stopTranslationServer() {
+            const btn = document.getElementById("modelsStopBtn");
+            btn.disabled = true;
+            btn.textContent = "Stopping...";
+            
+            try {
+                const res = await fetch("/api/models/stop", { method: "POST" });
+                const data = await res.json();
+                if (data.status === "success") {
+                    alert("Translation server stopped successfully.");
+                    setTimeout(loadModelsData, 1000);
+                } else {
+                    alert("Error stopping server: " + data.message);
+                }
+            } catch (err) {
+                alert("Request failed: " + err);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Stop Server";
+            }
+        }
+
         // Initialize settings on page load
         initSettings();
     </script>
@@ -1659,6 +1791,60 @@
             <div class="modal-footer">
                 <button class="btn-outline" onclick="closeFolderSelector()">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmFolderSelection()" id="fsSelectBtn" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: background 0.2s;">✓ Select This Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Models Manager Modal -->
+    <div id="modelsModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 650px;">
+            <div class="modal-header">
+                <h3>🤖 Models & Services Manager</h3>
+                <button class="modal-close" onclick="closeModelsSelector()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Server Status Section -->
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem;">
+                    <h4 style="margin: 0 0 1rem 0; font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>🖥️</span> Llama Server Status (Port 8081)
+                    </h4>
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <span id="modelsServerDot" class="status-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block;"></span>
+                            <div>
+                                <div id="modelsServerStatus" style="font-weight: 600; font-size: 0.95rem;">Checking...</div>
+                                <div id="modelsServerLoaded" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.1rem;">No model loaded</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="modelsStartBtn" class="btn btn-success" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--success); border: none; cursor: pointer; border-radius: 6px;" onclick="startTranslationServer()">Start Server</button>
+                            <button id="modelsStopBtn" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--danger); border: none; cursor: pointer; border-radius: 6px;" onclick="stopTranslationServer()">Stop Server</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Models Configuration -->
+                <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="modelsTranslationSelect" style="font-weight: 600; color: #fff; margin-bottom: 0.5rem; display: block;">Translation Model (.gguf)</label>
+                        <select id="modelsTranslationSelect" class="form-control" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 0.5rem; border-radius: 6px;">
+                            <!-- Populated dynamically -->
+                        </select>
+                        <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.35rem 0 0 0;">Used during PDF/EPUB text translation step.</p>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="modelsEditorSelect" style="font-weight: 600; color: #fff; margin-bottom: 0.5rem; display: block;">Proofreader / Editor Model (.gguf)</label>
+                        <select id="modelsEditorSelect" class="form-control" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 0.5rem; border-radius: 6px;">
+                            <!-- Populated dynamically -->
+                        </select>
+                        <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.35rem 0 0 0;">Used during post-translation grammatical error correction (GEC) step.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top: 1.5rem;">
+                <button class="btn-outline" onclick="closeModelsSelector()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveModelsConfiguration()" id="modelsSaveBtn" style="background: var(--primary); border: none; color: #fff; font-weight: 500; cursor: pointer;">Save Configuration</button>
             </div>
         </div>
     </div>
