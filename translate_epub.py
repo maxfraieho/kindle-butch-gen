@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from common.text_protect import PlaceholderManager
 from common.epub_validate import sanitize_xhtml_for_xml_parser
 from common.book_paths import resolve_book_paths
+from common.utils import get_hash, to_xml_format
 
 
 def translate_epub_images(temp_dir, source_lang, repo_dir):
@@ -78,26 +79,6 @@ def translate_epub_images(temp_dir, source_lang, repo_dir):
 def log(message):
     print(f"[EPUB-Translate] {message}", flush=True)
 
-def get_hash(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
-
-def to_xml_format(text):
-    prefix_map = {
-        "IMAGE_LINE": "img",
-        "CODE_BLOCK": "code",
-        "MATH_BLOCK": "math",
-        "MATH_INLINE": "mi",
-        "INLINE_CODE": "ic",
-        "LINK_URL": "link",
-        "RAW_URL": "url",
-        "HTML_TAG": "tag"
-    }
-    def repl(match):
-        prefix = match.group(1)
-        num = match.group(2)
-        short = prefix_map.get(prefix, "t")
-        return f"[{short}{num}]"
-    return re.sub(r"__([A-Z_]+?)_(\d+)__", repl, text)
 
 def to_prefix_format(text, pm):
     def repl(match):

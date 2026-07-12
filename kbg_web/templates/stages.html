@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kindle Butch Gen - Quality Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-hover: #7c3aed;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg-dark: #09090b;
+            --card-bg: rgba(20, 20, 35, 0.65);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            
+            --ease-out-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at top right, #1e1b4b, #09090b);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        header {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 0;
+            background: linear-gradient(135deg, #a78bfa, #8b5cf6, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 0.2rem;
+        }
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.6rem 1.2rem;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: background-color 160ms var(--ease-out-snappy), border-color 160ms var(--ease-out-snappy), transform 160ms var(--ease-out-snappy);
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .btn-back:hover {
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+        }
+        .btn-back:active {
+            transform: scale(0.97);
+        }
+        .visualizer-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            backdrop-filter: blur(8px);
+            margin-bottom: 2rem;
+        }
+        .loader {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: var(--text-secondary);
+        }
+        .loader-spinner {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Manga Side-by-Side Viewer */
+        .manga-viewer {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+        .manga-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .panel-header {
+            padding: 0.8rem;
+            background: rgba(255,255,255,0.03);
+            width: 100%;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .manga-img {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+            background: #18181b;
+        }
+        .manga-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        .manga-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.7rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 160ms var(--ease-out-snappy), background-color 160ms ease;
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .manga-btn:hover { background: var(--primary-hover); }
+        }
+        .manga-btn:active {
+            transform: scale(0.97);
+        }
+        .manga-btn:disabled {
+            background: rgba(255,255,255,0.06);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        .page-indicator {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        /* Regular Book Stage Table */
+        .book-stages-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px) scale(0.99);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        .paragraph-card {
+            background: rgba(15, 15, 25, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.2rem;
+            transition: border-color 200ms var(--ease-out-snappy), box-shadow 200ms var(--ease-out-snappy);
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .paragraph-card:hover {
+                border-color: rgba(139, 92, 246, 0.35);
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            }
+        }
+        .card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.8rem;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            padding-bottom: 0.5rem;
+        }
+        .grid-stages {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .stage-box {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+        .stage-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stage-content {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            background: rgba(255,255,255,0.02);
+            padding: 0.8rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.03);
+            white-space: pre-wrap;
+        }
+        .audio-wrapper {
+            margin-top: 1rem;
+            padding: 0.8rem;
+            background: rgba(139, 92, 246, 0.08);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .audio-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        audio {
+            height: 34px;
+            border-radius: 4px;
+            accent-color: var(--primary);
+        }
+        .stage-stressed {
+            font-family: 'Outfit', sans-serif;
+            color: #d8b4fe; /* Accentuated color */
+        }
+        .badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-audio { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+        .badge-no-audio { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+        
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .filter-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 160ms var(--ease-out-snappy);
+        }
+        .filter-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .filter-btn:hover:not(.active) {
+                background: rgba(255,255,255,0.1);
+            }
+        }
+        .filter-btn:active {
+            transform: scale(0.97);
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            outline: none;
+            transition: color 160ms var(--ease-out-snappy), border-color 160ms var(--ease-out-snappy);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1 id="book-title">Loading book...</h1>
+                <div class="subtitle" id="book-slug">Slug: ...</div>
+            </div>
+            <a href="/" class="btn-back">← Back to Dashboard</a>
+        </header>
+
+        <div id="viewer-container" class="visualizer-card">
+            <div class="loader" id="loader">
+                <div style="text-align: center;">
+                    <div class="loader-spinner" style="margin: 0 auto 1rem auto;"></div>
+                    <div>Loading visualizer dataset...</div>
+                </div>
+            </div>
+            <div id="content-area" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const slug = "{{ slug }}";
+        let isManga = false;
+        let bookData = null;
+        let currentMangaPage = 0;
+
+        async function fetchBookData() {
+            try {
+                // First, check list of books to find metadata
+                const resBooks = await fetch("/api/books");
+                const books = await resBooks.json();
+                const book = books.find(b => b.slug === slug);
+                if (book) {
+                    document.getElementById("book-title").textContent = book.title;
+                    document.getElementById("book-slug").textContent = `Author: ${book.authors} | Target: ${book.target_lang.toUpperCase()} | Engine: ${book.tts_engine}`;
+                    isManga = book.is_manga || false;
+                }
+
+                if (isManga) {
+                    const resManga = await fetch(`/api/preview/manga/${slug}`);
+                    bookData = await resManga.json();
+                    renderManga();
+                } else {
+                    const resBook = await fetch(`/api/preview/book/${slug}`);
+                    bookData = await resBook.json();
+                    renderBook();
+                }
+                
+                document.getElementById("loader").style.display = "none";
+                document.getElementById("content-area").style.display = "block";
+            } catch (err) {
+                console.error(err);
+                document.getElementById("loader").innerHTML = `<div style="color:var(--danger)">Failed to load preview data. Make sure pipeline has run.</div>`;
+            }
+        }
+
+        function renderManga() {
+            const area = document.getElementById("content-area");
+            if (!bookData.source_pages || bookData.source_pages.length === 0) {
+                area.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:3rem 0;">
+                    Сторінок манги не знайдено. Запустіть процес перекладу манги.
+                </div>`;
+                return;
+            }
+
+            const showPage = (idx) => {
+                currentMangaPage = idx;
+                const srcFile = bookData.source_pages[idx];
+                const cleanFile = bookData.cleaned_pages && bookData.cleaned_pages.length > idx ? bookData.cleaned_pages[idx] : null;
+                const tgtFile = bookData.translated_pages && bookData.translated_pages.length > idx ? bookData.translated_pages[idx] : null;
+
+                document.getElementById("manga-page-img-src").src = `/api/preview/manga-file/${slug}/source/${srcFile}`;
+                document.getElementById("manga-page-title-src").textContent = `Оригінал: ${srcFile}`;
+
+                // Clean Page
+                const cleanImg = document.getElementById("manga-page-img-clean");
+                const cleanTitle = document.getElementById("manga-page-title-clean");
+                const cleanEmpty = document.getElementById("manga-empty-clean");
+                if (cleanFile) {
+                    cleanImg.src = `/api/preview/manga-file/${slug}/cleaned/${cleanFile}`;
+                    cleanImg.style.display = "block";
+                    cleanTitle.textContent = `Очищено: ${cleanFile}`;
+                    cleanEmpty.style.display = "none";
+                } else {
+                    cleanImg.style.display = "none";
+                    cleanTitle.textContent = "Очищено";
+                    cleanEmpty.style.display = "flex";
+                }
+
+                // Translated Page
+                const tgtImg = document.getElementById("manga-page-img-tgt");
+                const tgtTitle = document.getElementById("manga-page-title-tgt");
+                const tgtEmpty = document.getElementById("manga-empty-tgt");
+                if (tgtFile) {
+                    tgtImg.src = `/api/preview/manga-file/${slug}/translated/${tgtFile}`;
+                    tgtImg.style.display = "block";
+                    tgtTitle.textContent = `Переклад (Українська): ${tgtFile}`;
+                    tgtEmpty.style.display = "none";
+                } else {
+                    tgtImg.style.display = "none";
+                    tgtTitle.textContent = "Переклад";
+                    tgtEmpty.style.display = "flex";
+                }
+
+                document.getElementById("page-indicator").textContent = `Сторінка ${idx + 1} з ${bookData.source_pages.length}`;
+                document.getElementById("btn-prev").disabled = idx === 0;
+                document.getElementById("btn-next").disabled = idx === bookData.source_pages.length - 1;
+            };
+
+            area.innerHTML = `
+                <div class="manga-viewer">
+                    <div class="manga-panel">
+                        <div class="panel-header" id="manga-page-title-src">Оригінал</div>
+                        <img id="manga-page-img-src" class="manga-img" src="" alt="Source Page">
+                    </div>
+                    <div class="manga-panel">
+                        <div class="panel-header" id="manga-page-title-clean">Очищено від тексту</div>
+                        <div id="manga-empty-clean" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:50vh; color:var(--text-secondary)">
+                            <div>Не очищено</div>
+                            <div style="font-size:0.8rem; margin-top:0.5rem">Запустіть процес перекладу манги</div>
+                        </div>
+                        <img id="manga-page-img-clean" class="manga-img" src="" alt="Clean Page" style="display:none">
+                    </div>
+                    <div class="manga-panel">
+                        <div class="panel-header" id="manga-page-title-tgt">Переклад</div>
+                        <div id="manga-empty-tgt" style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:50vh; color:var(--text-secondary)">
+                            <div>Не перекладено</div>
+                            <div style="font-size:0.8rem; margin-top:0.5rem">Запустіть процес перекладу манги</div>
+                        </div>
+                        <img id="manga-page-img-tgt" class="manga-img" src="" alt="Translated Page" style="display:none">
+                    </div>
+                </div>
+                <div class="manga-controls">
+                    <button class="manga-btn" id="btn-prev">← Назад</button>
+                    <span class="page-indicator" id="page-indicator">Сторінка ...</span>
+                    <button class="manga-btn" id="btn-next">Вперед →</button>
+                </div>
+            `;
+
+            document.getElementById("btn-prev").addEventListener("click", () => {
+                if (currentMangaPage > 0) showPage(currentMangaPage - 1);
+            });
+            document.getElementById("btn-next").addEventListener("click", () => {
+                if (currentMangaPage < bookData.source_pages.length - 1) showPage(currentMangaPage + 1);
+            });
+
+            // Keyboard navigation
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "ArrowLeft" && currentMangaPage > 0) {
+                    showPage(currentMangaPage - 1);
+                } else if (e.key === "ArrowRight" && currentMangaPage < bookData.source_pages.length - 1) {
+                    showPage(currentMangaPage + 1);
+                }
+            });
+
+            showPage(0);
+        }
+
+        function renderBook() {
+            const area = document.getElementById("content-area");
+            const isEpub = bookData.epub_available || bookData.is_epub_book;
+            const hasParagraphs = bookData.paragraphs && bookData.paragraphs.length > 0;
+
+            // For EPUB books without MD paragraphs — go straight to Full Page Viewer
+            if (!hasParagraphs && isEpub) {
+                renderEpubOnlyView(area);
+                return;
+            }
+
+            if (!hasParagraphs && !isEpub) {
+                area.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:3rem 0;">
+                    <div style="font-size:3rem;margin-bottom:1rem;">📚</div>
+                    <div style="font-size:1.1rem;margin-bottom:0.5rem;">Немає даних для перегляду</div>
+                    <div style="font-size:0.9rem;">Запустіть конвеєр перекладу щоб побачити результат</div>
+                </div>`;
+                return;
+            }
+
+            area.innerHTML = `
+                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                    <button class="tab-btn active" id="tab-paragraphs" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📋 Paragraphs & Audio</button>
+                    <button class="tab-btn" id="tab-page-viewer" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📖 Full Page Viewer</button>
+                </div>
+                <div id="tab-content-area"></div>
+            `;
+
+            const tabContent = document.getElementById("tab-content-area");
+            const btnParagraphs = document.getElementById("tab-paragraphs");
+            const btnPageViewer = document.getElementById("tab-page-viewer");
+
+            btnParagraphs.addEventListener("click", () => {
+                btnParagraphs.style.color = "var(--primary)";
+                btnParagraphs.style.borderBottomColor = "var(--primary)";
+                btnPageViewer.style.color = "var(--text-secondary)";
+                btnPageViewer.style.borderBottomColor = "transparent";
+                showParagraphsTab();
+            });
+
+            btnPageViewer.addEventListener("click", () => {
+                btnPageViewer.style.color = "var(--primary)";
+                btnPageViewer.style.borderBottomColor = "var(--primary)";
+                btnParagraphs.style.color = "var(--text-secondary)";
+                btnParagraphs.style.borderBottomColor = "transparent";
+                showPageViewerTab();
+            });
+
+            function showParagraphsTab() {
+                tabContent.innerHTML = `
+                    <div class="filters">
+                        <button class="filter-btn active" data-filter="all">Show All</button>
+                        <button class="filter-btn" data-filter="audio">With Audio Only</button>
+                        <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                    </div>
+                    <div class="book-stages-list" id="paragraphs-list"></div>
+                `;
+
+                const list = document.getElementById("paragraphs-list");
+
+                const renderItems = (filter) => {
+                    list.innerHTML = "";
+                    let visibleIndex = 0;
+                    bookData.paragraphs.forEach((p, idx) => {
+                        if (filter === "audio" && !p.has_audio) return;
+                        if (filter === "no-audio" && p.has_audio) return;
+
+                        const card = document.createElement("div");
+                        card.className = "paragraph-card";
+                        card.style = `animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${visibleIndex * 30}ms; opacity: 0; animation-fill-mode: forwards;`;
+                        card.innerHTML = `
+                            <div class="card-meta">
+                                <span>Paragraph #${idx + 1} | Hash: ${p.hash.substring(0, 8)}...</span>
+                                <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
+                                    ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
+                                </span>
+                            </div>
+                            <div class="grid-stages">
+                                <div class="stage-box">
+                                    <div class="stage-title">Original (RU / EN)</div>
+                                    <div class="stage-content">${p.original}</div>
+                                </div>
+                                <div class="stage-box">
+                                    <div class="stage-title">Translated & Accents (UK)</div>
+                                    <div class="stage-content stage-stressed">${p.stressed}</div>
+                                </div>
+                            </div>
+                            ${p.has_audio ? `
+                            <div class="audio-wrapper">
+                                <span class="audio-label">🔊 Listen Segment Preview:</span>
+                                <audio controls src="/api/preview/audio/${slug}/${p.hash}"></audio>
+                            </div>
+                            ` : ''}
+                        `;
+                        list.appendChild(card);
+                        visibleIndex++;
+                    });
+                };
+
+                const filters = document.querySelectorAll(".filter-btn");
+                filters.forEach(btn => {
+                    btn.addEventListener("click", (e) => {
+                        filters.forEach(b => b.classList.remove("active"));
+                        btn.classList.add("active");
+                        renderItems(btn.dataset.filter);
+                    });
+                });
+
+                renderItems("all");
+            }
+
+            async function showPageViewerTab() {
+                tabContent.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <label for="chapter-select" style="font-weight: 600; color: var(--text-secondary); min-width: 120px;">Select Page/File:</label>
+                        <select id="chapter-select" style="background: #18181b; color: white; border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; flex-grow: 1; outline: none; font-family: inherit; font-size: 0.95rem; cursor: pointer;">
+                            <option value="">-- Loading files from EPUB... --</option>
+                        </select>
+                    </div>
+                    <div class="page-split-viewer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; height: 75vh;">
+                        <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                            <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--text-secondary);">Original Text</div>
+                            <iframe id="iframe-original" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                        </div>
+                        <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                            <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--primary);">Translated Text (Ukrainian)</div>
+                            <iframe id="iframe-translated" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                        </div>
+                    </div>
+                `;
+
+                try {
+                    const res = await fetch(`/api/preview/book-chapters/${slug}`);
+                    const data = await res.json();
+                    if (data.status === "success" && data.chapters) {
+                        const select = document.getElementById("chapter-select");
+                        select.innerHTML = "";
+                        data.chapters.forEach(ch => {
+                            const opt = document.createElement("option");
+                            opt.value = ch.href;
+                            opt.textContent = ch.href;
+                            select.appendChild(opt);
+                        });
+
+                        select.addEventListener("change", (e) => {
+                            if (e.target.value) loadPage(e.target.value);
+                        });
+
+                        if (data.chapters.length > 0) {
+                            loadPage(data.chapters[0].href);
+                        }
+                    } else {
+                        document.getElementById("chapter-select").innerHTML = `<option value="">Error: ${data.message || 'Failed to parse EPUB'}</option>`;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    document.getElementById("chapter-select").innerHTML = `<option value="">Failed to load chapters</option>`;
+                }
+            }
+
+            async function loadPage(href) {
+                const iframeOrig = document.getElementById("iframe-original");
+                const iframeTrans = document.getElementById("iframe-translated");
+                
+                [iframeOrig, iframeTrans].forEach(iframe => {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(`
+                        <body style="background:#09090b; color:#a1a1aa; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+                            <div>Loading content...</div>
+                        </body>
+                    `);
+                    doc.close();
+                });
+
+                try {
+                    const res = await fetch(`/api/preview/book-page/${slug}/${href}`);
+                    const data = await res.json();
+                    if (data.status === "success") {
+                        let docOrig = iframeOrig.contentDocument || iframeOrig.contentWindow.document;
+                        docOrig.open();
+                        docOrig.write(data.original_html);
+                        docOrig.close();
+
+                        let docTrans = iframeTrans.contentDocument || iframeTrans.contentWindow.document;
+                        docTrans.open();
+                        docTrans.write(data.translated_html);
+                        docTrans.close();
+                    } else {
+                        throw new Error(data.message || "Failed to load page content");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    [iframeOrig, iframeTrans].forEach(iframe => {
+                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                        doc.open();
+                        doc.write(`
+                            <body style="background:#09090b; color:#ef4444; font-family:sans-serif; padding:20px;">
+                                <h3>Failed to load page content</h3>
+                                <p>${err.message}</p>
+                            </body>
+                        `);
+                        doc.close();
+                    });
+                }
+            }
+
+            // For EPUB books — default to Full Page Viewer tab
+            if (bookData.is_epub_book || bookData.epub_available) {
+                showPageViewerTab();
+                btnPageViewer.style.color = "var(--primary)";
+                btnPageViewer.style.borderBottomColor = "var(--primary)";
+                btnParagraphs.style.color = "var(--text-secondary)";
+                btnParagraphs.style.borderBottomColor = "transparent";
+            } else {
+                showParagraphsTab();
+            }
+        }
+
+        async function renderEpubOnlyView(area) {
+            // Show stats banner + Full Page Viewer for pure EPUB books
+            const stats = bookData.cache_stats || {};
+            const pct = stats.percent || 0;
+            const currentFile = stats.current_file || 0;
+            const totalFiles = stats.total_files || 0;
+            const translatedBlocks = stats.translated_blocks || 0;
+
+            area.innerHTML = `
+                <div style="background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 1.2rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.3rem;">Прогрес перекладу EPUB</div>
+                        <div style="font-size: 1.4rem; font-weight: 700; color: var(--primary);">${pct.toFixed(1)}%</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top:0.2rem;">Файл ${currentFile}/${totalFiles} · ${translatedBlocks} блоків у кеші</div>
+                    </div>
+                    <div style="flex: 2; min-width: 200px;">
+                        <div style="background: rgba(255,255,255,0.05); border-radius: 6px; height: 8px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, var(--primary), #3b82f6); height: 100%; width: ${Math.min(pct,100)}%; border-radius: 6px; transition: width 0.5s ease;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.8rem; color: #10b981; background: rgba(16,185,129,0.1); padding: 0.3rem 0.8rem; border-radius: 20px; border: 1px solid rgba(16,185,129,0.2);">📖 EPUB Book</span>
+                    </div>
+                </div>
+
+                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                    <button class="tab-btn active" id="tab-page-viewer-only" style="background: none; border: none; color: var(--primary); font-size: 1.1rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem; outline: none; transition: all 0.2s ease;">📖 Переклад по сторінках</button>
+                </div>
+                <div id="epub-page-viewer-area"></div>
+            `;
+
+            await loadEpubPageViewer(document.getElementById("epub-page-viewer-area"));
+        }
+
+        async function loadEpubPageViewer(container) {
+            container.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <label for="chapter-select-epub" style="font-weight: 600; color: var(--text-secondary); min-width: 140px;">📄 Файл розділу:</label>
+                    <select id="chapter-select-epub" style="background: #18181b; color: white; border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; flex-grow: 1; outline: none; font-family: inherit; font-size: 0.95rem; cursor: pointer;">
+                        <option value="">⏳ Завантаження файлів EPUB...</option>
+                    </select>
+                </div>
+                <div class="page-split-viewer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; height: 75vh;">
+                    <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                        <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--text-secondary);">🔤 Оригінал</div>
+                        <iframe id="iframe-original-epub" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                    </div>
+                    <div class="viewer-panel" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border-color); overflow: hidden; height: 100%;">
+                        <div style="padding: 0.8rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-weight: 600; text-align: center; color: var(--primary);">🇺🇦 Переклад (Українська)</div>
+                        <iframe id="iframe-translated-epub" style="width: 100%; height: 100%; border: none; background: #09090b;"></iframe>
+                    </div>
+                </div>
+            `;
+
+            try {
+                const res = await fetch(`/api/preview/book-chapters/${slug}`);
+                const data = await res.json();
+                if (data.status === "success" && data.chapters) {
+                    const select = document.getElementById("chapter-select-epub");
+                    select.innerHTML = "";
+                    data.chapters.forEach(ch => {
+                        const opt = document.createElement("option");
+                        opt.value = ch.href;
+                        opt.textContent = ch.href;
+                        select.appendChild(opt);
+                    });
+                    select.addEventListener("change", e => { if (e.target.value) loadEpubPage(e.target.value); });
+                    if (data.chapters.length > 0) loadEpubPage(data.chapters[0].href);
+                } else {
+                    document.getElementById("chapter-select-epub").innerHTML = `<option>❌ ${data.message || 'Не вдалося завантажити розділи'}</option>`;
+                }
+            } catch(err) {
+                document.getElementById("chapter-select-epub").innerHTML = `<option>❌ Помилка: ${err.message}</option>`;
+            }
+        }
+
+        async function loadEpubPage(href) {
+            const iframeOrig = document.getElementById("iframe-original-epub");
+            const iframeTrans = document.getElementById("iframe-translated-epub");
+            if (!iframeOrig || !iframeTrans) return;
+
+            [iframeOrig, iframeTrans].forEach(iframe => {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                doc.open();
+                doc.write(`<body style="background:#09090b;color:#a1a1aa;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;"><div>⏳ Завантаження...</div></body>`);
+                doc.close();
+            });
+
+            try {
+                const res = await fetch(`/api/preview/book-page/${slug}/${href}`);
+                const data = await res.json();
+                if (data.status === "success") {
+                    let docO = iframeOrig.contentDocument || iframeOrig.contentWindow.document;
+                    docO.open(); docO.write(data.original_html); docO.close();
+                    let docT = iframeTrans.contentDocument || iframeTrans.contentWindow.document;
+                    docT.open(); docT.write(data.translated_html); docT.close();
+                } else {
+                    throw new Error(data.message || "Не вдалося завантажити сторінку");
+                }
+            } catch(err) {
+                [iframeOrig, iframeTrans].forEach(iframe => {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(`<body style="background:#09090b;color:#ef4444;font-family:sans-serif;padding:20px;"><h3>Помилка</h3><p>${err.message}</p></body>`);
+                    doc.close();
+                });
+            }
+        }
+
+        fetchBookData();
+    </script>
+</body>
+</html>
