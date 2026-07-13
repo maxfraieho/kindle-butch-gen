@@ -11,6 +11,89 @@ def normalize_accents(text):
     # Convert spacing acute accent (´, \u00b4) to combining acute accent (́, \u0301)
     return text.replace("\u00b4", "\u0301")
 
+def transliterate_english_words(text):
+    # Dictionary of common technical terms with pronunciation and stress
+    DICTIONARY = {
+        r"\bVibe\b": "ва+йб", r"\bvibe\b": "ва+йб",
+        r"\bAI\b": "е+й-а+й", r"\bai\b": "е+й-а+й",
+        r"\bAPI\b": "е+й-пі-а+й", r"\bapi\b": "е+й-пі-а+й",
+        r"\bGPU\b": "джи-пі-ю+", r"\bgpu\b": "джи-пі-ю+",
+        r"\bCPU\b": "сі-пі-ю+", r"\bcpu\b": "сі-пі-ю+",
+        r"\bNPU\b": "ен-пі-ю+", r"\bnpu\b": "ен-пі-ю+",
+        r"\bDSP\b": "ді-ес-пі+", r"\bdsp\b": "ді-ес-пі+",
+        r"\bONNX\b": "о+ннікс", r"\bonnx\b": "о+ннікс",
+        r"\bStyleTTS2\b": "ста+йл-ті-ті-е+с-два", r"\bstyletts2\b": "ста+йл-ті-ті-е+с-два",
+        r"\bTTS\b": "ті-ті-е+с", r"\btts\b": "ті-ті-е+с",
+        r"\bFFmpeg\b": "еф-еф-е+мпег", r"\bffmpeg\b": "еф-еф-е+мпег",
+        r"\bPython\b": "па+йтон", r"\bpython\b": "па+йтон",
+        r"\bFastAPI\b": "фа+ст-е+й-пі-а+й", r"\bfastapi\b": "фа+ст-е+й-пі-а+й",
+        r"\bPrompt\b": "промпт", r"\bprompt\b": "промпт",
+        r"\bTermux\b": "те+рмукс", r"\btermux\b": "те+рмукс",
+        r"\bLLM\b": "ел-ел-е+м", r"\bllm\b": "ел-ел-е+м",
+        r"\bGPT\b": "джи-пі-ті+", r"\bgpt\b": "джи-пі-ті+",
+        r"\bGGUF\b": "джі-джі-ю-е+ф", r"\bgguf\b": "джі-джі-ю-е+ф",
+        r"\bGitHub\b": "гіт-ха+б", r"\bgithub\b": "гіт-ха+б",
+        r"\bGit\b": "гіт", r"\bgit\b": "гіт",
+        r"\bSSE\b": "ес-ес-і+", r"\bsse\b": "ес-ес-і+",
+        r"\bHTTP\b": "е+йч-ті-ті-пі", r"\bhttp\b": "е+йч-ті-ті-пі",
+        r"\bFastMCP\b": "фа+ст-ем-сі-пі+", r"\bfastmcp\b": "фа+ст-ем-сі-пі+",
+        r"\bMCP\b": "ем-сі-пі+", r"\bmcp\b": "ем-сі-пі+",
+        r"\bSDK\b": "ес-ді-ке+й", r"\bsdk\b": "ес-ді-ке+й",
+        r"\bUI\b": "ю-а+й", r"\bui\b": "ю-а+й",
+        r"\bUX\b": "ю-е+кс", r"\bux\b": "ю-е+кс",
+        r"\bJSON\b": "дже+йсон", r"\bjson\b": "дже+йсон",
+        r"\bSQL\b": "ес-кю-е+л", r"\bsql\b": "ес-кю-е+л",
+        r"\bSQLite\b": "ес-кю-ла+йт", r"\bsqlite\b": "ес-кю-ла+йт",
+        r"\bDocker\b": "до+кер", r"\bdocker\b": "до+кер",
+        r"\bAndroid\b": "андро+їд", r"\bandroid\b": "андро+їд",
+        r"\bRuntime\b": "ранта+йм", r"\bruntime\b": "ранта+йм",
+        r"\bClaude\b": "кло+д", r"\bclaude\b": "кло+д",
+        r"\bCodex\b": "ко+декс", r"\bcodex\b": "ко+декс",
+        r"\bNode\b": "но+да", r"\bnode\b": "но+да",
+        r"\bVercel\b": "версе+л", r"\bvercel\b": "версе+л",
+        r"\bNext.js\b": "не+кст-дже-е+с", r"\bnext.js\b": "не+кст-дже-е+с",
+        r"\bVite\b": "ва+йт", r"\bvite\b": "ва+йт",
+        r"\bTailwind\b": "тейлві+нд", r"\btailwind\b": "тейлві+нд",
+        r"\bHTML\b": "е+йч-ті-ем-е+л", r"\bhtml\b": "е+йч-ті-ем-е+л",
+        r"\bCSS\b": "сі-ес-е+с", r"\bcss\b": "сі-ес-е+с",
+        r"\bJS\b": "дже-е+с", r"\bjs\b": "дже-е+с",
+        r"\bTS\b": "ті-е+с", r"\bts\b": "ті-е+с",
+        r"\bCLI\b": "сі-ел-а+й", r"\bcli\b": "сі-ел-а+й",
+    }
+    
+    # Apply direct dictionary replacements
+    for pattern, replacement in DICTIONARY.items():
+        text = re.sub(pattern, replacement, text)
+        
+    # Also handle letter-by-letter fallback for any remaining English words
+    def repl(match):
+        word = match.group(0)
+        if word.isupper():
+            LETTERS = {
+                'A': 'а+', 'B': 'бе+', 'C': 'це+', 'D': 'де+', 'E': 'е+', 'F': 'еф', 'G': 'же+', 'H': 'аш', 
+                'I': 'і+', 'J': 'жи+', 'K': 'ка+', 'L': 'ел', 'M': 'ем', 'N': 'ен', 'O': 'о+', 'P': 'пе+', 
+                'Q': 'ку+', 'R': 'ер', 'S': 'ес', 'T': 'те+', 'U': 'ю+', 'V': 'ве+', 'W': 'дабл-ю', 
+                'X': 'ікс', 'Y': 'ігре+к', 'Z': 'зет'
+            }
+            return "-".join([LETTERS.get(c, c) for c in word])
+        else:
+            word = word.lower()
+            rules = [
+                ('ch', 'ч'), ('sh', 'ш'), ('th', 'т'), ('ph', 'ф'), ('kh', 'х'), ('oo', 'у'), ('ee', 'і'),
+                ('ck', 'к'), ('qu', 'кв'), ('ya', 'я'), ('ye', 'є'), ('yu', 'ю'), ('yo', 'йо'),
+                ('a', 'а'), ('b', 'б'), ('c', 'к'), ('d', 'д'), ('e', 'е'), ('f', 'ф'), ('g', 'г'), 
+                ('h', 'г'), ('i', 'і'), ('j', 'дж'), ('k', 'к'), ('l', 'л'), ('m', 'м'), ('n', 'н'), 
+                ('o', 'о'), ('p', 'п'), ('q', 'к'), ('r', 'р'), ('s', 'с'), ('t', 'т'), ('u', 'у'), 
+                ('v', 'в'), ('w', 'в'), ('x', 'кс'), ('y', 'й'), ('z', 'з')
+            ]
+            res = word
+            for eng, ukr in rules:
+                res = res.replace(eng, ukr)
+            return res
+            
+    text = re.sub(r'[a-zA-Z]+', repl, text)
+    return text
+
 def trim_silence(samples, sample_rate, threshold=100, pad_start_ms=30, pad_end_ms=70):
     first_idx = None
     for i, s in enumerate(samples):
@@ -106,6 +189,9 @@ def run_supertonic3(payload):
         if not chunk_hash or not text:
             continue
 
+        # Transliterate English words and abbreviations
+        text = transliterate_english_words(text)
+
         import unicodedata
         text = unicodedata.normalize("NFD", text)
 
@@ -127,8 +213,16 @@ def run_supertonic3(payload):
             output_sample_rate = audio.sample_rate // 2
             int16_samples = [int(max(-1.0, min(1.0, s)) * 32767) for s in audio.samples[::2]]
 
-            # Trim leading/trailing silence
-            int16_samples = trim_silence(int16_samples, output_sample_rate)
+            # Trim leading/trailing silence with custom end padding based on punctuation
+            last_char = text[-1] if text else ""
+            if last_char in [".", "!", "?", "…"]:
+                custom_pad_end = 500  # 500 ms pause after sentences
+            elif last_char in [",", ";", ":"]:
+                custom_pad_end = 250  # 250 ms pause after clauses
+            else:
+                custom_pad_end = 100
+                
+            int16_samples = trim_silence(int16_samples, output_sample_rate, pad_end_ms=custom_pad_end)
 
             # Save wav file
             with wave.open(output_file, "wb") as wav_file:
@@ -255,6 +349,9 @@ def run_styletts2(payload):
         if not chunk_hash or not text:
             continue
 
+        # Transliterate English words and abbreviations
+        text = transliterate_english_words(text)
+
         # Check token count and split if needed
         sub_texts = split_long_text(text)
         
@@ -332,8 +429,16 @@ def run_styletts2(payload):
             # Normalize samples to int16
             int16_samples = [int(max(-1.0, min(1.0, s)) * 32767) for s in audio_samples]
 
-            # Trim leading/trailing silence (StyleTTS2 native sample rate is 24000 Hz)
-            int16_samples = trim_silence(int16_samples, 24000)
+            # Trim leading/trailing silence (StyleTTS2 native sample rate is 24000 Hz) with custom end padding
+            last_char = text[-1] if text else ""
+            if last_char in [".", "!", "?", "…"]:
+                custom_pad_end = 500  # 500 ms pause after sentences
+            elif last_char in [",", ";", ":"]:
+                custom_pad_end = 250  # 250 ms pause after clauses
+            else:
+                custom_pad_end = 100
+                
+            int16_samples = trim_silence(int16_samples, 24000, pad_end_ms=custom_pad_end)
 
             # Save wav file (StyleTTS2 native sample rate is 24000 Hz)
             with wave.open(output_file, "wb") as wav_file:
