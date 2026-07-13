@@ -280,7 +280,7 @@
             border-radius: 6px;
             font-size: 0.85rem;
             cursor: pointer;
-            transition: all 160ms var(--ease-out-snappy);
+            transition: background-color 160ms var(--ease-out-snappy), border-color 160ms var(--ease-out-snappy), color 160ms var(--ease-out-snappy);
         }
         .filter-btn.active {
             background: var(--primary);
@@ -710,7 +710,7 @@
                 </div>
 
                 <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
-                    <button class="tab-btn active" id="tab-page-viewer-only" style="background: none; border: none; color: var(--primary); font-size: 1.1rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem; outline: none; transition: all 0.2s ease;">📖 Переклад по сторінках</button>
+                    <button class="tab-btn active" id="tab-page-viewer-only" style="background: none; border: none; color: var(--primary); font-size: 1.1rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem; outline: none; transition: color 0.2s ease, border-color 0.2s ease;">📖 Переклад по сторінках</button>
                 </div>
                 <div id="epub-page-viewer-area"></div>
             `;

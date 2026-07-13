@@ -362,7 +362,7 @@
             color: #34d399;
             text-decoration: none;
             font-weight: 500;
-            transition: all 160ms var(--ease-out-snappy);
+            transition: background-color 160ms var(--ease-out-snappy), border-color 160ms var(--ease-out-snappy), color 160ms var(--ease-out-snappy);
         }
 
         @media (hover: hover) and (pointer: fine) {
@@ -733,7 +733,7 @@
             font-size: 0.9rem;
             font-weight: 500;
             cursor: pointer;
-            transition: all 160ms var(--ease-out-snappy);
+            transition: background-color 160ms var(--ease-out-snappy), border-color 160ms var(--ease-out-snappy), color 160ms var(--ease-out-snappy);
         }
 
         @media (hover: hover) and (pointer: fine) {
@@ -780,19 +780,19 @@
                     </div>
                     <div class="form-group">
                         <label for="pdf_path">Or Enter Source PDF Path (on system)</label>
-                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf">
+                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="slug">Book Slug (lowercase, a-z0-9_-)</label>
-                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$">
+                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="title">Title</label>
-                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required>
+                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="authors">Authors</label>
-                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required>
+                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="source_lang">Source Language</label>
