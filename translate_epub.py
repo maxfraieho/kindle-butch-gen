@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from common.text_protect import PlaceholderManager
 from common.epub_validate import sanitize_xhtml_for_xml_parser
 from common.book_paths import resolve_book_paths
-from common.utils import get_hash, to_xml_format
+from common.utils import get_hash, to_xml_format, wait_for_server_ready, translate_segment_with_retry
 
 
 def translate_epub_images(temp_dir, source_lang, repo_dir):
@@ -80,134 +80,7 @@ def log(message):
     print(f"[EPUB-Translate] {message}", flush=True)
 
 
-def to_prefix_format(text, pm):
-    def repl(match):
-        num = match.group(2)
-        suffix = f"_{num}__"
-        for key in pm.placeholders.keys():
-            if key.endswith(suffix):
-                return key
-        return match.group(0)
-    return re.sub(r"\[\s*([a-zA-Z]+)[-_\s]*(\d+)\s*\]", repl, text)
 
-def translate_text(text, api_url, target_lang="uk", temperature=0.2):
-    lang_map = {
-        "uk": "Ukrainian",
-        "ru": "Russian",
-        "en": "English"
-    }
-    target_lang_full = lang_map.get(target_lang, "Ukrainian")
-    
-    prompt = (
-        f"Виконай роль професійного перекладача на {target_lang_full} мову. Переклади наданий текст.\n"
-        "Суворі правила обробки:\n"
-        "1. Перекладений текст має повністю відповідати вхідному за структурою та змістом.\n"
-        "2. Категорично заборонено перекладати, змінювати, видаляти або переміщувати будь-які службові мітки та теги з подвійними підкресленнями (наприклад, __HTML_TAG_1__, __HTML_TAG_2__ тощо). Збережи їх у точності так, як вони вказані у вхідному тексті.\n"
-        "3. Поверни виключно перекладений текст без будь-яких додаткових пояснень, вступних слів чи коментарів.\n\n"
-        f"Вхідний текст для перекладу:\n{text}"
-    )
-    
-    headers = {"Content-Type": "application/json"}
-    # Calculate a safe dynamic token limit based on text size (approx 4 chars per token)
-    calc_max_tokens = min(2048, max(256, len(text) * 3))
-    data = {
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "top_p": 1.0,
-        "max_tokens": calc_max_tokens,
-        "stop": ["<|im_end|>", "<|im_start|>", "<|endoftext|>", "user\n", "assistant\n"]
-    }
-    
-    try:
-        response = requests.post(api_url, headers=headers, json=data, timeout=180)
-        if response.status_code != 200:
-            log(f"Error from llama-server: {response.status_code} - {response.text}")
-            return None
-        res_json = response.json()
-        translated = res_json["choices"][0]["message"]["content"].strip()
-        
-        # Clean helper prefixes if the model added them
-        clean_prefixes = [
-            f"here is the translation into {target_lang_full.lower()}:",
-            f"переклад {target_lang_full.lower()}ською:",
-            "translation:",
-            "ось переклад:",
-            "переклад:"
-        ]
-        for pref in clean_prefixes:
-            if translated.lower().startswith(pref):
-                translated = translated[len(pref):].strip()
-        return translated
-    except Exception as e:
-        log(f"API request failed: {e}")
-        return None
-
-def validate_translation_segment(original, translated):
-    # Check placeholders matching
-    orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", original))
-    trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", translated))
-    
-    # Allow small variations but warn/fail if placeholders are missing/extra
-    missing = orig_placeholders - trans_placeholders
-    extra = trans_placeholders - orig_placeholders
-    
-    if missing or extra:
-        log("Validation failure: Placeholders mismatch!")
-        log(f"Original segment: {original!r}")
-        log(f"Translated segment: {translated!r}")
-        if missing:
-            log(f"Missing in translation: {missing}")
-        if extra:
-            log(f"Extra in translation: {extra}")
-        return False
-    return True
-
-def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3):
-    temp = 0.7
-    xml_segment = to_xml_format(segment)
-    orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", segment))
-    last_translated = None
-    
-    for attempt in range(max_retries):
-        if attempt > 0:
-            temp = 0.1
-            log(f"Retrying translation of segment (attempt {attempt+1}/{max_retries}) with temperature {temp}...")
-            
-        translated = translate_text(xml_segment, api_url, target_lang=target_lang, temperature=temp)
-        if not translated:
-            continue
-            
-        translated = to_prefix_format(translated, pm)
-        translated = pm.normalize_placeholders(translated)
-        
-        last_translated = translated
-            
-        if validate_translation_segment(segment, translated):
-            return translated
-        else:
-            log(f"Segment validation failed on attempt {attempt+1}.")
-            
-    # If all attempts failed, rescue by adjusting missing/extra placeholders
-    if last_translated:
-        trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", last_translated))
-        missing = orig_placeholders - trans_placeholders
-        extra = trans_placeholders - orig_placeholders
-        
-        rescued = last_translated
-        if extra:
-            log(f"Stripping extra placeholders from translation: {extra}")
-            for ex in extra:
-                rescued = rescued.replace(ex, "")
-                
-        if missing:
-            log(f"Appending missing placeholders to translation: {missing}")
-            rescued = rescued + " " + " ".join(sorted(list(missing)))
-            
-        if validate_translation_segment(segment, rescued):
-            return rescued
-            
-    log("Warning: Segment validation failed after all retries. Falling back to ORIGINAL protected segment to preserve placeholders (images/links/code).")
-    return segment
 
 def register_namespaces():
     # Register namespaces to prevent ElementTree from generating ns0: tags
@@ -283,13 +156,9 @@ def main():
         log(f"Error: Input file '{args.input}' does not exist.")
         sys.exit(1)
         
-    # Check server availability
-    try:
-        test_url = args.api_url.replace("/chat/completions", "").replace("/v1", "")
-        requests.get(test_url, timeout=5)
-        log(f"Connected to translation server at {test_url}")
-    except Exception as e:
-        log(f"Error: Translation server at {args.api_url} is not reachable: {e}")
+    # Check server availability and wait for model loading
+    if not wait_for_server_ready(args.api_url):
+        log("Error: Translation server did not become ready in time.")
         sys.exit(1)
         
     # Load cache
@@ -464,8 +333,7 @@ def main():
                         translated_protected = translate_segment_with_retry(protected, pm, args.api_url, target_lang=args.target_lang)
                         
                         if not translated_protected:
-                            log("  Critical: Failed to translate block. Keeping original.")
-                            translated_inner_xml = inner_xml
+                            raise ValueError("Critical: Failed to translate block after all attempts.")
                         else:
                             translated_inner_xml = pm.restore(translated_protected)
                             
