@@ -13,6 +13,24 @@ MCP_URL = "http://192.168.3.184:49374/mcp"
 TOTAL_CHUNKS = 5219
 
 def count_chunks():
+    log_path = os.path.join(REPO_DIR, "books/vibe-programming/conversion_progress.log")
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_content = f.read()
+            import re
+            proc_matches = list(re.finditer(r'Processing (\d+) chunks', log_content))
+            if proc_matches:
+                total_missing = int(proc_matches[-1].group(1))
+                start_pos = proc_matches[-1].start()
+                progress_matches = re.findall(r'\[(\d+)/' + str(total_missing) + r'\]', log_content[start_pos:])
+                if progress_matches:
+                    current_missing_progress = int(progress_matches[-1])
+                    already_cached = TOTAL_CHUNKS - total_missing
+                    return already_cached + current_missing_progress
+        except Exception as e:
+            print(f"[ProgressTracker] Warning: failed to parse log progress: {e}")
+            
     if not os.path.exists(CHUNKS_DIR):
         return 0
     return len([f for f in os.listdir(CHUNKS_DIR) if f.endswith(".wav")])
