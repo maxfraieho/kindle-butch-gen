@@ -53,7 +53,7 @@
 * **Verification Method:** The fallback to insecure hardcoded password "0523" has been eliminated in code. However, since 'web_credentials.json' already exists on the dev server with the hash of "0523", the old password remains active. Real-world mitigation requires either setting the `KBG_WEB_PASSWORD` env variable or deleting the old json file to let it generate a secure token on start.
 * **Type:** `direct`
 
-## [ ] TASK-8: OLED Adaptive Contrast Visual Theme (IN_PROGRESS - CODE UPDATED, NEEDS MANUAL VISUAL VERIFICATION)
+## [x] TASK-8: OLED Adaptive Contrast Visual Theme
 * **Problem:** Поточна тема не оптимізована для OLED (багато blur, напівпрозорі картинки, низький контраст меж) та складні умови освітлення (наприклад, під сонячним світлом або вночі). Також відсутні специфікації фокус-станів для клавіатурної та тачпадної навігації, а прогрес-бари використовують забагато різних яскравих кольорів.
 * **Solution:** 
   1. Впроваджено OLED-оптимізовану систему токенів: глибокий OLED-чорний фон, непрозорі поверхні карток, чіткі межі без розмиття.
@@ -61,7 +61,7 @@
   3. Уніфіковано кольори статусів (idle/active/done/error), прив'язавши їх до головного фіолетового брендового кольору замість "веселки".
   4. Замінено багатокольоровий градієнт загального прогрес-бару на фіолетовий градієнт бренду.
   5. Створено чіткі фокус-стани `:focus-visible` для кнопок, чекбоксів та елементів введення.
-* **Verification Method:** code updated, needs manual visual verification.
+* **Verification Method:** Manually verified by user on OnePlus 13 screen.
 * **Type:** `delegate`
 
 ## [x] TASK-9: Terminal Log Cache (Flicker Fix) (DONE - RETROACTIVELY DOCUMENTED)
