@@ -1166,9 +1166,9 @@
                         optionsHtml = `
                             <div class="options-group" id="opts-${book.slug}">
                                 <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Clean</label>
-                                <label class="option-checkbox"><input type="checkbox" id="notrans-${book.slug}"> No Translate</label>
-                                <label class="option-checkbox"><input type="checkbox" id="noebook-${book.slug}"> No Ebook</label>
-                                <label class="option-checkbox"><input type="checkbox" id="noaudio-${book.slug}"> No Audio</label>
+                                <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Translate</label>
+                                <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Build Ebook</label>
+                                <label class="option-checkbox"><input type="checkbox" id="audio-${book.slug}" checked> Generate Audio</label>
                             </div>
                         `;
                     }
@@ -1319,9 +1319,12 @@
 
         async function runConversion(slug) {
             const clean = document.getElementById(`clean-${slug}`)?.checked || false;
-            const no_translate = document.getElementById(`notrans-${slug}`)?.checked || false;
-            const no_ebook = document.getElementById(`noebook-${slug}`)?.checked || false;
-            const no_audio = document.getElementById(`noaudio-${slug}`)?.checked || false;
+            const translate = document.getElementById(`translate-${slug}`)?.checked ?? true;
+            const ebook = document.getElementById(`ebook-${slug}`)?.checked ?? true;
+            const audio = document.getElementById(`audio-${slug}`)?.checked ?? true;
+            const no_translate = !translate;
+            const no_ebook = !ebook;
+            const no_audio = !audio;
 
             try {
                 const response = await fetch(`/api/run/${slug}`, {
@@ -1344,9 +1347,12 @@
         async function rerunConversion(slug) {
             if (!confirm(`Re-run full conversion for "${slug}"? This will restart the pipeline from scratch (translation cache is preserved).`)) return;
             const clean = document.getElementById(`clean-${slug}`)?.checked || false;
-            const no_translate = document.getElementById(`notrans-${slug}`)?.checked || false;
-            const no_ebook = document.getElementById(`noebook-${slug}`)?.checked || false;
-            const no_audio = document.getElementById(`noaudio-${slug}`)?.checked || false;
+            const translate = document.getElementById(`translate-${slug}`)?.checked ?? true;
+            const ebook = document.getElementById(`ebook-${slug}`)?.checked ?? true;
+            const audio = document.getElementById(`audio-${slug}`)?.checked ?? true;
+            const no_translate = !translate;
+            const no_ebook = !ebook;
+            const no_audio = !audio;
             try {
                 const response = await fetch(`/api/run/${slug}`, {
                     method: 'POST',
