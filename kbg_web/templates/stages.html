@@ -497,6 +497,17 @@
     </div>
 
     <script>
+        // Intercept fetch to prevent credential errors when document URL has basic auth details
+        (function() {
+            const originalFetch = window.fetch;
+            window.fetch = function(input, init) {
+                if (typeof input === 'string' && input.startsWith('/')) {
+                    input = window.location.origin + input;
+                }
+                return originalFetch(input, init);
+            };
+        })();
+
         const slug = "{{ slug }}";
         let isManga = false;
         let bookData = null;
