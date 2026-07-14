@@ -1211,7 +1211,11 @@ def preview_book_stages(slug):
     else:
         target_md_file = os.path.join(paths["translated_dir"], f"merged_source_{source_lang}.md")
         
-    paragraphs = []
+    from flask import request
+    page = request.args.get("page", 1, type=int)
+    limit = request.args.get("limit", 30, type=int)
+    
+    raw_chunks = []
     if os.path.exists(target_md_file):
         try:
             with open(target_md_file, "r", encoding="utf-8") as f:
@@ -1220,7 +1224,6 @@ def preview_book_stages(slug):
             
             max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
             
-            count = 0
             for p in raw_paragraphs:
                 p = p.strip()
                 if not p or p.startswith("#"):
@@ -1228,35 +1231,38 @@ def preview_book_stages(slug):
                 chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
                 for chunk in chunks:
                     chunk = chunk.strip()
-                    if not chunk:
-                        continue
-                    h = get_hash(chunk)
-                    
-                    original = ""
-                    for k, v in trans_cache.items():
-                        if v.strip() == chunk:
-                            original = k
-                            break
-                    if not original:
-                        original = chunk
-                        
-                    stressed = stress_cache.get(h, chunk)
-                    has_audio = os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
-                    
-                    paragraphs.append({
-                        "hash": h,
-                        "original": original,
-                        "translated": chunk,
-                        "stressed": stressed,
-                        "has_audio": has_audio
-                    })
-                    count += 1
-                    if count >= 30:
-                        break
-                if count >= 30:
-                    break
+                    if chunk:
+                        raw_chunks.append(chunk)
         except Exception as e:
             return jsonify({"status": "error", "message": f"Error parsing book: {e}"}), 500
+            
+    total_chunks = len(raw_chunks)
+    total_pages = (total_chunks + limit - 1) // limit if total_chunks > 0 else 1
+    
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    sliced_chunks = raw_chunks[start_idx:end_idx]
+    
+    paragraphs = []
+    if sliced_chunks:
+        try:
+            # Speed up the translation original text lookup using a reverse index dict
+            reverse_trans_cache = {v.strip(): k for k, v in trans_cache.items()}
+            for chunk in sliced_chunks:
+                h = get_hash(chunk)
+                original = reverse_trans_cache.get(chunk, chunk)
+                stressed = stress_cache.get(h, chunk)
+                has_audio = os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
+                
+                paragraphs.append({
+                    "hash": h,
+                    "original": original,
+                    "translated": chunk,
+                    "stressed": stressed,
+                    "has_audio": has_audio
+                })
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Error resolving chunks: {e}"}), 500
             
     # Detect EPUB availability and cache stats
     epub_path = find_book_epub(paths["book_dir"], slug)
@@ -1280,6 +1286,10 @@ def preview_book_stages(slug):
         "status": "success",
         "tts_engine": tts_engine,
         "paragraphs": paragraphs,
+        "total_chunks": total_chunks,
+        "total_pages": total_pages,
+        "page": page,
+        "limit": limit,
         "epub_available": epub_available,
         "is_epub_book": is_epub_book,
         "cache_stats": {

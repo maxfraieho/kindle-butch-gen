@@ -652,6 +652,30 @@
             showPage(0);
         }
 
+        let currentParagraphsPage = 1;
+
+        async function fetchParagraphsPage(page) {
+            currentParagraphsPage = page;
+            const loader = document.getElementById("loader");
+            if (loader) loader.style.display = "block";
+            try {
+                const resBook = await fetch(`/api/preview/book/${slug}?page=${page}&limit=30`);
+                const data = await resBook.json();
+                bookData.paragraphs = data.paragraphs;
+                bookData.total_pages = data.total_pages;
+                bookData.total_chunks = data.total_chunks;
+            } catch (err) {
+                console.error(err);
+            } finally {
+                if (loader) loader.style.display = "none";
+            }
+            // If the paragraphs list tab is still active, redraw it
+            const list = document.getElementById("paragraphs-list");
+            if (list) {
+                showParagraphsTab();
+            }
+        }
+
         function renderBook() {
             const area = document.getElementById("content-area");
             const isEpub = bookData.epub_available || bookData.is_epub_book;
@@ -701,11 +725,21 @@
             });
 
             function showParagraphsTab() {
+                const totalPages = bookData.total_pages || 1;
+                const totalChunks = bookData.total_chunks || 0;
+
                 tabContent.innerHTML = `
-                    <div class="filters">
-                        <button class="filter-btn active" data-filter="all">Show All</button>
-                        <button class="filter-btn" data-filter="audio">With Audio Only</button>
-                        <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                    <div class="filters" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="filter-btn active" data-filter="all">Show All</button>
+                            <button class="filter-btn" data-filter="audio">With Audio Only</button>
+                            <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                        </div>
+                        <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.8rem; background: rgba(255,255,255,0.02); padding: 0.3rem 0.6rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                            <button class="nav-btn" id="para-prev-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage <= 1 ? 'disabled' : ''}>← Prev</button>
+                            <span id="para-page-indicator" style="font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; font-family: monospace;">Page ${currentParagraphsPage}/${totalPages} (${totalChunks} chunks)</span>
+                            <button class="nav-btn" id="para-next-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                        </div>
                     </div>
                     <div class="book-stages-list" id="paragraphs-list"></div>
                 `;
@@ -719,12 +753,14 @@
                         if (filter === "audio" && !p.has_audio) return;
                         if (filter === "no-audio" && p.has_audio) return;
 
+                        const absoluteIdx = (currentParagraphsPage - 1) * 30 + idx + 1;
+
                         const card = document.createElement("div");
                         card.className = "paragraph-card";
-                        card.style = `animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${visibleIndex * 30}ms; opacity: 0; animation-fill-mode: forwards;`;
+                        card.style = `animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${visibleIndex * 15}ms; opacity: 0; animation-fill-mode: forwards;`;
                         card.innerHTML = `
                             <div class="card-meta">
-                                <span>Paragraph #${idx + 1} | Hash: ${p.hash.substring(0, 8)}...</span>
+                                <span>Paragraph #${absoluteIdx} | Hash: ${p.hash.substring(0, 8)}...</span>
                                 <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
                                     ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
                                 </span>
@@ -758,6 +794,18 @@
                         btn.classList.add("active");
                         renderItems(btn.dataset.filter);
                     });
+                });
+
+                document.getElementById("para-prev-btn").addEventListener("click", () => {
+                    if (currentParagraphsPage > 1) {
+                        fetchParagraphsPage(currentParagraphsPage - 1);
+                    }
+                });
+
+                document.getElementById("para-next-btn").addEventListener("click", () => {
+                    if (currentParagraphsPage < totalPages) {
+                        fetchParagraphsPage(currentParagraphsPage + 1);
+                    }
                 });
 
                 renderItems("all");
