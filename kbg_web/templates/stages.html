@@ -653,6 +653,7 @@
         }
 
         let currentParagraphsPage = 1;
+        let showParagraphsTabRef = null;
 
         async function fetchParagraphsPage(page) {
             currentParagraphsPage = page;
@@ -671,8 +672,8 @@
             }
             // If the paragraphs list tab is still active, redraw it
             const list = document.getElementById("paragraphs-list");
-            if (list) {
-                showParagraphsTab();
+            if (list && showParagraphsTabRef) {
+                showParagraphsTabRef();
             }
         }
 
@@ -725,6 +726,7 @@
             });
 
             function showParagraphsTab() {
+                showParagraphsTabRef = showParagraphsTab;
                 const totalPages = bookData.total_pages || 1;
                 const totalChunks = bookData.total_chunks || 0;
 
