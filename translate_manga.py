@@ -193,7 +193,7 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
                 ],
                 "temperature": 0.2
             },
-            timeout=30
+            timeout=300
         )
         if response.status_code == 200:
             res_json = response.json()
@@ -285,6 +285,27 @@ def main():
 
         for idx, page_path in enumerate(pages):
             log(f"Page {idx+1}/{len(pages)}: {os.path.basename(page_path)}")
+            
+            basename = os.path.basename(page_path)
+            # Resume logic: check if already translated
+            translated_path = None
+            if args.output.lower().endswith('.cbz'):
+                translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
+                cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
+                possible_translated = os.path.join(translated_dir, basename)
+                if os.path.exists(possible_translated):
+                    translated_path = possible_translated
+                    
+            if translated_path:
+                log(f"Page {idx+1} already translated. Skipping.")
+                # Copy to temp_out
+                shutil.copy2(translated_path, os.path.join(temp_out, basename))
+                # Make sure it's in cleaned_dir
+                possible_cleaned = os.path.join(cleaned_dir, basename)
+                if not os.path.exists(possible_cleaned):
+                    shutil.copy2(translated_path, possible_cleaned)
+                continue
+
             if args.progress_file:
                 try:
                     with open(args.progress_file, "w", encoding="utf-8") as pf:
@@ -379,6 +400,12 @@ def main():
             # Convert back to cv2 BGR format and save
             final_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
             cv2.imwrite(os.path.join(temp_out, os.path.basename(page_path)), final_img)
+            
+            # Copy typeset image to translated directory in real-time
+            if args.output.lower().endswith('.cbz'):
+                translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
+                os.makedirs(translated_dir, exist_ok=True)
+                cv2.imwrite(os.path.join(translated_dir, os.path.basename(page_path)), final_img)
             
         # Packaging processed pages
         if args.output.lower().endswith('.cbz'):

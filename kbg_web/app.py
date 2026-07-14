@@ -203,7 +203,7 @@ def list_books():
             output_files = []
             if os.path.exists(output_dir):
                 for f in os.listdir(output_dir):
-                    if f.endswith((".epub", ".azw3", ".mp3", ".md")):
+                    if f.endswith((".epub", ".azw3", ".mp3", ".md", ".cbz", ".cbr", ".cb7", ".zip")):
                         output_files.append(f)
                         
             books.append({
@@ -214,6 +214,7 @@ def list_books():
                 "is_running": is_running,
                 "progress": prog,
                 "output_files": sorted(output_files),
+                "is_manga": cfg.get("is_manga", False),
                 "tts_voice": cfg.get("tts_voice", "ukrainian_tts"),
                 "tts_voice_quality": cfg.get("tts_voice_quality", "medium"),
                 "tts_speaker_id": int(cfg.get("tts_speaker_id", 2)),
@@ -263,16 +264,25 @@ def add_book_api():
         os.makedirs(paths["audio_dir"], exist_ok=True)
         
         # Copy source file
-        ext = os.path.splitext(pdf_path)[1].lower()
-        dest_file = os.path.join(book_dir, f"{slug}{ext}")
-        shutil.copy2(pdf_path, dest_file)
-        
-        if ext == ".pdf":
-            pages = get_pdf_page_count(dest_file)
-            page_ranges = [[1, pages]]
-        else:
-            pages = 0
+        ext = ""
+        if os.path.isdir(pdf_path):
+            if not is_manga:
+                return jsonify({"status": "error", "message": "Source path is a directory. Directory sources are only supported for Manga."}), 400
+            dest_dir = os.path.join(book_dir, "source")
+            shutil.copytree(pdf_path, dest_dir, dirs_exist_ok=True)
+            pages = len([f for f in os.listdir(dest_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
             page_ranges = []
+        else:
+            ext = os.path.splitext(pdf_path)[1].lower()
+            dest_file = os.path.join(book_dir, f"{slug}{ext}")
+            shutil.copy2(pdf_path, dest_file)
+            
+            if ext == ".pdf":
+                pages = get_pdf_page_count(dest_file)
+                page_ranges = [[1, pages]]
+            else:
+                pages = 0
+                page_ranges = []
         
         # Write config.json
         config_data = {
@@ -584,17 +594,21 @@ def run_conversion_api(slug):
             pass
             
     if is_manga:
-        # Determine source file
-        source_ext = ""
-        for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
-            if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
-                source_ext = possible_ext
-                break
+        # Determine source file or directory
+        manga_input = ""
+        if os.path.isdir(os.path.join(paths["book_dir"], "source")):
+            manga_input = os.path.join(paths["book_dir"], "source")
+        else:
+            source_ext = ""
+            for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
+                if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
+                    source_ext = possible_ext
+                    break
+            if source_ext:
+                manga_input = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
                 
-        if not source_ext:
-            return jsonify({"status": "error", "message": "Manga source file not found"}), 400
-            
-        manga_input = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
+        if not manga_input:
+            return jsonify({"status": "error", "message": "Manga source file or directory not found"}), 400
         manga_output_dir = os.path.join(paths["book_dir"], "output")
         os.makedirs(manga_output_dir, exist_ok=True)
         manga_output = os.path.join(manga_output_dir, f"{slug}_translated_{cfg.get('target_lang', 'uk')}.cbz")
@@ -610,7 +624,7 @@ def run_conversion_api(slug):
         # Run translate_manga.py inside PRoot Ubuntu container
         cmd = [
             "proot-distro", "login", "ubuntu", "--", 
-            "python3", "/data/data/com.termux/files/home/kindle-butch-gen/translate_manga.py",
+            "python3", "-u", "/data/data/com.termux/files/home/kindle-butch-gen/translate_manga.py",
             "--input", manga_input,
             "--output", manga_output,
             "--lang", cfg.get("source_lang", "en"),
@@ -1089,15 +1103,15 @@ def preview_manga(slug):
         return jsonify({"status": "error", "message": "Not a manga"}), 400
         
     source_ext = ""
-    for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf"]:
-        if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
-            source_ext = possible_ext
-            break
+    is_dir_source = os.path.isdir(os.path.join(paths["book_dir"], "source"))
+    if not is_dir_source:
+        for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf"]:
+            if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
+                source_ext = possible_ext
+                break
+        if not source_ext:
+            return jsonify({"status": "error", "message": "Manga source file or directory not found"}), 400
             
-    if not source_ext:
-        return jsonify({"status": "error", "message": "Manga source file not found"}), 400
-        
-    source_file = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
     translated_file = os.path.join(paths["book_dir"], "output", f"{slug}_translated_{cfg.get('target_lang', 'uk')}.cbz")
     
     preview_cache = os.path.join(paths["book_dir"], "preview_cache")
@@ -1108,11 +1122,20 @@ def preview_manga(slug):
     os.makedirs(src_preview_dir, exist_ok=True)
     if not os.listdir(src_preview_dir):
         try:
-            if source_ext in [".zip", ".cbz"]:
+            if is_dir_source:
+                from natsort import natsorted
+                src_dir = os.path.join(paths["book_dir"], "source")
+                files = natsorted([f for f in os.listdir(src_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+                for f in files[:30]:
+                    shutil.copy2(os.path.join(src_dir, f), os.path.join(src_preview_dir, f))
+            elif source_ext in [".zip", ".cbz"]:
+                source_file = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
                 subprocess.run(["unzip", "-j", source_file, "*.png", "*.jpg", "*.jpeg", "-d", src_preview_dir], capture_output=True)
             elif source_ext in [".rar", ".cbr"]:
+                source_file = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
                 subprocess.run(["unrar", "e", source_file, "-d", src_preview_dir], capture_output=True)
             elif source_ext == ".pdf":
+                source_file = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
                 subprocess.run(["pdftoppm", "-png", "-f", "1", "-l", "5", "-r", "100", source_file, os.path.join(src_preview_dir, "page")], capture_output=True)
         except Exception:
             pass
@@ -1121,17 +1144,30 @@ def preview_manga(slug):
     cleaned_preview_dir = os.path.join(preview_cache, "cleaned")
     os.makedirs(cleaned_preview_dir, exist_ok=True)
     actual_cleaned_dir = os.path.join(paths["book_dir"], "cleaned")
-    if os.path.exists(actual_cleaned_dir) and not os.listdir(cleaned_preview_dir):
+    if os.path.exists(actual_cleaned_dir):
         try:
             for f in os.listdir(actual_cleaned_dir):
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    shutil.copy(os.path.join(actual_cleaned_dir, f), os.path.join(cleaned_preview_dir, f))
+                    dst = os.path.join(cleaned_preview_dir, f)
+                    if not os.path.exists(dst):
+                        shutil.copy2(os.path.join(actual_cleaned_dir, f), dst)
         except Exception:
             pass
             
     # 3. Translated pages extraction
     tgt_preview_dir = os.path.join(preview_cache, "translated")
     os.makedirs(tgt_preview_dir, exist_ok=True)
+    actual_translated_dir = os.path.join(paths["book_dir"], "translated")
+    if os.path.exists(actual_translated_dir):
+        try:
+            for f in os.listdir(actual_translated_dir):
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    dst = os.path.join(tgt_preview_dir, f)
+                    if not os.path.exists(dst):
+                        shutil.copy2(os.path.join(actual_translated_dir, f), dst)
+        except Exception:
+            pass
+            
     if os.path.exists(translated_file) and not os.listdir(tgt_preview_dir):
         try:
             subprocess.run(["unzip", "-j", translated_file, "*.png", "*.jpg", "*.jpeg", "-d", tgt_preview_dir], capture_output=True)
