@@ -8,9 +8,37 @@ import json
 import hashlib
 import argparse
 import subprocess
+import wave
+import struct
 from common.text_protect import PlaceholderManager
 from common.book_paths import resolve_book_paths
 from common.utils import get_hash
+
+def get_sample_rate(wav_path):
+    """Reads sample rate from a WAV file."""
+    with wave.open(wav_path, "rb") as w:
+        return w.getframerate()
+
+def generate_silence_wav(output_path, duration_ms, sample_rate):
+    """Generates a silence WAV file of given duration and sample rate."""
+    num_samples = int((duration_ms / 1000.0) * sample_rate)
+    silence_samples = [0] * num_samples
+    with wave.open(output_path, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        packed_data = struct.pack(f"{num_samples}h", *silence_samples)
+        wav_file.writeframes(packed_data)
+
+def apply_fade_out(input_wav, output_wav, fade_ms=15):
+    """Applies a fade-out to the end of a WAV file via ffmpeg."""
+    fade_sec = fade_ms / 1000.0
+    cmd = [
+        "ffmpeg", "-y", "-i", input_wav,
+        "-af", f"areverse,afade=t=in:d={fade_sec},areverse",
+        output_wav
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def log(message):
     print(f"[AudioStage] {message}", flush=True)
@@ -263,12 +291,16 @@ def main():
     # For StyleTTS2 we enforce a much lower max_chars limit to avoid ONNX broadcast errors
     max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
     chunk_texts = []
+    header_hashes = set()
     for p in filtered_paragraphs:
+        is_heading = p.strip().startswith("#")
         chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
         for chunk in chunks:
             chunk = chunk.strip()
             if chunk:
                 chunk_texts.append(chunk)
+                if is_heading:
+                    header_hashes.add(get_hash(chunk))
 
     log(f"Total TTS text chunks to synthesize/verify: {len(chunk_texts)}")
 
@@ -463,14 +495,55 @@ def main():
 
     log("All chunk files verified successfully.")
 
-    # Create ffmpeg list file
+    # Create ffmpeg list file with silence and fade-out
+    log("Preparing chunks with fade-out and silence padding...")
+
+    # Determine Sample Rate from the first chunk for generating proper silence
+    sample_rate = 22050  # Default fallback
+    if chunk_hashes:
+        first_chunk = os.path.join(chunks_dir, f"{chunk_hashes[0]}.wav")
+        if os.path.exists(first_chunk):
+            try:
+                sample_rate = get_sample_rate(first_chunk)
+            except Exception as e:
+                log(f"Warning: Failed to read sample rate from first chunk: {e}")
+
+    temp_dir = os.path.join(paths["audio_dir"], "temp_processing")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    # Generate silence WAV files
+    silence_500_path = os.path.join(temp_dir, "silence_500.wav")
+    silence_3000_path = os.path.join(temp_dir, "silence_3000.wav")
+
+    try:
+        generate_silence_wav(silence_500_path, 500, sample_rate)
+        generate_silence_wav(silence_3000_path, 3000, sample_rate)
+    except Exception as e:
+        log(f"Error generating silence files: {e}")
+        sys.exit(1)
+
     ffmpeg_list_path = os.path.join(paths["audio_dir"], "ffmpeg_list.txt")
     try:
         with open(ffmpeg_list_path, "w", encoding="utf-8") as lf:
-            for h in chunk_hashes:
+            for idx, h in enumerate(chunk_hashes):
                 chunk_file = os.path.abspath(os.path.join(chunks_dir, f"{h}.wav"))
-                escaped_path = chunk_file.replace("'", "'\\''")
-                lf.write(f"file '{escaped_path}'\n")
+                
+                # Apply 15ms fade-out to prevent clicks
+                faded_chunk = os.path.join(temp_dir, f"{h}_faded.wav")
+                if not os.path.exists(faded_chunk):
+                    apply_fade_out(chunk_file, faded_chunk, fade_ms=15)
+                
+                escaped_chunk = faded_chunk.replace("'", "'\\''")
+                lf.write(f"file '{escaped_chunk}'\n")
+
+                # Insert appropriate silence between chunks
+                if idx < len(chunk_hashes) - 1:
+                    next_hash = chunk_hashes[idx + 1]
+                    is_next_heading = next_hash in header_hashes
+                    silence_file = silence_3000_path if is_next_heading else silence_500_path
+                    
+                    escaped_silence = os.path.abspath(silence_file).replace("'", "'\\''")
+                    lf.write(f"file '{escaped_silence}'\n")
     except Exception as e:
         log(f"Error writing ffmpeg list file: {e}")
         sys.exit(1)
