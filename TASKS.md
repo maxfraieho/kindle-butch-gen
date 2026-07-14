@@ -52,3 +52,20 @@
 * **Solution:** Замість фолбеку на хардкод пароль, зчитувати значення з ENV-змінної (наприклад, `KBG_WEB_PASSWORD`), або, якщо файл відсутній, генерувати випадковий пароль, виводити його в консоль при запуску Flask і записувати у файл.
 * **Verification Method:** The fallback to insecure hardcoded password "0523" has been eliminated in code. However, since 'web_credentials.json' already exists on the dev server with the hash of "0523", the old password remains active. Real-world mitigation requires either setting the `KBG_WEB_PASSWORD` env variable or deleting the old json file to let it generate a secure token on start.
 * **Type:** `direct`
+
+## [x] TASK-9: Terminal Log Cache (Flicker Fix) (DONE - RETROACTIVELY DOCUMENTED)
+* **Problem:** Термінал логів оновлюється періодично, що призводить до повного очищення DOM і перерендерингу. На мобільних пристроях це викликає мерехтіння і скидає позицію прокрутки.
+* **Solution:** Додати кешування логів у JavaScript (`lastLogsCache`), щоб при повторному рендерингу спочатку показувати попередньо завантажений текст, а потім оновлювати його лише при зміні контенту.
+* **Verification Method:** Manually verified on OnePlus 13 in Termux. Rendered terminal logs are fully cached per-book slug and updated smoothly. (Commit `69c2b73`).
+* **Type:** `direct`
+
+## [x] TASK-10: PDF-to-EPUB Asset Serving and Namespace Cleanup (DONE - RETROACTIVELY DOCUMENTED)
+* **Problem:** При перегляді сконвертованих PDF-книг (які компілюються в EPUB) у вікні stages/viewer виникає чорний екран або порожній вміст через те, що: (а) бінарні ресурси (зображення, стилі) не завантажуються з OPF-директорії всередині EPUB, (б) SVG-зображення містять префікси просторів імен (напр., `ns1:svg`), які є некоректними для стандарту HTML5 і не рендерилися браузером.
+* **Solution:** 
+  1. Оновити `app.py` для пошуку EPUB-файлів у теці `output` книги, якщо вони відсутні в `input`.
+  2. Додати пряме сервування бінарних ресурсів (зображення, CSS) із Zip-файлу EPUB через Flask-ендпоінт.
+  3. Впровадити автоматичне очищення SVG просторів імен та префіксів перед рендерингом HTML-сторінки.
+  4. Додати динамічне впорскування тегу `<base>` для правильного дозволу відносних шляхів ресурсів.
+* **Verification Method:** Manually verified on OnePlus 13. PDF-to-EPUB conversion previews successfully, assets are served dynamically, and namespaces are stripped cleanly without a black screen. (Commit `69c2b73`).
+* **Type:** `direct`
+
