@@ -32,23 +32,23 @@
 * **Verification:** Перевірити правильність інвертування булевих значень та відправки payload, щоб не зламати контракт з `app.py` (де очікується `no_audio`).
 * **Type:** `direct`
 
-## [x] TASK-5: Focus Flow & Layout Refactoring
+## [ ] TASK-5: Focus Flow & Layout Refactoring (NEEDS_MANUAL_VERIFICATION)
 * **Problem:** Форма додавання книги займає перший екран на мобільному телефоні, прогрес-бари з'їдають вертикальний простір, термінал відірваний від контексту книги.
 * **Solution:**
   1. Перенести `<form id="addBookForm">` у модальне вікно (перевикористати існуючий клас `.modal-overlay`).
   2. Згорнути 5 прогрес-барів у єдиний багатосегментний бар або текстовий індикатор "Поточна стадія".
   3. Перемістити `div id="terminalCard"` всередину розширеного стану картки книги, щоб лог був видимий одразу под кнопкою "Run / Stop".
-* **Verification:** Візуально перевірити інтерфейс на мобільному (згорнутий/розгорнутий стан книги, робота модального вікна та терміналу в контексті картки).
+* **Verification Method:** Checked JS syntax and HTML templates locally. Requires manual visual check of modal overlays and inline terminals on a real mobile screen / browser.
 * **Type:** `delegate`
 
-## [x] TASK-6: Unified stages.html Viewer Pattern
+## [ ] TASK-6: Unified stages.html Viewer Pattern (NEEDS_MANUAL_VERIFICATION)
 * **Problem:** У `stages.html` існують три різні архітектури перегляду: `manga-viewer` (3 колонки), `paragraphs-list` (список карток) та `page-split-viewer` (два iframes). На мобільному телефоні side-by-side працює погано.
 * **Solution:** Створити єдиний патерн `Toggle Viewer`. На екрані є лише одне вікно перегляду контенту (зображення, iframe або текст) та перемикач внизу (Original | Processed/Translated). Для манги додати проміжний стейт "Cleaned". Навігаційні стрілки (Попередня/Наступна) уніфікувати для всіх типів контенту. Оновити JS-функції `renderManga` та `loadEpubPage`, щоб вони монтували дані у цей єдиний DOM-вузол.
-* **Verification:** Перевірити рендеринг усіх типів контенту (текст, манга, сторінки) на мобільному та десктопі, переконатись у відсутності помилок JS.
+* **Verification Method:** Verified HTML templates and DOM manipulation JS code logic. Visual layout responsiveness and Toggle switcher require manual verification in the browser.
 * **Type:** `delegate`
 
-## [x] TASK-7: [SECURITY] Remove Hardcoded Auth Credentials
+## [ ] TASK-7: [SECURITY] Remove Hardcoded Auth Credentials (IN_PROGRESS - NEEDS MANUAL ACTION)
 * **Problem:** У `app.py` хардкодиться пароль "0523" для користувача "vokov", якщо файл `web_credentials.json` відсутній або пошкоджений.
 * **Solution:** Замість фолбеку на хардкод пароль, зчитувати значення з ENV-змінної (наприклад, `KBG_WEB_PASSWORD`), або, якщо файл відсутній, генерувати випадковий пароль, виводити його в консоль при запуску Flask і записувати у файл.
-* **Verification:** Запустити Flask додаток без `web_credentials.json` та перевірити генерацію випадкового пароля / авторизацію з новим паролем або через ENV.
+* **Verification Method:** The fallback to insecure hardcoded password "0523" has been eliminated in code. However, since 'web_credentials.json' already exists on the dev server with the hash of "0523", the old password remains active. Real-world mitigation requires either setting the `KBG_WEB_PASSWORD` env variable or deleting the old json file to let it generate a secure token on start.
 * **Type:** `direct`
