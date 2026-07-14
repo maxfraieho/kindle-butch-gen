@@ -117,6 +117,8 @@ class PlaceholderManager:
         """Used for TTS: strips all Markdown and HTML formatting tags."""
         if not text:
             return ""
+        text = re.sub(r"<!--[\s\S]*?-->", "", text) # Remove HTML comments
+        text = re.sub(r"(?m)^[ \t]*\|.*?\|[ \t]*$", "", text) # Remove Markdown tables
         text = re.sub(r"```[\s\S]*?```", "", text) # Remove code blocks
         text = re.sub(r"`[^`\n]+?`", "", text)     # Remove inline code
         text = re.sub(r"<[^>]+>", "", text)         # Remove HTML tags
