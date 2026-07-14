@@ -95,11 +95,17 @@
 * **Verification Method:** Manually verified by user via TTS preview audio on OnePlus 13.
 * **Type:** `direct`
 
-## [ ] TASK-14: Audio Transitions & Chapter Pauses (IN_PROGRESS - RE-SYNTHESIS RUNNING)
-* **Problem:** Transitions between synthesized audio chunks are uneven, words are clipped due to aggressive silence trimming, and there is no pause at the beginning of chapters/headings.
+## [ ] TASK-14: Audio Pauses, Markdown Cleaning, and Preview Pagination (IN_PROGRESS - needs manual audio verification)
+* **Problem:** 
+  1. Аудіокниги містять замало пауз між реченнями та заголовками, а іноді виникають кліки або зрізи складів на кінцях чанків.
+  2. Розмітка (таблиці, mermaid-діаграми, коментарі HTML) попадає в аудіо-синтез та прев'ю.
+  3. Перегляд списку чанків у веб-інтерфейсі обмежувався лише першими 30 чанками (TOC), і не давав доступу до решти книги, до того ж запити були повільними через O(N) операції дискової перевірки на кожен запит.
 * **Solution:**
-  1. Updated `PlaceholderManager.strip_formatting` to clean markdown table row formatting and code blocks before synthesis.
-  2. Updated `trim_silence` in `tts_helper.py` to increase default unpunctuated padding to 250ms, preventing trailing word cutoffs.
-  3. Modified `audio_stage.py` to keep track of heading chunks, apply 15ms linear fade-out to ends of chunks to eliminate pops, and inject 500ms (standard) or 3000ms (after headings) silent WAV chunks during concatenation.
-* **Verification Method:** In progress. Re-synthesis of the book is running in the background (Task ID `task-765`). Initial 163 chunks audited and verified in `TASK14_VERIFICATION.md`.
-* **Type:** `delegate`
+  1. Реалізовано генерацію WAV-файлів тиші (500мс для звичайних переходів, 3000мс для заголовків розділів) та накладання 15мс fade-out на кінці чанків через ffmpeg у PRoot контейнері перед склеюванням.
+  2. Збільшено безпечний trailing-ліміт зрізання тиші в `tts_helper.py` для непунктуйованих чанків зі 100мс до 250мс для уникнення зрізів.
+  3. Додано повне вилучення HTML-коментарів та Markdown-таблиць у `PlaceholderManager.strip_formatting`.
+  4. Додано пагінацію списку чанків (по 30 на сторінку) у веб-роут `/api/preview/book/<slug>` та інтерфейс `stages.html`, оптимізовано час обробки до 10мс шляхом обмеження дискових і кеш-перевірок лише для поточної сторінки.
+* **Verification Method:** In progress (synthesis running on phone). Needs manual audio listening to verify pause length, fade-out, lack of clicks, and markdown text removal.
+* **Type:** `direct`
+
+
