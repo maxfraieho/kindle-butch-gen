@@ -69,3 +69,10 @@
 * **Verification Method:** Manually verified on OnePlus 13. PDF-to-EPUB conversion previews successfully, assets are served dynamically, and namespaces are stripped cleanly without a black screen. (Commit `69c2b73`).
 * **Type:** `direct`
 
+## [x] TASK-11: No-Translate Suffix Fix (DONE - RETROACTIVELY DOCUMENTED)
+* **Problem:** При запуску конвеєра з прапорцем `--no-translate` суфікс вихідних файлів розраховувався некоректно, що спричиняло збій у генерації назв результуючих файлів.
+* **Solution:** Завжди додавати суфікс `_translated_<lang>`, якщо цільова мова відрізняється від початкової, незалежно від наявності прапорця `no_translate` в аргументах.
+* **Verification Method:** Verified on OnePlus 13 during translation runs. (Commit `e775e46`).
+* **Type:** `direct`
+
+
