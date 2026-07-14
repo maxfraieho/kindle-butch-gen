@@ -36,3 +36,5 @@
 ### Для переходу до TASK-8 (Візуальна тема):
 1. Переконатися, що сесію тестування на телефоні завершено та отримано підтвердження працездатності TASK-5/6/7.
 2. Блокнот NotebookLM `kbg-redesign` (ID: `0c18b603-73d7-44ba-bc44-34bfe8080327`) повністю готовий і містить актуальні джерела (`app_py.txt`, `dashboard_html.txt`, `stages_html.txt`). Можна переходити до Кроку 2 (Structured Delegation) для генерації UI-теми.
+3. **Git Remote**: Remote origin переключено з HTTPS-токена на SSH (`git@github.com:maxfraieho/kindle-butch-gen.git`) на dev-сервері для стабільного пушу.
+
