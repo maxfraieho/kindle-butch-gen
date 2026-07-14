@@ -11,16 +11,52 @@
         :root {
             --primary: #8b5cf6;
             --primary-hover: #7c3aed;
+            --primary-glow: rgba(139, 92, 246, 0.35);
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
-            --bg-dark: #09090b;
-            --card-bg: rgba(20, 20, 35, 0.65);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-primary: #f4f4f5;
-            --text-secondary: #a1a1aa;
             
+            /* OLED optimization & higher contrast surfaces */
+            --bg-base: #09090b;
+            --surface-card: #18181b;
+            --surface-hover: #27272a;
+            --border-subtle: #3f3f46;
+            --border-strong: #52525b;
+            
+            /* High-contrast typography (OLED & sunlight) */
+            --text-primary: #ffffff;
+            --text-secondary: #e4e4e7;
+            --text-muted: #a1a1aa;
+
+            /* Progress and status indicators */
+            --status-idle-bg: rgba(255, 255, 255, 0.04);
+            --status-idle-border: rgba(255, 255, 255, 0.12);
+            --status-idle-text: var(--text-secondary);
+            
+            --status-active-bg: rgba(139, 92, 246, 0.15);
+            --status-active-border: var(--primary);
+            --status-active-text: #c4b5fd;
+            
+            --status-done-bg: var(--primary);
+            --status-done-border: var(--primary-hover);
+            --status-done-text: #ffffff;
+            
+            --status-error-bg: rgba(220, 38, 38, 0.15);
+            --status-error-border: #ef4444;
+            --status-error-text: #fca5a5;
+
+            /* Keyboard focus states */
+            --focus-ring-offset: var(--bg-base);
+            --focus-ring-color: var(--primary);
+            
+            /* Snappy, highly responsive ease-out curves */
             --ease-out-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+            --ease-in-out-elegant: cubic-bezier(0.77, 0, 0.175, 1);
+            
+            /* Keep legacy mappings for safety */
+            --bg-dark: var(--bg-base);
+            --card-bg: var(--surface-card);
+            --border-color: var(--border-subtle);
         }
         * { box-sizing: border-box; }
         body {
@@ -82,8 +118,24 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 1.5rem;
-            backdrop-filter: blur(8px);
             margin-bottom: 2rem;
+        }
+
+        /* Keyboard focus states */
+        .btn:focus-visible,
+        .btn-back:focus-visible,
+        .tab-btn:focus-visible,
+        .nav-btn:focus-visible,
+        .manga-btn:focus-visible,
+        .action-btn:focus-visible,
+        input[type="checkbox"]:focus-visible,
+        input[type="range"]:focus-visible,
+        select:focus-visible,
+        summary:focus-visible,
+        .form-control:focus-visible {
+            outline: none !important;
+            box-shadow: 0 0 0 2px var(--focus-ring-offset), 0 0 0 4px var(--focus-ring-color) !important;
+            border-color: var(--primary) !important;
         }
         .loader {
             display: flex;
