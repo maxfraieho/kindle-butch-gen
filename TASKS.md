@@ -53,6 +53,17 @@
 * **Verification Method:** The fallback to insecure hardcoded password "0523" has been eliminated in code. However, since 'web_credentials.json' already exists on the dev server with the hash of "0523", the old password remains active. Real-world mitigation requires either setting the `KBG_WEB_PASSWORD` env variable or deleting the old json file to let it generate a secure token on start.
 * **Type:** `direct`
 
+## [ ] TASK-8: OLED Adaptive Contrast Visual Theme (IN_PROGRESS - CODE UPDATED, NEEDS MANUAL VISUAL VERIFICATION)
+* **Problem:** Поточна тема не оптимізована для OLED (багато blur, напівпрозорі картинки, низький контраст меж) та складні умови освітлення (наприклад, під сонячним світлом або вночі). Також відсутні специфікації фокус-станів для клавіатурної та тачпадної навігації, а прогрес-бари використовують забагато різних яскравих кольорів.
+* **Solution:** 
+  1. Впроваджено OLED-оптимізовану систему токенів: глибокий OLED-чорний фон, непрозорі поверхні карток, чіткі межі без розмиття.
+  2. Підвищено контрастність шрифтів до WCAG AA+ для легшого зчитування на сонці.
+  3. Уніфіковано кольори статусів (idle/active/done/error), прив'язавши їх до головного фіолетового брендового кольору замість "веселки".
+  4. Замінено багатокольоровий градієнт загального прогрес-бару на фіолетовий градієнт бренду.
+  5. Створено чіткі фокус-стани `:focus-visible` для кнопок, чекбоксів та елементів введення.
+* **Verification Method:** code updated, needs manual visual verification.
+* **Type:** `delegate`
+
 ## [x] TASK-9: Terminal Log Cache (Flicker Fix) (DONE - RETROACTIVELY DOCUMENTED)
 * **Problem:** Термінал логів оновлюється періодично, що призводить до повного очищення DOM і перерендерингу. На мобільних пристроях це викликає мерехтіння і скидає позицію прокрутки.
 * **Solution:** Додати кешування логів у JavaScript (`lastLogsCache`), щоб при повторному рендерингу спочатку показувати попередньо завантажений текст, а потім оновлювати його лише при зміні контенту.
