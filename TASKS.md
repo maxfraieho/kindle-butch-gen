@@ -32,19 +32,19 @@
 * **Verification:** Перевірити правильність інвертування булевих значень та відправки payload, щоб не зламати контракт з `app.py` (де очікується `no_audio`).
 * **Type:** `direct`
 
-## [ ] TASK-5: Focus Flow & Layout Refactoring (NEEDS_MANUAL_VERIFICATION)
+## [x] TASK-5: Focus Flow & Layout Refactoring
 * **Problem:** Форма додавання книги займає перший екран на мобільному телефоні, прогрес-бари з'їдають вертикальний простір, термінал відірваний від контексту книги.
 * **Solution:**
   1. Перенести `<form id="addBookForm">` у модальне вікно (перевикористати існуючий клас `.modal-overlay`).
   2. Згорнути 5 прогрес-барів у єдиний багатосегментний бар або текстовий індикатор "Поточна стадія".
   3. Перемістити `div id="terminalCard"` всередину розширеного стану картки книги, щоб лог був видимий одразу под кнопкою "Run / Stop".
-* **Verification Method:** Checked JS syntax and HTML templates locally. Requires manual visual check of modal overlays and inline terminals on a real mobile screen / browser.
+* **Verification Method:** Manually verified in browser on mobile device by user. Fixed terminal log rendering to cache outputs and prevent flickering during background refreshes.
 * **Type:** `delegate`
 
-## [ ] TASK-6: Unified stages.html Viewer Pattern (NEEDS_MANUAL_VERIFICATION)
+## [x] TASK-6: Unified stages.html Viewer Pattern
 * **Problem:** У `stages.html` існують три різні архітектури перегляду: `manga-viewer` (3 колонки), `paragraphs-list` (список карток) та `page-split-viewer` (два iframes). На мобільному телефоні side-by-side працює погано.
 * **Solution:** Створити єдиний патерн `Toggle Viewer`. На екрані є лише одне вікно перегляду контенту (зображення, iframe або текст) та перемикач внизу (Original | Processed/Translated). Для манги додати проміжний стейт "Cleaned". Навігаційні стрілки (Попередня/Наступна) уніфікувати для всіх типів контенту. Оновити JS-функції `renderManga` та `loadEpubPage`, щоб вони монтували дані у цей єдиний DOM-вузол.
-* **Verification Method:** Verified HTML templates and DOM manipulation JS code logic. Visual layout responsiveness and Toggle switcher require manual verification in the browser.
+* **Verification Method:** Manually verified in browser on mobile device by user. Fixed EPUB asset routing (images/CSS) and dynamic <base> tag injection (including SVG namespace cleanup) to support previewing compiled PDF-to-EPUB books.
 * **Type:** `delegate`
 
 ## [ ] TASK-7: [SECURITY] Remove Hardcoded Auth Credentials (IN_PROGRESS - NEEDS MANUAL ACTION)

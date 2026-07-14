@@ -888,6 +888,7 @@
     <script>
         let currentLogsSlug = null;
         let logsInterval = null;
+        const lastLogsCache = {};
 
         function showUploadStatus(msg, type) {
             const statusDiv = document.getElementById('uploadStatus');
@@ -1315,7 +1316,7 @@
                                     </span>
                                     <button class="btn-close" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1.2rem; padding: 0 0.5rem;" onclick="hideBookTerminal('${book.slug}')">&times;</button>
                                 </div>
-                                <div class="terminal-log-inside" id="terminalLog-${book.slug}" style="height: 180px; overflow-y: auto; background: rgba(0, 0, 0, 0.4); font-family: 'Fira Code', monospace; font-size: 0.75rem; padding: 0.75rem; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; white-space: pre-wrap; word-break: break-all; color: #a7f3d0; text-shadow: 0 0 2px rgba(164, 250, 200, 0.2);">Select a book to display live logs.</div>
+                                <div class="terminal-log-inside" id="terminalLog-${book.slug}" style="height: 180px; overflow-y: auto; background: rgba(0, 0, 0, 0.4); font-family: 'Fira Code', monospace; font-size: 0.75rem; padding: 0.75rem; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; white-space: pre-wrap; word-break: break-all; color: #a7f3d0; text-shadow: 0 0 2px rgba(164, 250, 200, 0.2);">${lastLogsCache[book.slug] || 'Select a book to display live logs.'}</div>
                             </div>
                         </div>
                     `;
@@ -1361,6 +1362,9 @@
                             activeEl.selectionEnd = selEnd;
                         }
                     }
+                }
+                if (currentLogsSlug) {
+                    pollLogs();
                 }
                 isFirstLoad = false;
             } catch (err) {
@@ -1469,9 +1473,13 @@
                 const prevClientHeight = logBox.clientHeight;
                 
                 if (status.logs && status.logs.length > 0) {
-                    logBox.innerText = status.logs.join('');
+                    const text = status.logs.join('');
+                    logBox.innerText = text;
+                    lastLogsCache[currentLogsSlug] = text;
                 } else {
-                    logBox.innerText = 'No log entries found. Job may be starting...';
+                    const text = 'No log entries found. Job may be starting...';
+                    logBox.innerText = text;
+                    lastLogsCache[currentLogsSlug] = text;
                 }
                 
                 const dot = document.getElementById(`terminalDot-${currentLogsSlug}`);

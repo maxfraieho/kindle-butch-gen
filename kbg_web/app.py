@@ -1288,6 +1288,9 @@ def find_book_epub(book_dir, slug):
     epubs_input = glob.glob(os.path.join(book_dir, "input", "*.epub"))
     if epubs_input:
         return epubs_input[0]
+    epubs_output = glob.glob(os.path.join(book_dir, "output", "*.epub"))
+    if epubs_output:
+        return epubs_output[0]
     return None
 
 @app.route("/api/preview/book-chapters/<slug>")
@@ -1361,6 +1364,42 @@ def preview_book_page(slug, href):
     if not epub_path or not os.path.exists(epub_path):
         return jsonify({"status": "error", "message": "EPUB file not found"}), 404
         
+    # Serve binary assets (images, css) directly from EPUB
+    lower_href = href.lower()
+    if lower_href.endswith(('.jpg', '.jpeg', '.png', '.gif', '.svg', '.css')):
+        try:
+            with zipfile.ZipFile(epub_path, 'r') as z:
+                container_data = z.read("META-INF/container.xml")
+                c_root = ET.fromstring(container_data)
+                rf_el = c_root.find(".//{urn:oasis:names:tc:opendocument:xmlns:container}rootfile")
+                if rf_el is None:
+                    rf_el = c_root.find(".//rootfile")
+                opf_rel_path = rf_el.attrib["full-path"]
+                opf_dir = os.path.dirname(opf_rel_path)
+                
+                full_rel_path = os.path.join(opf_dir, href) if opf_dir else href
+                full_rel_path = full_rel_path.replace("\\", "/")
+                
+                raw_bytes = z.read(full_rel_path)
+                
+                content_type = "application/octet-stream"
+                if lower_href.endswith(('.jpg', '.jpeg')):
+                    content_type = "image/jpeg"
+                elif lower_href.endswith('.png'):
+                    content_type = "image/png"
+                elif lower_href.endswith('.gif'):
+                    content_type = "image/gif"
+                elif lower_href.endswith('.svg'):
+                    content_type = "image/svg+xml"
+                elif lower_href.endswith('.css'):
+                    content_type = "text/css"
+                
+                from flask import Response
+                return Response(raw_bytes, mimetype=content_type)
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 404
+
+    opf_dir = ""
     try:
         with zipfile.ZipFile(epub_path, 'r') as z:
             container_data = z.read("META-INF/container.xml")
@@ -1470,16 +1509,32 @@ def preview_book_page(slug, href):
         </style>
         """
         
+        base_tag = f'<base href="/api/preview/book-page/{slug}/{opf_dir}/" />' if opf_dir else f'<base href="/api/preview/book-page/{slug}/" />'
+        style_inject_with_base = f"\n        {base_tag}\n" + style_inject
+        
         def inject_style(html_str):
             if "</head>" in html_str:
-                return html_str.replace("</head>", f"{style_inject}</head>")
+                return html_str.replace("</head>", f"{style_inject_with_base}</head>")
             elif "<body>" in html_str:
-                return html_str.replace("<body>", f"<body>{style_inject}")
+                return html_str.replace("<body>", f"<body>{style_inject_with_base}")
             else:
-                return style_inject + html_str
+                return style_inject_with_base + html_str
                 
         orig_html = inject_style(orig_html)
         trans_html = inject_style(trans_html)
+        
+        def clean_prefixes(html_str):
+            import re
+            # Replace tags like <ns1:svg -> <svg, </ns1:svg -> </svg
+            html_str = re.sub(r'</?ns\d+:', lambda m: '</' if m.group().startswith('</') else '<', html_str)
+            # Replace attributes like ns2:href -> xlink:href or href
+            html_str = re.sub(r'\bns\d+:href\b', 'xlink:href', html_str)
+            # Remove namespace declarations for ns1, ns2
+            html_str = re.sub(r'\s*xmlns:ns\d+=\"[^\"]*\"', '', html_str)
+            return html_str
+            
+        orig_html = clean_prefixes(orig_html)
+        trans_html = clean_prefixes(trans_html)
         
         return jsonify({
             "status": "success",
