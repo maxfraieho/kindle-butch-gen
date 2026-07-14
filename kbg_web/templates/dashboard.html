@@ -759,6 +759,96 @@
             align-items: center;
             gap: 0.5rem;
         }
+
+        /* Floating Action Button */
+        .fab {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 100;
+            transition: transform 0.2s var(--ease-out-snappy), background 0.2s;
+        }
+        .fab:hover {
+            transform: scale(1.1);
+            background: #7c3aed;
+        }
+        .fab:active {
+            transform: scale(0.95);
+        }
+
+        /* Pipeline Progress Styles */
+        .pipeline-progress {
+            margin: 1rem 0;
+        }
+        .pipeline-progress-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.35rem;
+        }
+        .pipeline-active-stage strong {
+            color: var(--primary);
+        }
+        .pipeline-gradient-fill {
+            background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 25%, #ec4899 50%, #f59e0b 75%, #10b981 100%);
+        }
+        .pipeline-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            padding: 0 0.25rem;
+        }
+        .step-node {
+            padding: 0.15rem 0.35rem;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+        .step-node.active {
+            background: rgba(139, 92, 246, 0.1);
+            border-color: rgba(139, 92, 246, 0.4);
+            color: #c084fc;
+            font-weight: bold;
+            box-shadow: 0 0 8px rgba(139, 92, 246, 0.2);
+            animation: pulse-step 2s infinite;
+        }
+        .step-node.completed {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.4);
+            color: #34d399;
+        }
+        .step-divider {
+            flex-grow: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.05);
+            margin: 0 0.25rem;
+        }
+        @keyframes pulse-step {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .dashboard-single-col {
+            max-width: 800px;
+            margin: 0 auto;
+        }
     </style>
 </head>
 <body>
@@ -768,62 +858,15 @@
             <p>EPUB / AZW3 Translation and Audio Synthesis System</p>
         </header>
 
-        <div class="dashboard-grid">
-            <!-- Left Column: Add Form -->
+        <div class="dashboard-single-col">
+            <!-- Manage Books -->
             <div class="glass-card">
-                <h2 class="card-title">Add New Book</h2>
-                <div id="uploadStatus" class="upload-status"></div>
-                <form id="addBookForm">
-                    <div class="form-group">
-                        <label for="file_upload">Upload File (PDF / EPUB / TXT / MD)</label>
-                        <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
-                    </div>
-                    <div class="form-group">
-                        <label for="pdf_path">Or Enter Source PDF Path (on system)</label>
-                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="slug">Book Slug (lowercase, a-z0-9_-)</label>
-                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="title">Title</label>
-                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="authors">Authors</label>
-                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="source_lang">Source Language</label>
-                        <select id="source_lang" class="form-control" required>
-                            <option value="auto">Auto-detect (EPUB only)</option>
-                            <option value="en">English (en)</option>
-                            <option value="ru">Russian (ru)</option>
-                            <option value="uk">Ukrainian (uk)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="lang">Target Language (TTS & E-Book)</label>
-                        <select id="lang" class="form-control" required>
-                            <option value="uk">Ukrainian (uk)</option>
-                            <option value="ru">Russian (ru)</option>
-                            <option value="en">English (en)</option>
-                        </select>
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 1.5rem;">
-                        <input type="checkbox" id="is_manga" style="width: auto; margin: 0; cursor: pointer;">
-                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Is Manga / Comic (Images)</label>
-                    </div>
-                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
-                </form>
-            </div>
-
-            <!-- Right Column: Books List -->
-            <div class="glass-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1;">Manage Books</h2>
-                    <div style="display: flex; gap: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                    <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; min-width: 150px;">Manage Books</h2>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openAddBookModal()">
+                            <span>➕</span> Add Book
+                        </button>
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openModelsSelector()">
                             <span>🤖</span> Models Manager
                         </button>
@@ -838,18 +881,6 @@
                 <div id="booksList" class="books-container">
                     <p style="color: var(--text-secondary); text-align: center;">Loading books...</p>
                 </div>
-            </div>
-
-            <!-- Full Width: Terminal Logs -->
-            <div id="terminalCard" class="glass-card terminal-card" style="display: none;">
-                <div class="terminal-header">
-                    <h2 class="card-title" style="margin: 0; border: none; padding: 0;" id="terminalTitle">Live Progress Console</h2>
-                    <div class="terminal-indicator">
-                        <span class="status-dot" id="terminalDot"></span>
-                        <span id="terminalStatusText">Inactive</span>
-                    </div>
-                </div>
-                <div class="terminal-container" id="terminalLog">Select a book to display live logs.</div>
             </div>
         </div>
     </div>
@@ -947,6 +978,7 @@
                         showUploadStatus('Book uploaded and added successfully!', 'success');
                         document.getElementById('addBookForm').reset();
                         fetchBooks();
+                        setTimeout(closeAddBookModal, 1000);
                     } else {
                         showUploadStatus('Error: ' + res.message, 'error');
                     }
@@ -975,6 +1007,7 @@
                         showUploadStatus('Book added successfully!', 'success');
                         document.getElementById('addBookForm').reset();
                         fetchBooks();
+                        setTimeout(closeAddBookModal, 1000);
                     } else {
                         showUploadStatus('Error: ' + res.message, 'error');
                     }
@@ -1089,6 +1122,43 @@
                         ).join('');
                     }
                     
+                    const marker_p = book.progress.marker_percent || 0;
+                    const trans_p = book.progress.translation_percent || 0;
+                    const edit_p = book.progress.edit_percent || 0;
+                    const stress_p = book.progress.stress_percent || 0;
+                    const tts_p = book.progress.tts_percent || 0;
+                    
+                    let activeStage = "Idle";
+                    let activePercent = 0;
+
+                    if (tts_p > 0 && tts_p < 100) {
+                        activeStage = "TTS Audio";
+                        activePercent = tts_p;
+                    } else if (stress_p > 0 && stress_p < 100) {
+                        activeStage = "Stressifier";
+                        activePercent = stress_p;
+                    } else if (edit_p > 0 && edit_p < 100) {
+                        activeStage = "Proofreading";
+                        activePercent = edit_p;
+                    } else if (trans_p > 0 && trans_p < 100) {
+                        activeStage = "Translation";
+                        activePercent = trans_p;
+                    } else if (marker_p > 0 && marker_p < 100) {
+                        activeStage = "Marker (OCR)";
+                        activePercent = marker_p;
+                    } else if (tts_p === 100) {
+                        activeStage = "Completed";
+                        activePercent = 100;
+                    } else if (book.is_running) {
+                        if (marker_p < 100) { activeStage = "Marker (OCR)"; activePercent = marker_p; }
+                        else if (trans_p < 100) { activeStage = "Translation"; activePercent = trans_p; }
+                        else if (edit_p < 100) { activeStage = "Proofreading"; activePercent = edit_p; }
+                        else if (stress_p < 100) { activeStage = "Stressifier"; activePercent = stress_p; }
+                        else if (tts_p < 100) { activeStage = "TTS Audio"; activePercent = tts_p; }
+                    }
+                    
+                    const overall_p = Math.round((marker_p + trans_p + edit_p + stress_p + tts_p) / 5);
+                    
                     let progressHtml = '';
                     let optionsHtml = '';
                     if (book.progress.is_manga) {
@@ -1096,15 +1166,13 @@
                         const tot = book.progress.manga_total_pages || 0;
                         const pct = book.progress.manga_percent || 0;
                         progressHtml = `
-                            <div class="progress-section">
-                                <div class="progress-item">
-                                    <div class="progress-label">
-                                        <span>Manga Page Translation</span>
-                                        <span>${pct}% (${comp} of ${tot} pages)</span>
-                                    </div>
-                                    <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill fill-translation" style="width: ${pct}%"></div>
-                                    </div>
+                            <div class="pipeline-progress">
+                                <div class="pipeline-progress-header">
+                                    <span class="pipeline-active-stage">Manga Translation: <strong>${comp} of ${tot} pages</strong></span>
+                                    <span class="pipeline-percent">${pct}%</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill fill-translation" style="width: ${pct}%"></div>
                                 </div>
                             </div>
                         `;
@@ -1115,51 +1183,24 @@
                         `;
                     } else {
                         progressHtml = `
-                            <div class="progress-section">
-                                <div class="progress-item">
-                                    <div class="progress-label">
-                                        <span>Marker (OCR)</span>
-                                        <span>${book.progress.marker_percent}%</span>
-                                    </div>
-                                    <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill fill-marker" style="width: ${book.progress.marker_percent}%"></div>
-                                    </div>
+                            <div class="pipeline-progress">
+                                <div class="pipeline-progress-header">
+                                    <span class="pipeline-active-stage">Stage: <strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
+                                    <span class="pipeline-percent">${overall_p}%</span>
                                 </div>
-                                <div class="progress-item">
-                                    <div class="progress-label">
-                                        <span>Translation</span>
-                                        <span>${book.progress.translation_percent}%</span>
-                                    </div>
-                                    <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill fill-translation" style="width: ${book.progress.translation_percent}%"></div>
-                                    </div>
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill pipeline-gradient-fill" style="width: ${overall_p}%"></div>
                                 </div>
-                                <div class="progress-item">
-                                    <div class="progress-label">
-                                        <span>Proofreading (GEC)</span>
-                                        <span>${book.progress.edit_percent || 0}%</span>
-                                    </div>
-                                    <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill fill-edit" style="width: ${book.progress.edit_percent || 0}%"></div>
-                                    </div>
-                                </div>
-                                <div class="progress-item">
-                                    <div class="progress-label">
-                                        <span>Stressifier (NLP)</span>
-                                        <span>${book.progress.stress_percent}%</span>
-                                    </div>
-                                    <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill fill-stress" style="width: ${book.progress.stress_percent}%"></div>
-                                    </div>
-                                </div>
-                                <div class="progress-item">
-                                    <div class="progress-label">
-                                        <span>TTS Audio</span>
-                                        <span>${book.progress.tts_percent}%</span>
-                                    </div>
-                                    <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill fill-tts" style="width: ${book.progress.tts_percent}%"></div>
-                                    </div>
+                                <div class="pipeline-steps">
+                                    <span class="step-node ${marker_p === 100 ? 'completed' : (activeStage === 'Marker (OCR)' ? 'active' : '')}" title="OCR">OCR</span>
+                                    <span class="step-divider"></span>
+                                    <span class="step-node ${trans_p === 100 ? 'completed' : (activeStage === 'Translation' ? 'active' : '')}" title="Translation">Trans</span>
+                                    <span class="step-divider"></span>
+                                    <span class="step-node ${edit_p === 100 ? 'completed' : (activeStage === 'Proofreading' ? 'active' : '')}" title="Proofreading">Proof</span>
+                                    <span class="step-divider"></span>
+                                    <span class="step-node ${stress_p === 100 ? 'completed' : (activeStage === 'Stressifier' ? 'active' : '')}" title="Stressifier">Stress</span>
+                                    <span class="step-divider"></span>
+                                    <span class="step-node ${tts_p === 100 ? 'completed' : (activeStage === 'TTS Audio' ? 'active' : '')}" title="Audio TTS">TTS</span>
                                 </div>
                             </div>
                         `;
@@ -1253,7 +1294,7 @@
                                     ? `<button onclick="rerunConversion('${book.slug}')" class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); color: white; border: none;">🔄 Re-run</button>`
                                     : ''
                                 }
-                                <button onclick="selectBookForLogs('${book.slug}', '${book.title}')" class="btn btn-secondary">Console Logs</button>
+                                <button onclick="toggleBookTerminal('${book.slug}', '${book.title}')" class="btn btn-secondary">Console Logs</button>
                                 <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center;">Visual Preview</a>
                             </div>
 
@@ -1266,6 +1307,16 @@
                                     `).join('')}
                                 </div>
                             ` : ''}
+
+                            <div id="terminal-${book.slug}" class="terminal-inside-card" style="display: ${currentLogsSlug === book.slug ? 'block' : 'none'}; margin-top: 1rem;">
+                                <div class="terminal-header" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 0.5rem; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                    <span style="font-size: 0.8rem; font-family: 'Fira Code', monospace; display: flex; align-items: center; gap: 0.5rem;">
+                                        <span id="terminalDot-${book.slug}" class="status-dot"></span> Console Logs
+                                    </span>
+                                    <button class="btn-close" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1.2rem; padding: 0 0.5rem;" onclick="hideBookTerminal('${book.slug}')">&times;</button>
+                                </div>
+                                <div class="terminal-log-inside" id="terminalLog-${book.slug}" style="height: 180px; overflow-y: auto; background: rgba(0, 0, 0, 0.4); font-family: 'Fira Code', monospace; font-size: 0.75rem; padding: 0.75rem; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; white-space: pre-wrap; word-break: break-all; color: #a7f3d0; text-shadow: 0 0 2px rgba(164, 250, 200, 0.2);">Select a book to display live logs.</div>
+                            </div>
                         </div>
                     `;
                 }).join('');
@@ -1386,19 +1437,22 @@
         }
 
         function selectBookForLogs(slug, title) {
-            currentLogsSlug = slug;
-            document.getElementById('terminalCard').style.display = 'block';
-            document.getElementById('terminalTitle').innerText = `Console Logs: ${title}`;
+            if (currentLogsSlug && currentLogsSlug !== slug) {
+                const prevTerminal = document.getElementById(`terminal-${currentLogsSlug}`);
+                if (prevTerminal) prevTerminal.style.display = 'none';
+            }
             
-            // Clear previous interval
+            currentLogsSlug = slug;
+            const terminal = document.getElementById(`terminal-${slug}`);
+            if (terminal) {
+                terminal.style.display = 'block';
+                terminal.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+            
             if (logsInterval) clearInterval(logsInterval);
             
-            // Poll logs immediately and then on interval
             pollLogs();
             logsInterval = setInterval(pollLogs, 1500);
-            
-            // Scroll to terminal card
-            document.getElementById('terminalCard').scrollIntoView({ behavior: 'smooth' });
         }
 
         async function pollLogs() {
@@ -1408,30 +1462,27 @@
                 if (!response.ok) return;
                 const status = await response.json();
                 
-                const logBox = document.getElementById('terminalLog');
+                const logBox = document.getElementById(`terminalLog-${currentLogsSlug}`);
+                if (!logBox) return;
                 const prevScrollHeight = logBox.scrollHeight;
                 const prevScrollTop = logBox.scrollTop;
                 const prevClientHeight = logBox.clientHeight;
                 
-                // Update terminal text
                 if (status.logs && status.logs.length > 0) {
                     logBox.innerText = status.logs.join('');
                 } else {
                     logBox.innerText = 'No log entries found. Job may be starting...';
                 }
                 
-                // Update active indicator
-                const dot = document.getElementById('terminalDot');
-                const statusText = document.getElementById('terminalStatusText');
-                if (status.is_running) {
-                    dot.className = 'status-dot active';
-                    statusText.innerText = 'Converting';
-                } else {
-                    dot.className = 'status-dot';
-                    statusText.innerText = 'Inactive';
+                const dot = document.getElementById(`terminalDot-${currentLogsSlug}`);
+                if (dot) {
+                    if (status.is_running) {
+                        dot.className = 'status-dot active';
+                    } else {
+                        dot.className = 'status-dot';
+                    }
                 }
                 
-                // Autoscroll if user wasn't scrolled up
                 if (prevScrollHeight - prevScrollTop <= prevClientHeight + 50) {
                     logBox.scrollTop = logBox.scrollHeight;
                 }
@@ -1770,6 +1821,34 @@
             }
         }
 
+        function openAddBookModal() {
+            document.getElementById("addBookModal").classList.add("active");
+            document.getElementById("uploadStatus").className = "upload-status";
+            document.getElementById("uploadStatus").innerText = "";
+        }
+        function closeAddBookModal() {
+            document.getElementById("addBookModal").classList.remove("active");
+        }
+        function toggleBookTerminal(slug, title) {
+            const terminal = document.getElementById(`terminal-${slug}`);
+            if (terminal && terminal.style.display === 'block') {
+                hideBookTerminal(slug);
+            } else {
+                selectBookForLogs(slug, title);
+            }
+        }
+        function hideBookTerminal(slug) {
+            const terminal = document.getElementById(`terminal-${slug}`);
+            if (terminal) terminal.style.display = 'none';
+            if (currentLogsSlug === slug) {
+                currentLogsSlug = null;
+                if (logsInterval) {
+                    clearInterval(logsInterval);
+                    logsInterval = null;
+                }
+            }
+        }
+
         // Initialize settings on page load
         initSettings();
     </script>
@@ -1854,5 +1933,64 @@
             </div>
         </div>
     </div>
+    <!-- Add Book Modal -->
+    <div id="addBookModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>➕ Add New Book</h3>
+                <button class="modal-close" onclick="closeAddBookModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="uploadStatus" class="upload-status"></div>
+                <form id="addBookForm">
+                    <div class="form-group">
+                        <label for="file_upload">Upload File (PDF / EPUB / TXT / MD)</label>
+                        <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
+                    </div>
+                    <div class="form-group">
+                        <label for="pdf_path">Or Enter Source PDF Path (on system)</label>
+                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="slug">Book Slug (lowercase, a-z0-9_-)</label>
+                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="title">Title</label>
+                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="authors">Authors</label>
+                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="source_lang">Source Language</label>
+                        <select id="source_lang" class="form-control" required>
+                            <option value="auto">Auto-detect (EPUB only)</option>
+                            <option value="en">English (en)</option>
+                            <option value="ru">Russian (ru)</option>
+                            <option value="uk">Ukrainian (uk)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="lang">Target Language (TTS & E-Book)</label>
+                        <select id="lang" class="form-control" required>
+                            <option value="uk">Ukrainian (uk)</option>
+                            <option value="ru">Russian (ru)</option>
+                            <option value="en">English (en)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 1.5rem;">
+                        <input type="checkbox" id="is_manga" style="width: auto; margin: 0; cursor: pointer;">
+                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Is Manga / Comic (Images)</label>
+                    </div>
+                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Action Button -->
+    <button class="fab" id="openAddBookBtn" onclick="openAddBookModal()" title="Add New Book">➕</button>
 </body>
 </html>
