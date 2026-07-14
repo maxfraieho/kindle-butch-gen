@@ -11,18 +11,52 @@
         :root {
             --primary: #8b5cf6;
             --primary-hover: #7c3aed;
+            --primary-glow: rgba(139, 92, 246, 0.35);
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
-            --bg-dark: #09090b;
-            --card-bg: rgba(20, 20, 35, 0.65);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-primary: #f4f4f5;
-            --text-secondary: #a1a1aa;
+            
+            /* OLED optimization & higher contrast surfaces */
+            --bg-base: #09090b;
+            --surface-card: #18181b;
+            --surface-hover: #27272a;
+            --border-subtle: #3f3f46;
+            --border-strong: #52525b;
+            
+            /* High-contrast typography (OLED & sunlight) */
+            --text-primary: #ffffff;
+            --text-secondary: #e4e4e7;
+            --text-muted: #a1a1aa;
+
+            /* Progress and status indicators */
+            --status-idle-bg: rgba(255, 255, 255, 0.04);
+            --status-idle-border: rgba(255, 255, 255, 0.12);
+            --status-idle-text: var(--text-secondary);
+            
+            --status-active-bg: rgba(139, 92, 246, 0.15);
+            --status-active-border: var(--primary);
+            --status-active-text: #c4b5fd;
+            
+            --status-done-bg: var(--primary);
+            --status-done-border: var(--primary-hover);
+            --status-done-text: #ffffff;
+            
+            --status-error-bg: rgba(220, 38, 38, 0.15);
+            --status-error-border: #ef4444;
+            --status-error-text: #fca5a5;
+
+            /* Keyboard focus states */
+            --focus-ring-offset: var(--bg-base);
+            --focus-ring-color: var(--primary);
             
             /* Snappy, highly responsive ease-out curves */
             --ease-out-snappy: cubic-bezier(0.23, 1, 0.32, 1);
             --ease-in-out-elegant: cubic-bezier(0.77, 0, 0.175, 1);
+            
+            /* Keep legacy mappings for safety */
+            --bg-dark: var(--bg-base);
+            --card-bg: var(--surface-card);
+            --border-color: var(--border-subtle);
         }
 
         * {
@@ -78,8 +112,6 @@
 
         .glass-card {
             background: var(--card-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 1.75rem;
@@ -89,7 +121,7 @@
 
         @media (hover: hover) and (pointer: fine) {
             .glass-card:hover {
-                border-color: rgba(255, 255, 255, 0.15);
+                border-color: var(--border-strong);
                 box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
             }
         }
@@ -254,21 +286,34 @@
         }
 
         .badge-running {
-            background: rgba(139, 92, 246, 0.2);
-            color: #c084fc;
-            border: 1px solid rgba(139, 92, 246, 0.4);
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            background: var(--status-active-bg);
+            color: var(--status-active-text);
+            border: 1px solid var(--status-active-border);
+            animation: pulse-border 2s var(--ease-out-snappy) infinite;
         }
 
         .badge-idle {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-secondary);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--status-idle-bg);
+            color: var(--status-idle-text);
+            border: 1px solid var(--status-idle-border);
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.6; transform: scale(0.98); }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 var(--primary-glow); }
+            70% { box-shadow: 0 0 0 6px rgba(139, 92, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+        }
+
+        /* Keyboard focus states */
+        .btn:focus-visible,
+        input[type="checkbox"]:focus-visible,
+        input[type="range"]:focus-visible,
+        select:focus-visible,
+        summary:focus-visible,
+        .form-control:focus-visible {
+            outline: none !important;
+            box-shadow: 0 0 0 2px var(--focus-ring-offset), 0 0 0 4px var(--focus-ring-color) !important;
+            border-color: var(--primary) !important;
         }
 
         /* Progress Sections */
@@ -803,7 +848,7 @@
             color: var(--primary);
         }
         .pipeline-gradient-fill {
-            background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 25%, #ec4899 50%, #f59e0b 75%, #10b981 100%);
+            background: linear-gradient(90deg, var(--primary) 0%, var(--primary-hover) 100%);
         }
         .pipeline-steps {
             display: flex;
