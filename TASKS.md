@@ -95,4 +95,11 @@
 * **Verification Method:** Manually verified by user via TTS preview audio on OnePlus 13.
 * **Type:** `direct`
 
-
+## [ ] TASK-14: Audio Transitions & Chapter Pauses (IN_PROGRESS - RE-SYNTHESIS RUNNING)
+* **Problem:** Transitions between synthesized audio chunks are uneven, words are clipped due to aggressive silence trimming, and there is no pause at the beginning of chapters/headings.
+* **Solution:**
+  1. Updated `PlaceholderManager.strip_formatting` to clean markdown table row formatting and code blocks before synthesis.
+  2. Updated `trim_silence` in `tts_helper.py` to increase default unpunctuated padding to 250ms, preventing trailing word cutoffs.
+  3. Modified `audio_stage.py` to keep track of heading chunks, apply 15ms linear fade-out to ends of chunks to eliminate pops, and inject 500ms (standard) or 3000ms (after headings) silent WAV chunks during concatenation.
+* **Verification Method:** In progress. Re-synthesis of the book is running in the background (Task ID `task-765`). Initial 163 chunks audited and verified in `TASK14_VERIFICATION.md`.
+* **Type:** `delegate`
