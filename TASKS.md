@@ -86,4 +86,13 @@
 * **Verification Method:** Verified on OnePlus 13 during translation runs. (Commit `e775e46`).
 * **Type:** `direct`
 
+## [ ] TASK-12: TTS Preview Stressification (IN_PROGRESS - CODE UPDATED, NEEDS MANUAL AUDIO VERIFICATION)
+* **Problem:** При прослуховуванні прев'ю тексту (TTS Preview) через дашборд слова вимовляються без наголосів, оскільки текст відправлявся в TTS-рушій напряму, минаючи стадію Stress.
+* **Solution:**
+  1. Додано підтримку обробки поодиноких inline-рядків (`--inline <text>`) в утиліту `bin/stressify_batch.py` без використання тимчасових JSON-файлів (запобігає конфліктам з фоновими конвертаціями).
+  2. Оновлено роут `/api/tts-preview/<slug>` в `app.py`: якщо мовою є українська (`uk`), перед синтезом текст пропускається через `stressify_batch.py` всередині PRoot Ubuntu контейнера.
+  3. Додано безпечний fallback (якщо контейнер або наголошувач недоступні, прев'ю генерується на вихідному тексті без помилок).
+* **Verification Method:** code updated, needs manual audio verification.
+* **Type:** `direct`
+
 
