@@ -220,7 +220,7 @@ def run_supertonic3(payload):
             elif last_char in [",", ";", ":"]:
                 custom_pad_end = 250  # 250 ms pause after clauses
             else:
-                custom_pad_end = 100
+                custom_pad_end = 250
                 
             int16_samples = trim_silence(int16_samples, output_sample_rate, pad_end_ms=custom_pad_end)
 
@@ -436,7 +436,7 @@ def run_styletts2(payload):
             elif last_char in [",", ";", ":"]:
                 custom_pad_end = 250  # 250 ms pause after clauses
             else:
-                custom_pad_end = 100
+                custom_pad_end = 250
                 
             int16_samples = trim_silence(int16_samples, 24000, pad_end_ms=custom_pad_end)
 
