@@ -863,7 +863,23 @@ def tts_preview(slug):
             except Exception:
                 pass
         os.makedirs(os.path.dirname(preview_wav_path), exist_ok=True)
-        
+        if target_lang == "uk":
+            try:
+                cmd_stress = [
+                    "proot-distro", "login", "ubuntu", "--",
+                    "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py",
+                    "--inline", text
+                ]
+                res_stress = subprocess.run(cmd_stress, capture_output=True, text=True, timeout=15)
+                if res_stress.returncode == 0:
+                    stressed_text = res_stress.stdout.strip()
+                    if stressed_text:
+                        text = stressed_text
+                else:
+                    print(f"Warning: inline stressifier returned code {res_stress.returncode}, stderr: {res_stress.stderr}", file=sys.stderr)
+            except Exception as e:
+                print(f"Warning: inline stressifier failed: {e}", file=sys.stderr)
+
         if tts_engine in ["supertonic3", "styletts2"]:
             # Prepare payload for tts_helper.py
             payload = {
