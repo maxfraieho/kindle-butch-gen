@@ -25,3 +25,30 @@
 ## [x] TASK-3: Fix llama-server CLI Argument
 * **Problem:** `start-translation-server.sh` used obsolete `--n-parallel 1` argument, causing newer versions of llama-server to crash.
 * **Solution:** Replaced with `--parallel 1` in `~/start-translation-server.sh`.
+
+## [x] TASK-4: UI/UX Labeling & Checkbox Logic
+* **Problem:** Чекбокси стадій у `dashboard.html` використовують подвійне заперечення (`id="noaudio-${book.slug}"`), що плутає оператора.
+* **Solution:** Перейменувати лейбли на позитивні (напр. "Generate Audio", "Build Ebook"). У JS-функції `runConversion` зчитувати їхній стан, інвертувати його (`const no_audio = !document.getElementById(...)`) і лише після цього відправляти у payload `/api/run/<slug>`.
+* **Verification:** Перевірити правильність інвертування булевих значень та відправки payload, щоб не зламати контракт з `app.py` (де очікується `no_audio`).
+* **Type:** `direct`
+
+## [ ] TASK-5: Focus Flow & Layout Refactoring
+* **Problem:** Форма додавання книги займає перший екран на мобільному телефоні, прогрес-бари з'їдають вертикальний простір, термінал відірваний від контексту книги.
+* **Solution:**
+  1. Перенести `<form id="addBookForm">` у модальне вікно (перевикористати існуючий клас `.modal-overlay`).
+  2. Згорнути 5 прогрес-барів у єдиний багатосегментний бар або текстовий індикатор "Поточна стадія".
+  3. Перемістити `div id="terminalCard"` всередину розширеного стану картки книги, щоб лог був видимий одразу под кнопкою "Run / Stop".
+* **Verification:** Візуально перевірити інтерфейс на мобільному (згорнутий/розгорнутий стан книги, робота модального вікна та терміналу в контексті картки).
+* **Type:** `delegate`
+
+## [ ] TASK-6: Unified stages.html Viewer Pattern
+* **Problem:** У `stages.html` існують три різні архітектури перегляду: `manga-viewer` (3 колонки), `paragraphs-list` (список карток) та `page-split-viewer` (два iframes). На мобільному телефоні side-by-side працює погано.
+* **Solution:** Створити єдиний патерн `Toggle Viewer`. На екрані є лише одне вікно перегляду контенту (зображення, iframe або текст) та перемикач внизу (Original | Processed/Translated). Для манги додати проміжний стейт "Cleaned". Навігаційні стрілки (Попередня/Наступна) уніфікувати для всіх типів контенту. Оновити JS-функції `renderManga` та `loadEpubPage`, щоб вони монтували дані у цей єдиний DOM-вузол.
+* **Verification:** Перевірити рендеринг усіх типів контенту (текст, манга, сторінки) на мобільному та десктопі, переконатись у відсутності помилок JS.
+* **Type:** `delegate`
+
+## [ ] TASK-7: [SECURITY] Remove Hardcoded Auth Credentials
+* **Problem:** У `app.py` хардкодиться пароль "0523" для користувача "vokov", якщо файл `web_credentials.json` відсутній або пошкоджений.
+* **Solution:** Замість фолбеку на хардкод пароль, зчитувати значення з ENV-змінної (наприклад, `KBG_WEB_PASSWORD`), або, якщо файл відсутній, генерувати випадковий пароль, виводити його в консоль при запуску Flask і записувати у файл.
+* **Verification:** Запустити Flask додаток без `web_credentials.json` та перевірити генерацію випадкового пароля / авторизацію з новим паролем або через ENV.
+* **Type:** `direct`
