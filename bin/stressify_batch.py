@@ -62,6 +62,34 @@ def replace_numbers_with_words(text, lang="uk"):
     return re.sub(pattern, repl, text)
 
 def main():
+    if "--inline" in sys.argv:
+        try:
+            idx = sys.argv.index("--inline")
+            text = sys.argv[idx + 1]
+        except Exception:
+            print("Error: --inline requires a text argument", file=sys.stderr)
+            sys.exit(1)
+        
+        # Load stressifier
+        stressifier = None
+        try:
+            stressifier = NeuralStressifier(stress_symbol="+")
+        except Exception as e:
+            print(f"[StressifyBatch] Warning: Failed to load NeuralStressifier: {e}. Stress will not be added.", file=sys.stderr)
+        
+        # Process inline text
+        text = replace_numbers_with_words(text, lang="uk")
+        if stressifier is not None:
+            try:
+                text = stressifier(text)
+            except Exception:
+                pass
+        text = normalize_accents(text)
+        text = unicodedata.normalize("NFD", text)
+        
+        print(text)
+        sys.exit(0)
+
     input_path = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
     output_path = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
 
