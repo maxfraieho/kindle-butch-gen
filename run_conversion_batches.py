@@ -136,7 +136,7 @@ def main():
     os.makedirs(paths["translated_dir"], exist_ok=True)
     os.makedirs(paths["output_dir"], exist_ok=True)
     
-    suffix = f"_translated_{paths['target_lang']}" if (paths["target_lang"] != paths["source_lang"] and not args.no_translate) else ""
+    suffix = f"_translated_{paths['target_lang']}" if (paths["target_lang"] != paths["source_lang"]) else ""
     if suffix:
         merged_md_name = f"merged_translated_{paths['target_lang']}.md"
     else:
