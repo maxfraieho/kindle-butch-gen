@@ -109,3 +109,13 @@
 * **Type:** `direct`
 
 
+
+## [x] TASK-15: Deployment Script for OnePlus
+* **Problem:** Non-professional users struggle to set up the environment and models on Termux manually. Large model files (like the 4.4GB GGUF translator and Supertonic 3 TTS) are prone to download interruptions on mobile/Wi-Fi networks, and missing critical packages (like `stress-uk` or `num2words`) inside PRoot Ubuntu cause the text stressifier to fail silently.
+* **Solution:**
+  1. Updated `deploy_oneplus13.sh` to include an interactive service autostart setup and a comprehensive model downloader.
+  2. Implemented a robust `check_and_download` helper function with resume support (`curl -C -`) and strict size verification checks to prevent corrupt downloads.
+  3. Added checks and automatic installation for `stress-uk` and `num2words` inside the PRoot Ubuntu setup script (Step 3).
+  4. Updated `README_Termux.md` to clearly explain downloaded files, expected sizes, and system storage requirements prior to showing the one-line installer command.
+* **Verification Method:** Verified size check, download, and resume functionality by simulating partial downloads and checking logs. Verified that `stress-uk` is correctly installed and imported during deployment tests.
+* **Type:** `direct`
