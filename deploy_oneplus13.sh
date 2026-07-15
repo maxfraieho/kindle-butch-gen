@@ -144,12 +144,12 @@ make -j$(nproc)
 cp bin/llama-cli bin/llama-server /usr/local/bin/
 echo "llama.cpp compiled and installed to /usr/local/bin/."
 
-# 3. Setup Python OCR, Manga translation, and ML dependencies
-echo "Installing Python dependencies (PyTorch, Transformers, Marker, Manga-OCR, Mokuro, PyTesseract)..."
+# 3. Setup Python OCR, Manga translation, and ML dependencies (including stress-uk)
+echo "Installing Python dependencies (PyTorch, Transformers, Marker, Manga-OCR, Mokuro, PyTesseract, stress-uk, num2words)..."
 pip install --upgrade pip --break-system-packages || true
 # Install PyTorch (CPU version is optimized with OpenMP on Snapdragon ARM64)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --break-system-packages
-pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract --break-system-packages
+pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words --break-system-packages
 
 echo "=== [Ubuntu Setup Completed] ==="
 EOF
@@ -211,16 +211,77 @@ EOF
 fi
 
 # -------------------------------------------------------------
-# STEP 6: Download Required Models (Optional / Interactive)
+# STEP 6: Check and Download Required Models (Interactive & Verified)
 # -------------------------------------------------------------
-log "Checking required translation models..."
+log "Checking required models for the translation and TTS pipeline..."
+
+# Helper function to download file with resume and size checks
+check_and_download() {
+    local label="$1"
+    local file_path="$2"
+    local url="$3"
+    local expected_size="$4"
+    
+    local dir_path=$(dirname "$file_path")
+    mkdir -p "$dir_path"
+    
+    if [ -f "$file_path" ]; then
+        local actual_size=$(stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path" 2>/dev/null || echo 0)
+        if [ "$actual_size" -eq "$expected_size" ]; then
+            success "$label is already present and verified ($actual_size bytes)."
+            return 0
+        else
+            log "$label file size mismatch (found $actual_size, expected $expected_size). Redownloading..."
+        fi
+    fi
+    
+    log "Downloading $label..."
+    while true; do
+        # Use curl -C - to resume, -L to follow redirects, --progress-bar for user-friendly output
+        if curl -L -C - --progress-bar -o "$file_path" "$url"; then
+            local actual_size=$(stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path" 2>/dev/null || echo 0)
+            if [ "$actual_size" -eq "$expected_size" ]; then
+                success "$label downloaded and verified successfully ($actual_size bytes)."
+                return 0
+            else
+                echo -e "${RED}[ERROR]${NC} Download of $label was incomplete (got $actual_size bytes, expected $expected_size)."
+            fi
+        else
+            echo -e "${RED}[ERROR]${NC} curl command failed during download of $label."
+        fi
+        
+        echo -n -e "${BLUE}[DEPL]${NC} Do you want to resume/retry the download? (Y/n): "
+        read -r retry_choice
+        case "$retry_choice" in
+            [nN]|[nN][oO])
+                log "Download aborted by user."
+                return 1
+                ;;
+            *)
+                log "Retrying/resuming download..."
+                ;;
+        esac
+    done
+}
+
+# 1. Check/Download Translation Model (Hy-MT2-7B GGUF)
 MODEL_DIR="$HOME/models/hy-mt2"
 MODEL_PATH="$MODEL_DIR/Hy-MT2-7B-Q4_K_M.gguf"
-mkdir -p "$MODEL_DIR"
+HY_MT2_SIZE=4624650016
+HY_MT2_URL="https://huggingface.co/mradermacher/Hy-MT2-7B-i1-GGUF/resolve/main/Hy-MT2-7B.i1-Q4_K_M.gguf"
 
 if [ -f "$MODEL_PATH" ]; then
-    success "Translation model Hy-MT2-7B-Q4_K_M.gguf is already present at $MODEL_PATH."
-else
+    # Double check size of existing GGUF model
+    actual_gguf_size=$(stat -c%s "$MODEL_PATH" 2>/dev/null || stat -f%z "$MODEL_PATH" 2>/dev/null || echo 0)
+    if [ "$actual_gguf_size" -eq "$HY_MT2_SIZE" ]; then
+        success "Translation model Hy-MT2-7B-Q4_K_M.gguf is already present and verified."
+    else
+        log "Translation model file size mismatch. Redownload recommended."
+        rm -f "$MODEL_PATH"
+    fi
+fi
+
+if [ ! -f "$MODEL_PATH" ]; then
     echo -e "\n${BLUE}[DEPL]${NC} Translation model Hy-MT2-7B-Q4_K_M.gguf (4.4GB) is missing."
     echo "This model is required for translating book texts."
     echo "Please choose an option:"
@@ -232,16 +293,14 @@ else
     
     case "$model_choice" in
         1)
-            log "Downloading Hy-MT2-7B-Q4_K_M.gguf from Hugging Face..."
-            curl -L --progress-bar -o "$MODEL_PATH" "https://huggingface.co/mradermacher/Hy-MT2-7B-i1-GGUF/resolve/main/Hy-MT2-7B.i1-Q4_K_M.gguf"
-            success "Model downloaded and saved to $MODEL_PATH."
+            check_and_download "Hy-MT2-7B GGUF Model" "$MODEL_PATH" "$HY_MT2_URL" "$HY_MT2_SIZE"
             ;;
         2)
             echo -n -e "${BLUE}[DEPL]${NC} Please paste the direct download URL for the GGUF model: "
             read -r custom_url
             if [ -n "$custom_url" ]; then
                 log "Downloading model from custom URL..."
-                curl -L --progress-bar -o "$MODEL_PATH" "$custom_url"
+                curl -L -C - --progress-bar -o "$MODEL_PATH" "$custom_url"
                 success "Model downloaded and saved to $MODEL_PATH."
             else
                 log "Custom URL was empty. Skipping model download."
@@ -249,6 +308,39 @@ else
             ;;
         *)
             log "Model download skipped. You will need to manually place the model at $MODEL_PATH."
+            ;;
+    esac
+fi
+
+# 2. Check/Download Supertonic 3 TTS Model
+TTS_DIR="$HOME/kindle-butch-gen/models"
+TTS_ARCHIVE="$TTS_DIR/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2"
+TTS_EXTRACTED_DIR="$TTS_DIR/sherpa-onnx-supertonic-3-tts-int8-2026-05-11"
+TTS_SIZE=128774318
+TTS_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2"
+
+if [ -d "$TTS_EXTRACTED_DIR" ] && [ -f "$TTS_EXTRACTED_DIR/vocoder.int8.onnx" ]; then
+    success "Supertonic 3 TTS models are already present at $TTS_EXTRACTED_DIR."
+else
+    echo -e "\n${BLUE}[DEPL]${NC} Supertonic 3 TTS model directory is missing or incomplete."
+    echo "This is the premium default TTS voice model required for audiobook synthesis."
+    echo -n -e "${BLUE}[DEPL]${NC} Do you want to download and extract Supertonic 3 TTS model? (Y/n): "
+    read -r tts_choice
+    case "$tts_choice" in
+        [nN]|[nN][oO])
+            log "Supertonic 3 TTS model download skipped."
+            ;;
+        *)
+            if check_and_download "Supertonic 3 TTS Archive" "$TTS_ARCHIVE" "$TTS_URL" "$TTS_SIZE"; then
+                log "Extracting Supertonic 3 model archive..."
+                tar -xf "$TTS_ARCHIVE" -C "$TTS_DIR"
+                if [ -d "$TTS_EXTRACTED_DIR" ]; then
+                    success "Supertonic 3 TTS models extracted successfully."
+                    rm -f "$TTS_ARCHIVE"
+                else
+                    error "Extraction failed. Directory $TTS_EXTRACTED_DIR was not created."
+                fi
+            fi
             ;;
     esac
 fi

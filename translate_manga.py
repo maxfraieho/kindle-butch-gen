@@ -291,16 +291,21 @@ def main():
         pages_to_process = [] if args.no_translate else pages
         
         if args.no_translate:
-            log("No-translate mode: copying original images to output directly...")
+            log("No-translate mode: copying already translated images to output...")
             translated_dir = None
             if args.output.lower().endswith('.cbz'):
                 translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
-                os.makedirs(translated_dir, exist_ok=True)
             for page_path in pages:
                 basename = os.path.basename(page_path)
-                shutil.copy2(page_path, os.path.join(temp_out, basename))
+                copied = False
                 if translated_dir:
-                    shutil.copy2(page_path, os.path.join(translated_dir, basename))
+                    possible_translated = os.path.join(translated_dir, basename)
+                    if os.path.exists(possible_translated):
+                        shutil.copy2(possible_translated, os.path.join(temp_out, basename))
+                        copied = True
+                if not copied:
+                    # Fallback to original image if not translated yet
+                    shutil.copy2(page_path, os.path.join(temp_out, basename))
 
         for idx, page_path in enumerate(pages_to_process):
             log(f"Page {idx+1}/{len(pages_to_process)}: {os.path.basename(page_path)}")
