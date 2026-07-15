@@ -1411,6 +1411,9 @@
                                         <a class="download-link" href="/api/download/${book.slug}/${file}" target="_blank">
                                             📥 ${file}
                                         </a>
+                                        <button onclick="deleteOutputFile('${book.slug}', '${file.replace(/'/g, "\\'")}')" class="download-link" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--danger); cursor: pointer;" title="Видалити файл">
+                                            🗑️
+                                        </button>
                                     `).join('')}
                                 </div>
                             ` : ''}
@@ -1573,6 +1576,23 @@
                     fetchBooks();
                 } else {
                     alert('Error deleting book: ' + res.message);
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            }
+        }
+
+        async function deleteOutputFile(slug, filename) {
+            if (!confirm(`Delete file "${filename}" permanently?`)) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/delete-file/${slug}/${encodeURIComponent(filename)}`, { method: 'POST' });
+                const res = await response.json();
+                if (response.ok) {
+                    fetchBooks();
+                } else {
+                    alert('Error deleting file: ' + res.message);
                 }
             } catch (err) {
                 alert('Request failed: ' + err.message);

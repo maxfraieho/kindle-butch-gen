@@ -816,8 +816,31 @@ def download_output_file(slug, filename):
         
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
         return jsonify({"status": "error", "message": "File not found"}), 404
-        
+
     return send_file(file_path, as_attachment=True)
+
+@app.route("/api/delete-file/<slug>/<filename>", methods=["POST"])
+def delete_output_file(slug, filename):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+
+    filename = os.path.basename(filename)
+    paths = resolve_book_paths(repo_dir, slug)
+    output_dir = os.path.abspath(paths["output_dir"])
+    file_path = os.path.abspath(os.path.join(output_dir, filename))
+
+    # Path traversal validation: ensure resolved path is strictly inside books/<slug>/output/
+    if not file_path.startswith(output_dir + os.sep):
+        return jsonify({"status": "error", "message": "Access denied (path traversal detected)"}), 403
+
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        return jsonify({"status": "error", "message": "File not found"}), 404
+
+    try:
+        os.remove(file_path)
+        return jsonify({"status": "success", "message": f"'{filename}' deleted"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/tts-settings/<slug>", methods=["POST"])
 def update_tts_settings(slug):

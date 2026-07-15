@@ -273,6 +273,23 @@
             }
         }
 
+        async function deleteFile(slug, filename) {
+            if (!confirm(`Видалити файл "${filename}" назавжди?`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/delete-file/${slug}/${encodeURIComponent(filename)}`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    loadDownloads();
+                } else {
+                    alert('Помилка видалення: ' + data.message);
+                }
+            } catch (err) {
+                alert('Запит не вдався: ' + err.message);
+            }
+        }
+
         function getFormatBadgeClass(filename) {
             const ext = filename.split('.').pop().toLowerCase();
             return `badge badge-${ext}`;
@@ -338,6 +355,9 @@
                                             <a href="${file.download_url}" class="btn btn-primary btn-download" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" target="_blank">
                                                 📥 Скачати
                                             </a>
+                                            <button onclick="deleteFile('${file.slug}', '${file.filename.replace(/'/g, "\\'")}')" class="btn btn-download" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); margin-top: 0.4rem;" title="Видалити файл">
+                                                🗑️
+                                            </button>
                                         </td>
                                     </tr>
                                 `).join('')}
