@@ -82,6 +82,33 @@ def extract_manga_pages(input_path, temp_dir):
         else:
             raise ValueError(f"Unsupported input format: {ext}")
 
+def _hard_wrap_word(word, font, max_width):
+    """Character-level split for a single word wider than max_width on its
+    own - wrap_text() below never breaks mid-word otherwise, so an overlong
+    word (common in Ukrainian translations of short EN/JA source words)
+    would blow past the box no matter how small the font gets. Every break
+    except the final piece gets a trailing hyphen for readability (room for
+    it is reserved conservatively during the fill, on all pieces, so a
+    hyphenated break can never itself overflow)."""
+    if not word:
+        return [word]
+    bbox = font.getbbox(word)
+    if bbox[2] - bbox[0] <= max_width:
+        return [word]
+    pieces = []
+    current = ""
+    for ch in word:
+        candidate = current + ch
+        bbox = font.getbbox(candidate + "-")
+        if bbox[2] - bbox[0] <= max_width or not current:
+            current = candidate
+        else:
+            pieces.append(current)
+            current = ch
+    if current:
+        pieces.append(current)
+    return [p + "-" if i < len(pieces) - 1 else p for i, p in enumerate(pieces)]
+
 def wrap_text(text, font, max_width):
     words = text.split()
     lines = []
@@ -95,45 +122,62 @@ def wrap_text(text, font, max_width):
         else:
             lines.append(" ".join(current_line))
             current_line = [word]
+        # If the word we just placed alone still overflows (it was the
+        # sole occupant of current_line and didn't fit), hard-wrap it in
+        # place rather than silently exceeding max_width downstream.
+        if len(current_line) == 1:
+            solo_bbox = font.getbbox(current_line[0])
+            if solo_bbox[2] - solo_bbox[0] > max_width:
+                pieces = _hard_wrap_word(current_line[0], font, max_width)
+                lines.extend(pieces[:-1])
+                current_line = [pieces[-1]] if pieces else []
     if current_line:
         lines.append(" ".join(current_line))
     return lines
 
-def fit_text(text, font_path, max_width, max_height):
-    # Binary search for optimal font size
-    low = 8
-    high = 80
-    best_size = low
-    best_lines = [text]
-    
-    while low <= high:
-        mid = (low + high) // 2
+def fit_text(text, font_path, max_width, max_height, min_size=12, max_size_ratio=0.4):
+    # Binary search for optimal font size, clamped to a readable floor and
+    # a box-relative ceiling instead of the old fixed [8, 80] range.
+    low = min_size
+    high = max(min_size, min(80, int(max_height * max_size_ratio)))
+    best_size = None
+    best_lines = None
+
+    def _measure(size):
         try:
-            font = ImageFont.truetype(font_path, mid)
+            font = ImageFont.truetype(font_path, size)
         except Exception:
             font = ImageFont.load_default()
-        
         lines = wrap_text(text, font, max_width)
-        
-        # Calculate total height and max line width
         total_height = 0
         max_line_width = 0
         for line in lines:
             bbox = font.getbbox(line)
-            line_height = bbox[3] - bbox[1]
-            line_width = bbox[2] - bbox[0]
-            total_height += line_height + 2
-            if line_width > max_line_width:
-                max_line_width = line_width
-                
+            total_height += (bbox[3] - bbox[1]) + 2
+            max_line_width = max(max_line_width, bbox[2] - bbox[0])
+        return lines, total_height, max_line_width
+
+    while low <= high:
+        mid = (low + high) // 2
+        lines, total_height, max_line_width = _measure(mid)
         if total_height <= max_height and max_line_width <= max_width:
             best_size = mid
             best_lines = lines
             low = mid + 1
         else:
             high = mid - 1
-            
-    return best_size, best_lines
+
+    if best_size is not None:
+        return best_size, best_lines
+
+    # No size in [min_size, ceiling] satisfies both constraints - the old
+    # code returned the ENTIRE text as one unwrapped line at size 8, which
+    # is guaranteed to overflow far worse than a wrapped result at the
+    # floor size. Return the floor-size wrapped lines instead: still
+    # overflowing (flagged by post_render_check downstream), but readable
+    # and box-relative rather than a single giant line.
+    fallback_lines, _, _ = _measure(min_size)
+    return min_size, fallback_lines
 
 def draw_text_centered(draw, lines, font_path, size, box):
     x1, y1, x2, y2 = box
@@ -162,6 +206,204 @@ def draw_text_centered(draw, lines, font_path, size, box):
         # Render text with white border outline for visibility
         draw.text((x_offset, y_offset), line, font=font, fill="black", stroke_width=2, stroke_fill="white")
         y_offset += h + 2
+
+def _iou(box_a, box_b):
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+class _MergedBlock:
+    """Minimal duck-typed stand-in for comic_text_detector's TextBlock,
+    carrying only the union bbox after Stage A dedup - the rest of the
+    pipeline (OCR crop, typeset box) only ever reads .xyxy off a block."""
+    def __init__(self, xyxy):
+        self.xyxy = xyxy
+
+def dedupe_blocks(blk_list, iou_threshold=0.3):
+    """Stage A: merge overlapping/duplicate detector blocks - a known
+    imperfect-grouping failure mode for large/oval bubbles even after the
+    detector's own internal NMS - before OCR, so one physical bubble never
+    gets OCR'd/translated/typeset twice (the "double text" defect).
+    Union-find so transitively-overlapping chains merge into one group,
+    not just directly-overlapping pairs."""
+    n = len(blk_list)
+    if n <= 1:
+        return list(blk_list)
+    parent = list(range(n))
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _iou(blk_list[i].xyxy, blk_list[j].xyxy) > iou_threshold:
+                union(i, j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    merged = []
+    for indices in groups.values():
+        if len(indices) == 1:
+            merged.append(blk_list[indices[0]])
+        else:
+            xs1 = [blk_list[i].xyxy[0] for i in indices]
+            ys1 = [blk_list[i].xyxy[1] for i in indices]
+            xs2 = [blk_list[i].xyxy[2] for i in indices]
+            ys2 = [blk_list[i].xyxy[3] for i in indices]
+            merged.append(_MergedBlock([min(xs1), min(ys1), max(xs2), max(ys2)]))
+    return merged
+
+def robust_inpaint(img, mask_refined, blk_list, radius=9):
+    """Stage B: TELEA inpaint at a larger radius (was 3px - too thin for
+    bold/large source fonts, leaving a visible "ghost" of the original
+    text under the new one) plus a per-block solid-fill pass on top,
+    where the surrounding background is flat enough to estimate safely
+    (typical of manga's solid-color bubble fills)."""
+    inpainted = cv2.inpaint(img, mask_refined, radius, cv2.INPAINT_TELEA)
+    h_img, w_img = img.shape[:2]
+    ring = 6
+
+    for blk in blk_list:
+        x1, y1, x2, y2 = blk.xyxy
+        bx1, by1 = max(0, x1 - ring), max(0, y1 - ring)
+        bx2, by2 = min(w_img, x2 + ring), min(h_img, y2 + ring)
+        if bx2 <= bx1 or by2 <= by1:
+            continue
+
+        region_mask = mask_refined[by1:by2, bx1:bx2]
+        if region_mask.size == 0 or not region_mask.any():
+            continue
+
+        # Sample the border ring OUTSIDE the mask for a background color
+        # estimate - the mask itself covers where the old text glyphs
+        # were, so pixels just outside it are the bubble's fill color.
+        border = np.zeros_like(region_mask, dtype=bool)
+        border[:ring, :] = True
+        border[-ring:, :] = True
+        border[:, :ring] = True
+        border[:, -ring:] = True
+        border &= (region_mask == 0)
+        sample_pixels = inpainted[by1:by2, bx1:bx2][border]
+        if sample_pixels.shape[0] < 10:
+            continue  # not enough clean background sampled - trust TELEA alone
+
+        std = float(np.std(sample_pixels, axis=0).mean())
+        if std > 18:
+            continue  # background too noisy/textured to safely flat-fill
+
+        bg_color = np.median(sample_pixels, axis=0)
+        fill_mask = region_mask.astype(bool)
+        inpainted[by1:by2, bx1:bx2][fill_mask] = bg_color
+
+    return inpainted
+
+def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
+    """Stage C: derive the typeset box from the connected mask region(s)
+    the detector/inpaint actually covered for this block, instead of the
+    OCR-tight blk.xyxy - the tight bbox is why typeset text overflows
+    (translated text needs the bubble's real interior, not just the
+    original glyphs' bounding box) or looks disproportionate.
+
+    Multi-line/multi-word text is usually NOT one connected mask blob -
+    gaps between lines and letters break 8-connectivity, so a single block
+    can correspond to several disconnected components. Picking "the
+    component under the block's geometric center" (an earlier version of
+    this function) is fragile: the center often lands in a gap between
+    lines, landing on background or an unrelated nearby component instead.
+    Union the bounding rects of every component that actually overlaps
+    the original OCR bbox instead - correctly reconstructs the full
+    multi-line extent."""
+    h_img, w_img = img_shape[:2]
+    x1, y1, x2, y2 = blk.xyxy
+
+    def _padded_bbox_fallback():
+        bw, bh = x2 - x1, y2 - y1
+        pad_x, pad_y = int(bw * padding_ratio), int(bh * padding_ratio)
+        return (max(0, x1 - pad_x), max(0, y1 - pad_y), min(w_img, x2 + pad_x), min(h_img, y2 + pad_y))
+
+    # Small search margin - just enough to recover component edges a
+    # too-tight OCR bbox might have clipped, not a scan for "anything
+    # nearby" (that's what caused the center-pixel approach to grab
+    # unrelated content).
+    search_pad = int(max(x2 - x1, y2 - y1) * 0.15) + 2
+    sx1, sy1 = max(0, x1 - search_pad), max(0, y1 - search_pad)
+    sx2, sy2 = min(w_img, x2 + search_pad), min(h_img, y2 + search_pad)
+    region = mask_refined[sy1:sy2, sx1:sx2]
+    if region.size == 0 or not region.any():
+        return _padded_bbox_fallback()
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats((region > 0).astype(np.uint8), connectivity=8)
+    if num_labels <= 1:
+        return _padded_bbox_fallback()
+
+    orig_x1, orig_y1 = x1 - sx1, y1 - sy1
+    orig_x2, orig_y2 = x2 - sx1, y2 - sy1
+    union = None
+    for label in range(1, num_labels):
+        lx = stats[label, cv2.CC_STAT_LEFT]
+        ly = stats[label, cv2.CC_STAT_TOP]
+        lw = stats[label, cv2.CC_STAT_WIDTH]
+        lh = stats[label, cv2.CC_STAT_HEIGHT]
+        # Overlap test against the ORIGINAL detection bbox (in this
+        # region's local coordinates) - only union components genuinely
+        # tied to this block's text, not just anything in the margin.
+        ox1, oy1 = max(lx, orig_x1), max(ly, orig_y1)
+        ox2, oy2 = min(lx + lw, orig_x2), min(ly + lh, orig_y2)
+        if ox2 <= ox1 or oy2 <= oy1:
+            continue
+        comp = (lx, ly, lx + lw, ly + lh)
+        union = comp if union is None else (
+            min(union[0], comp[0]), min(union[1], comp[1]),
+            max(union[2], comp[2]), max(union[3], comp[3])
+        )
+
+    if union is None:
+        return _padded_bbox_fallback()
+
+    bx1, by1, bx2, by2 = sx1 + union[0], sy1 + union[1], sx1 + union[2], sy1 + union[3]
+    pad_x, pad_y = int((bx2 - bx1) * padding_ratio), int((by2 - by1) * padding_ratio)
+    return (max(0, bx1 - pad_x), max(0, by1 - pad_y), min(w_img, bx2 + pad_x), min(h_img, by2 + pad_y))
+
+def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines, box, font_path, min_size):
+    """Stage E: after typeset, flag anything that still looks wrong so it
+    surfaces for review instead of shipping silently. Appends to `flags`
+    (a list the caller accumulates per-book and writes to
+    quality_flags.json at the end) - does not raise or block the pipeline."""
+    x1, y1, x2, y2 = box
+    box_w = max(1, x2 - x1)
+    try:
+        font = ImageFont.truetype(font_path, chosen_size)
+    except Exception:
+        font = ImageFont.load_default()
+    max_line_width = 0
+    for line in wrapped_lines:
+        bbox = font.getbbox(line)
+        max_line_width = max(max_line_width, bbox[2] - bbox[0])
+    overflow_ratio = max_line_width / box_w if box_w else 0
+
+    hit_floor = chosen_size <= min_size
+    if overflow_ratio > 1.05 or hit_floor:
+        flags.append({
+            "page": page_name,
+            "block_index": block_index,
+            "box": [x1, y1, x2, y2],
+            "chosen_size": chosen_size,
+            "overflow_ratio": round(overflow_ratio, 3),
+            "hit_min_size": hit_floor,
+            "reason": "overflow" if overflow_ratio > 1.05 else "min_size_floor"
+        })
 
 def translate_batch_llm(texts, source_lang, glossary, api_url):
     if not texts:
@@ -289,7 +531,8 @@ def main():
             font_path = None # Pillow will fall back to default font if not found
 
         pages_to_process = [] if args.no_translate else pages
-        
+        quality_flags = []  # Stage E: accumulated across all pages, written to quality_flags.json at the end
+
         if args.no_translate:
             log("No-translate mode: copying already translated images to output...")
             translated_dir = None
@@ -343,7 +586,11 @@ def main():
                 
             # Run text detector
             mask, mask_refined, blk_list = detector(img, refine_mode=REFINEMASK_INPAINT, keep_undetected_mask=True)
-            
+
+            # Stage A: merge overlapping/duplicate blocks before OCR so one
+            # physical bubble never gets OCR'd/translated/typeset twice.
+            blk_list = dedupe_blocks(blk_list)
+
             if not blk_list:
                 log("No text bubbles found. Copying original page.")
                 cv2.imwrite(os.path.join(temp_out, os.path.basename(page_path)), img)
@@ -395,8 +642,11 @@ def main():
             # Translate recognized texts
             translations = translate_batch_llm(page_ocr_texts, args.lang, glossary, args.api_url)
             
-            # Clean image (Inpaint original text bubbles using mask)
-            inpainted = cv2.inpaint(img, mask_refined, 3, cv2.INPAINT_TELEA)
+            # Clean image (Inpaint original text bubbles using mask).
+            # Stage B: larger radius + per-block flat-fill fallback for
+            # cases the wider TELEA radius alone still leaves a "ghost" of
+            # the original text under (bold/large source fonts).
+            inpainted = robust_inpaint(img, mask_refined, blk_list)
             if args.output.lower().endswith('.cbz'):
                 cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
                 os.makedirs(cleaned_dir, exist_ok=True)
@@ -406,20 +656,30 @@ def main():
             pil_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(pil_img)
             
-            for blk, orig_txt in block_crops:
+            for block_index, (blk, orig_txt) in enumerate(block_crops):
                 translated_txt = translations.get(orig_txt, orig_txt)
                 if not translated_txt:
                     continue
-                    
-                x1, y1, x2, y2 = blk.xyxy
+
+                # Stage C: use the actual cleaned/masked region for this
+                # block (padded) as the typeset box, instead of the
+                # OCR-tight blk.xyxy - the tight box is why translated text
+                # (usually longer than the source) overflows or looks
+                # disproportionate relative to the bubble's real interior.
+                x1, y1, x2, y2 = get_bubble_box(blk, mask_refined, img.shape)
                 w_box = x2 - x1
                 h_box = y2 - y1
-                
-                # Find optimal font size and wrapped lines
+
+                # Find optimal font size and wrapped lines (Stage D: no
+                # more dead 8px/unwrapped fallback, floor/ceiling clamped)
                 best_size, wrapped_lines = fit_text(translated_txt, font_path, w_box, h_box)
-                
+
                 # Render centered text
                 draw_text_centered(draw, wrapped_lines, font_path, best_size, (x1, y1, x2, y2))
+
+                # Stage E: flag anything that still looks wrong for later review
+                post_render_check(quality_flags, os.path.basename(page_path), block_index,
+                                   best_size, wrapped_lines, (x1, y1, x2, y2), font_path, min_size=12)
                 
             # Convert back to cv2 BGR format and save
             final_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
@@ -430,7 +690,19 @@ def main():
                 translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
                 os.makedirs(translated_dir, exist_ok=True)
                 cv2.imwrite(os.path.join(translated_dir, os.path.basename(page_path)), final_img)
-            
+
+        # Stage E: write accumulated quality flags for this book, a future
+        # input for a manual-review queue (not built in this pass).
+        if quality_flags:
+            book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+            quality_flags_path = os.path.join(book_dir, "quality_flags.json")
+            try:
+                with open(quality_flags_path, "w", encoding="utf-8") as f:
+                    json.dump(quality_flags, f, ensure_ascii=False, indent=2)
+                log(f"Wrote {len(quality_flags)} quality flag(s) to {quality_flags_path}")
+            except Exception as e:
+                log(f"Warning: Failed to write quality_flags.json: {e}")
+
         # Downscale images if they exceed maximum dimensions to prevent blank page bugs
         if args.max_height > 0 or args.max_width > 0:
             log(f"Preprocessing translated images (fitting into max dimensions {args.max_width}x{args.max_height})...")
