@@ -1620,6 +1620,83 @@ def preview_book_page(slug, href):
     except Exception as e:
         return jsonify({"status": "error", "message": f"Error loading book page: {e}"}), 500
 
+@app.route("/downloads")
+@auth.login_required
+def downloads_page():
+    return render_template("downloads.html")
+
+@app.route("/api/downloads")
+@auth.login_required
+def api_all_downloads():
+    import os
+    import json
+    all_files = []
+    books_dir = os.path.join(repo_dir, "books")
+    if not os.path.exists(books_dir):
+        return jsonify([])
+        
+    for entry in os.listdir(books_dir):
+        entry_path = os.path.join(books_dir, entry)
+        if not os.path.isdir(entry_path) or entry.startswith('.'):
+            continue
+            
+        config_path = os.path.join(entry_path, "config.json")
+        title = entry
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    title = cfg.get("title", entry)
+            except Exception:
+                pass
+                
+        output_dir = os.path.join(entry_path, "output")
+        if os.path.exists(output_dir):
+            for f in os.listdir(output_dir):
+                if f.endswith((".epub", ".azw3", ".mp3", ".md", ".cbz", ".cbr", ".cb7", ".zip")):
+                    fpath = os.path.join(output_dir, f)
+                    if os.path.isfile(fpath):
+                        size_bytes = os.path.getsize(fpath)
+                        if size_bytes >= 1024*1024:
+                            size_str = f"{size_bytes / (1024*1024):.1f} MB"
+                        else:
+                            size_str = f"{size_bytes / 1024:.1f} KB"
+                            
+                        desc = "Скомпільований файл проекту."
+                        target = "Будь-який пристрій"
+                        fname_lower = f.lower()
+                        
+                        if fname_lower.endswith(".azw3"):
+                            target = "Amazon Kindle"
+                            if "translated" in fname_lower:
+                                desc = "Перекладена книга/манга у форматі AZW3. Оптимізовано для рідерів Amazon Kindle (включаючи Paperwhite, Oasis, Scribe та Basic)."
+                            else:
+                                desc = "Книга/манга у форматі AZW3. Готова до завантаження на рідер Kindle."
+                        elif fname_lower.endswith(".cbz"):
+                            target = "Комікс-рідери / Планшети"
+                            desc = "Перекладений комікс-архів (CBZ) з оригінальним роздільним дозволом. Підходить для перегляду на комп'ютерах, планшетах чи сторонніх читалках."
+                        elif fname_lower.endswith(".epub"):
+                            target = "Kobo, PocketBook, Apple Books, Android"
+                            desc = "Перекладена електронна книга у стандартному форматі EPUB. Підходить для будь-яких пристроїв читання (окрім старих Kindle)."
+                        elif fname_lower.endswith(".mp3"):
+                            target = "Будь-який аудіоплеєр / Смартфон"
+                            desc = "Синтезована аудіокнига у форматі MP3. Високоякісне озвучування розділів."
+                        elif fname_lower.endswith(".md"):
+                            target = "Текстовий редактор / Obsidian"
+                            desc = "Текстовий файл у форматі Markdown. Містить чистий перекладений текст або розділи книги."
+                            
+                        all_files.append({
+                            "slug": entry,
+                            "book_title": title,
+                            "filename": f,
+                            "size": size_str,
+                            "target": target,
+                            "description": desc,
+                            "download_url": f"/api/download/{entry}/{f}"
+                        })
+                        
+    return jsonify(all_files)
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="KBG Web Service Dashboard")

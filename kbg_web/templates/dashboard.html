@@ -900,7 +900,15 @@
     <div class="container">
         <header>
             <h1>Kindle Butch Gen</h1>
-            <p>EPUB / AZW3 Translation and Audio Synthesis System</p>
+            <p style="margin-bottom: 1.5rem;">EPUB / AZW3 Translation and Audio Synthesis System</p>
+            <div style="display: flex; justify-content: center; gap: 1rem; margin-bottom: 0.5rem;">
+                <a href="/" class="btn btn-primary" style="text-decoration: none; padding: 0.5rem 1.25rem; font-size: 0.9rem; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);">
+                    🖥️ Dashboard
+                </a>
+                <a href="/downloads" class="btn btn-secondary" style="text-decoration: none; padding: 0.5rem 1.25rem; font-size: 0.9rem; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem;">
+                    📥 Downloads Archive
+                </a>
+            </div>
         </header>
 
         <div class="dashboard-single-col">
@@ -1131,26 +1139,38 @@
                     const slugEl = card.querySelector('code');
                     if (slugEl) {
                         const slug = slugEl.innerText.trim();
+                        
                         const detailsEl = document.getElementById(`details-${slug}`);
+                        const engineEl = document.getElementById(`engine-${slug}`);
+                        const speakerEl = document.getElementById(`speaker-${slug}`);
+                        const speedEl = document.getElementById(`speed-${slug}`);
+                        const noiseEl = document.getElementById(`noise-scale-${slug}`);
+                        const noiseWEl = document.getElementById(`noise-w-${slug}`);
+                        const previewEl = document.getElementById(`preview-text-${slug}`);
+                        
+                        const cleanEl = document.getElementById(`clean-${slug}`);
+                        const translateEl = document.getElementById(`translate-${slug}`);
+                        const ebookEl = document.getElementById(`ebook-${slug}`);
+                        const audioEl = document.getElementById(`audio-${slug}`);
+                        const mangaResEl = document.getElementById(`manga-res-${slug}`);
+
                         if (detailsEl) {
                             openDetails[slug] = detailsEl.open;
-                            
-                            const engineEl = document.getElementById(`engine-${slug}`);
-                            const speakerEl = document.getElementById(`speaker-${slug}`);
-                            const speedEl = document.getElementById(`speed-${slug}`);
-                            const noiseEl = document.getElementById(`noise-scale-${slug}`);
-                            const noiseWEl = document.getElementById(`noise-w-${slug}`);
-                            const previewEl = document.getElementById(`preview-text-${slug}`);
-                            
-                            formValues[slug] = {
-                                engine: engineEl ? engineEl.value : null,
-                                speaker: speakerEl ? speakerEl.value : null,
-                                speed: speedEl ? speedEl.value : null,
-                                noise_scale: noiseEl ? noiseEl.value : null,
-                                noise_w: noiseWEl ? noiseWEl.value : null,
-                                preview_text: previewEl ? previewEl.value : ''
-                            };
                         }
+
+                        formValues[slug] = {
+                            engine: engineEl ? engineEl.value : null,
+                            speaker: speakerEl ? speakerEl.value : null,
+                            speed: speedEl ? speedEl.value : null,
+                            noise_scale: noiseEl ? noiseEl.value : null,
+                            noise_w: noiseWEl ? noiseWEl.value : null,
+                            preview_text: previewEl ? previewEl.value : '',
+                            clean: cleanEl ? cleanEl.checked : null,
+                            translate: translateEl ? translateEl.checked : null,
+                            ebook: ebookEl ? ebookEl.checked : null,
+                            audio: audioEl ? audioEl.checked : null,
+                            manga_res: mangaResEl ? mangaResEl.value : null
+                        };
                     }
                 });
 
@@ -1245,6 +1265,7 @@
                                 <select id="manga-res-${book.slug}" class="form-control" style="padding: 0.4rem 0.5rem; font-size: 0.85rem; width: 100%;">
                                     <option value="1280x1920" selected>Safe Default (1280x1920)</option>
                                     <option value="1860x2480">Kindle Scribe (1860x2480)</option>
+                                    <option value="1264x1680">Paperwhite 6 / 2024 (1264x1680)</option>
                                     <option value="1236x1648">Paperwhite 5 / Oasis 3 (1236x1648)</option>
                                     <option value="1072x1448">Paperwhite 3/4 / Voyage / Basic 11 (1072x1448)</option>
                                     <option value="600x800">Kindle Basic / Older (600x800)</option>
@@ -1403,7 +1424,6 @@
                     `;
                 }).join('');
 
-                // Restore input values that were not saved yet
                 books.forEach(book => {
                     const slug = book.slug;
                     const vals = formValues[slug];
@@ -1415,20 +1435,35 @@
                         if (vals.speaker !== null && document.getElementById(`speaker-${slug}`)) {
                             document.getElementById(`speaker-${slug}`).value = vals.speaker;
                         }
-                        if (vals.speed !== null) {
+                        if (vals.speed !== null && document.getElementById(`speed-${slug}`)) {
                             document.getElementById(`speed-${slug}`).value = vals.speed;
                             document.getElementById(`speed-val-${slug}`).innerText = vals.speed;
                         }
-                        if (vals.noise_scale !== null) {
+                        if (vals.noise_scale !== null && document.getElementById(`noise-scale-${slug}`)) {
                             document.getElementById(`noise-scale-${slug}`).value = vals.noise_scale;
                             document.getElementById(`noise-scale-val-${slug}`).innerText = vals.noise_scale;
                         }
-                        if (vals.noise_w !== null) {
+                        if (vals.noise_w !== null && document.getElementById(`noise-w-${slug}`)) {
                             document.getElementById(`noise-w-${slug}`).value = vals.noise_w;
                             document.getElementById(`noise-w-val-${slug}`).innerText = vals.noise_w;
                         }
-                        if (vals.preview_text !== '') {
+                        if (vals.preview_text !== '' && document.getElementById(`preview-text-${slug}`)) {
                             document.getElementById(`preview-text-${slug}`).value = vals.preview_text;
+                        }
+                        if (vals.clean !== null && document.getElementById(`clean-${slug}`)) {
+                            document.getElementById(`clean-${slug}`).checked = vals.clean;
+                        }
+                        if (vals.translate !== null && document.getElementById(`translate-${slug}`)) {
+                            document.getElementById(`translate-${slug}`).checked = vals.translate;
+                        }
+                        if (vals.ebook !== null && document.getElementById(`ebook-${slug}`)) {
+                            document.getElementById(`ebook-${slug}`).checked = vals.ebook;
+                        }
+                        if (vals.audio !== null && document.getElementById(`audio-${slug}`)) {
+                            document.getElementById(`audio-${slug}`).checked = vals.audio;
+                        }
+                        if (vals.manga_res !== null && document.getElementById(`manga-res-${slug}`)) {
+                            document.getElementById(`manga-res-${slug}`).value = vals.manga_res;
                         }
                     }
                 });
