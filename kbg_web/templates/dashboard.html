@@ -1234,8 +1234,13 @@
                             </div>
                         `;
                         optionsHtml = `
-                            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 1rem; padding: 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
-                                📖 <strong>Manga Mode:</strong> Translates speech bubbles and packs layout images into a .cbz archive.
+                            <div class="options-group" id="opts-${book.slug}">
+                                <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Clean Pages</label>
+                                <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Translate</label>
+                                <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Build Kindle AZW3</label>
+                            </div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                                📖 <strong>Manga Mode:</strong> Packs pages to CBZ and compiles to AZW3 for Kindle (RTL layout).
                             </div>
                         `;
                     } else {
@@ -1271,25 +1276,9 @@
                         `;
                     }
 
-                    const cardStyle = isFirstLoad
-                        ? `style="animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${index * 50}ms; opacity: 0; animation-fill-mode: forwards;"`
-                        : `style="opacity: 1;"`;
-
-                    return `
-                        <div class="glass-card book-card" ${cardStyle}>
-                            <div class="book-header">
-                                <div class="book-info">
-                                    <h3>${book.title}</h3>
-                                    <p>by ${book.authors} | Slug: <code>${book.slug}</code> | Lang: ${book.target_lang}</p>
-                                </div>
-                                <span class="badge ${badgeClass}">${badgeText}</span>
-                            </div>
-
-                            ${progressHtml}
-
-                            ${optionsHtml}
-
-                            ${!book.progress.is_manga ? `
+                    let settingsHtml = '';
+                    if (!book.progress.is_manga) {
+                        settingsHtml = `
                             <details class="settings-details" id="details-${book.slug}" ${detailsOpenAttr}>
                                 <summary>🛠️ TTS Settings</summary>
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
@@ -1342,7 +1331,28 @@
                                     </div>
                                 </form>
                             </details>
-                            ` : ''}
+                        `;
+                    }
+
+                    const cardStyle = isFirstLoad
+                        ? `style="animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${index * 50}ms; opacity: 0; animation-fill-mode: forwards;"`
+                        : `style="opacity: 1;"`;
+
+                    return `
+                        <div class="glass-card book-card" ${cardStyle}>
+                            <div class="book-header">
+                                <div class="book-info">
+                                    <h3>${book.title}</h3>
+                                    <p>by ${book.authors} | Slug: <code>${book.slug}</code> | Lang: ${book.target_lang}</p>
+                                </div>
+                                <span class="badge ${badgeClass}">${badgeText}</span>
+                            </div>
+
+                            ${progressHtml}
+
+                            ${optionsHtml}
+
+                            ${settingsHtml}
 
                             <div class="controls">
                                 ${book.is_running 

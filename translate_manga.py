@@ -239,6 +239,8 @@ def main():
     parser.add_argument("--api-url", default="http://127.0.0.1:8081/v1/chat/completions", help="llama-server API Endpoint")
     parser.add_argument("--progress-file", help="Path to write progress JSON")
     parser.add_argument("--left-to-right", action="store_true", help="Set reading direction to LTR")
+    parser.add_argument("--no-translate", action="store_true", help="Skip translation (copy original images)")
+    parser.add_argument("--no-ebook", action="store_true", help="Skip AZW3 generation via Mapaki")
     args = parser.parse_args()
 
     # Load glossary if provided
@@ -284,8 +286,22 @@ def main():
         if not os.path.exists(font_path):
             font_path = None # Pillow will fall back to default font if not found
 
-        for idx, page_path in enumerate(pages):
-            log(f"Page {idx+1}/{len(pages)}: {os.path.basename(page_path)}")
+        pages_to_process = [] if args.no_translate else pages
+        
+        if args.no_translate:
+            log("No-translate mode: copying original images to output directly...")
+            translated_dir = None
+            if args.output.lower().endswith('.cbz'):
+                translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
+                os.makedirs(translated_dir, exist_ok=True)
+            for page_path in pages:
+                basename = os.path.basename(page_path)
+                shutil.copy2(page_path, os.path.join(temp_out, basename))
+                if translated_dir:
+                    shutil.copy2(page_path, os.path.join(translated_dir, basename))
+
+        for idx, page_path in enumerate(pages_to_process):
+            log(f"Page {idx+1}/{len(pages_to_process)}: {os.path.basename(page_path)}")
             
             basename = os.path.basename(page_path)
             # Resume logic: check if already translated
@@ -439,7 +455,7 @@ def main():
                         mapaki_bin = possible_path
                         break
 
-            if mapaki_bin:
+            if mapaki_bin and not args.no_ebook:
                 azw3_output = args.output[:-4] + ".azw3"
                 log(f"Generating AZW3 using Mapaki: {azw3_output}")
 
