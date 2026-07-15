@@ -29,6 +29,14 @@ TTS_ENGINES = {
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
 
+# Translation server (llama-server on :8081) lifecycle tracking.
+# PID-file based instead of pkill-by-pattern to avoid matching an unrelated
+# process, and a start lock to prevent two concurrent /api/models/start
+# calls from each spawning their own llama-server (see TASK-18).
+LLAMA_PID_FILE = os.path.expanduser("~/llama-server-8081.pid")
+LLAMA_START_LOCK_FILE = os.path.expanduser("~/llama-server-8081.lock")
+LLAMA_START_LOCK_STALE_SECONDS = 15
+
 @app.after_request
 def add_header(response):
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
@@ -1100,27 +1108,102 @@ def configure_models():
     save_global_settings(settings)
     return jsonify({"status": "success"})
 
+def _read_llama_pid():
+    """Return the tracked llama-server PID if the PID file exists and that
+    process is still alive, else None (also true for a stale/dead PID)."""
+    if not os.path.exists(LLAMA_PID_FILE):
+        return None
+    try:
+        with open(LLAMA_PID_FILE, "r") as f:
+            pid = int(f.read().strip())
+    except Exception:
+        return None
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return None
+    return pid
+
+def _stop_llama_server():
+    """Stop the tracked llama-server (if any) and always clear the PID
+    file afterward, so a stale/dead entry never lingers and blocks a
+    future start."""
+    import signal
+    import time
+    pid = _read_llama_pid()
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(10):
+                time.sleep(0.3)
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    break
+            else:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        except OSError:
+            pass
+    if os.path.exists(LLAMA_PID_FILE):
+        try:
+            os.remove(LLAMA_PID_FILE)
+        except Exception:
+            pass
+
 @app.route("/api/models/start", methods=["POST"])
 @auth.login_required
 def start_translation_server_api():
-    subprocess.run(["pkill", "-f", "llama-server.*8081"])
     import time
-    time.sleep(1)
-    
-    sh_script = os.path.expanduser("~/start-translation-server.sh")
-    if not os.path.exists(sh_script):
-        return jsonify({"status": "error", "message": "Translation server script not found"}), 404
-        
+
+    # Clear a stale lock (e.g. left behind by a crashed request) before
+    # trying to acquire — a lock older than this is never legitimate,
+    # since the critical section below only takes ~1s.
+    if os.path.exists(LLAMA_START_LOCK_FILE):
+        try:
+            age = time.time() - os.path.getmtime(LLAMA_START_LOCK_FILE)
+        except OSError:
+            age = LLAMA_START_LOCK_STALE_SECONDS + 1
+        if age > LLAMA_START_LOCK_STALE_SECONDS:
+            try:
+                os.remove(LLAMA_START_LOCK_FILE)
+            except Exception:
+                pass
+
     try:
-        subprocess.Popen(["bash", sh_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+        lock_fd = os.open(LLAMA_START_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return jsonify({"status": "error", "message": "A start is already in progress"}), 409
+
+    try:
+        os.write(lock_fd, str(os.getpid()).encode())
+        os.close(lock_fd)
+
+        # Single point of truth for stopping the old instance: the API
+        # layer, via the PID file. start-translation-server.sh no longer
+        # does its own pkill.
+        _stop_llama_server()
+
+        sh_script = os.path.expanduser("~/start-translation-server.sh")
+        if not os.path.exists(sh_script):
+            return jsonify({"status": "error", "message": "Translation server script not found"}), 404
+
+        subprocess.Popen(["bash", sh_script, LLAMA_PID_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
         return jsonify({"status": "success", "message": "Translation server start triggered"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        try:
+            os.remove(LLAMA_START_LOCK_FILE)
+        except Exception:
+            pass
 
 @app.route("/api/models/stop", methods=["POST"])
 @auth.login_required
 def stop_translation_server_api():
-    subprocess.run(["pkill", "-f", "llama-server.*8081"])
+    _stop_llama_server()
     return jsonify({"status": "success", "message": "Translation server stopped"})
 
 # -------------------------------------------------------------
