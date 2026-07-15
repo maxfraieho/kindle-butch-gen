@@ -724,6 +724,34 @@ def stop_conversion_api(slug):
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/delete/<slug>", methods=["POST"])
+def delete_book_api(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+
+    paths = resolve_book_paths(repo_dir, slug)
+    if not os.path.exists(paths["book_dir"]):
+        return jsonify({"status": "error", "message": "Book directory not found"}), 404
+
+    is_running = False
+    if slug in active_processes:
+        proc = active_processes[slug]
+        if proc.poll() is None:
+            is_running = True
+    if not is_running and is_book_process_running(slug):
+        is_running = True
+
+    if is_running:
+        return jsonify({"status": "error", "message": "Stop the conversion before deleting this book"}), 400
+
+    try:
+        shutil.rmtree(paths["book_dir"])
+        active_processes.pop(slug, None)
+        completed_copied.discard(slug)
+        return jsonify({"status": "success", "message": f"Book '{slug}' deleted"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/status/<slug>")
 def status_api(slug):
     if not validate_slug(slug):
