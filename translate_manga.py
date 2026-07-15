@@ -241,6 +241,8 @@ def main():
     parser.add_argument("--left-to-right", action="store_true", help="Set reading direction to LTR")
     parser.add_argument("--no-translate", action="store_true", help="Skip translation (copy original images)")
     parser.add_argument("--no-ebook", action="store_true", help="Skip AZW3 generation via Mapaki")
+    parser.add_argument("--max-width", type=int, default=1280, help="Maximum width of pages (0 to disable)")
+    parser.add_argument("--max-height", type=int, default=1920, help="Maximum height of pages (0 to disable)")
     args = parser.parse_args()
 
     # Load glossary if provided
@@ -424,22 +426,39 @@ def main():
                 os.makedirs(translated_dir, exist_ok=True)
                 cv2.imwrite(os.path.join(translated_dir, os.path.basename(page_path)), final_img)
             
-        # Downscale images with height > 1920px to prevent Kindle blank pages bug
-        log("Preprocessing translated images for Kindle (downscale height > 1920px)...")
-        for f in os.listdir(temp_out):
-            fpath = os.path.join(temp_out, f)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) and os.path.isfile(fpath):
-                try:
-                    with Image.open(fpath) as img_pil:
-                        width, height = img_pil.size
-                        if height > 1920:
-                            new_height = 1920
-                            new_width = int(width * (new_height / height))
-                            log(f"Downscaling {f} from {width}x{height} to {new_width}x{new_height}")
-                            resized = img_pil.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                            resized.save(fpath)
-                except Exception as ex:
-                    log(f"Warning: Failed to downscale image {f}: {ex}")
+        # Downscale images if they exceed maximum dimensions to prevent blank page bugs
+        if args.max_height > 0 or args.max_width > 0:
+            log(f"Preprocessing translated images (fitting into max dimensions {args.max_width}x{args.max_height})...")
+            for f in os.listdir(temp_out):
+                fpath = os.path.join(temp_out, f)
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) and os.path.isfile(fpath):
+                    try:
+                        with Image.open(fpath) as img_pil:
+                            width, height = img_pil.size
+                            need_resize = False
+                            new_width = width
+                            new_height = height
+                            
+                            # Check height boundary
+                            if args.max_height > 0 and height > args.max_height:
+                                need_resize = True
+                                ratio = args.max_height / height
+                                new_height = args.max_height
+                                new_width = int(width * ratio)
+                            
+                            # Check width boundary on scaled dimensions
+                            if args.max_width > 0 and new_width > args.max_width:
+                                need_resize = True
+                                ratio = args.max_width / new_width
+                                new_width = args.max_width
+                                new_height = int(new_height * ratio)
+                                
+                            if need_resize:
+                                log(f"Downscaling {f} from {width}x{height} to {new_width}x{new_height}")
+                                img_pil = img_pil.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                                img_pil.save(fpath)
+                    except Exception as ex:
+                        log(f"Warning: Failed to downscale image {f}: {ex}")
 
         # Packaging processed pages
         if args.output.lower().endswith('.cbz'):
