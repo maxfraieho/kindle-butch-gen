@@ -68,3 +68,35 @@
 ## 5. Трекінг завдань
 
 Відповідну задачу зафіксовано в загальному журналі завдань проекту [TASKS.md](file:///home/vokov/projects/kindle-butch-gen/TASKS.md) як `TASK-15: Deployment Script for OnePlus`.
+
+---
+
+## 6. Верифікація експорту Манги у формат Kindle (TASK-16)
+
+Для перевірки можливості експорту манги у формат, сумісний з Kindle (`.azw3`), було проведено успішні тести безпосередньо на OnePlus 13:
+
+1. **Інтеграція Mapaki**:
+   Скомпільовано нативний бінарний файл `mapaki` на архітектурі ARM64 всередині контейнера PRoot Ubuntu.
+2. **Даунскейл зображень**:
+   Інтегровано Pillow-обробник у [translate_manga.py](file:///home/vokov/projects/kindle-butch-gen/translate_manga.py). Всі зображення з висотою понад 1920px (наприклад, оригінальні 1500x2250) даунскейляться до **1280x1920** (зберігши співвідношення сторін). Це запобігає багу пустих сторінок на читалках Kindle Scribe.
+3. **Запуск тестової конвертації манги**:
+   - Чекбокс **Build Kindle AZW3** виставлено активним.
+   - Тестування проведено на манзі `frieren` (194 сторінки).
+   - Лог запуску підтверджує успішну обробку всіх сторінок:
+     ```text
+     [translate_manga.py] Preprocessing translated images for Kindle (downscale height > 1920px)...
+     [translate_manga.py] Downscaling ...png from 1500x2250 to 1280x1920
+     [translate_manga.py] Packaging pages into CBZ archive...
+     [translate_manga.py] Generating AZW3 using Mapaki...
+     [translate_manga.py] Running Mapaki: /root/go/bin/mapaki -i /tmp/tmp_out -o .../frieren_translated_uk.azw3 --title "Frieren Translated Uk"
+     Processing images 194 / 194 [--------------------------------------] 100.00% 134 p/s
+     [translate_manga.py] AZW3 manga generated successfully at: .../frieren_translated_uk.azw3
+     [translate_manga.py] Manga translation completed successfully!
+     ```
+   - У результаті успішно сформовано два файли:
+     *   `frieren_translated_uk.cbz` — **`228 MB`** (архів оригінального розміру)
+     *   `frieren_translated_uk.azw3` — **`108 MB`** (Kindle-сумісна версія з даунскейлом до 1280x1920)
+4. **Контроль опцій з дашборду**:
+   - Перевірено роботу додаткових чекбоксів на дашборді (**Clean Pages**, **Translate**, **Build Kindle AZW3**).
+   - Завдяки прапорцю `--no-translate` користувач може пропускати стадію OCR-перекладу і миттєво упаковувати наявний кеш картинок у нову збірку AZW3.
+   - Оновлені файли завантажень автоматично з'являються у списку скачування книжкової картки на дашборді.
