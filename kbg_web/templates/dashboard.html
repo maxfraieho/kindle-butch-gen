@@ -349,7 +349,6 @@
 
         .fill-marker { background: #3b82f6; }
         .fill-translation { background: #8b5cf6; }
-        .fill-edit { background: #ec4899; }
         .fill-stress { background: #f59e0b; }
         .fill-tts { background: #10b981; }
 
@@ -1201,10 +1200,9 @@
                     
                     const marker_p = book.progress.marker_percent || 0;
                     const trans_p = book.progress.translation_percent || 0;
-                    const edit_p = book.progress.edit_percent || 0;
                     const stress_p = book.progress.stress_percent || 0;
                     const tts_p = book.progress.tts_percent || 0;
-                    
+
                     let activeStage = "Idle";
                     let activePercent = 0;
 
@@ -1214,9 +1212,6 @@
                     } else if (stress_p > 0 && stress_p < 100) {
                         activeStage = "Stressifier";
                         activePercent = stress_p;
-                    } else if (edit_p > 0 && edit_p < 100) {
-                        activeStage = "Proofreading";
-                        activePercent = edit_p;
                     } else if (trans_p > 0 && trans_p < 100) {
                         activeStage = "Translation";
                         activePercent = trans_p;
@@ -1229,12 +1224,11 @@
                     } else if (book.is_running) {
                         if (marker_p < 100) { activeStage = "Marker (OCR)"; activePercent = marker_p; }
                         else if (trans_p < 100) { activeStage = "Translation"; activePercent = trans_p; }
-                        else if (edit_p < 100) { activeStage = "Proofreading"; activePercent = edit_p; }
                         else if (stress_p < 100) { activeStage = "Stressifier"; activePercent = stress_p; }
                         else if (tts_p < 100) { activeStage = "TTS Audio"; activePercent = tts_p; }
                     }
-                    
-                    const overall_p = Math.round((marker_p + trans_p + edit_p + stress_p + tts_p) / 5);
+
+                    const overall_p = Math.round((marker_p + trans_p + stress_p + tts_p) / 4);
                     
                     let progressHtml = '';
                     let optionsHtml = '';
@@ -1291,8 +1285,6 @@
                                     <span class="step-node ${marker_p === 100 ? 'completed' : (activeStage === 'Marker (OCR)' ? 'active' : '')}" title="OCR">OCR</span>
                                     <span class="step-divider"></span>
                                     <span class="step-node ${trans_p === 100 ? 'completed' : (activeStage === 'Translation' ? 'active' : '')}" title="Translation">Trans</span>
-                                    <span class="step-divider"></span>
-                                    <span class="step-node ${edit_p === 100 ? 'completed' : (activeStage === 'Proofreading' ? 'active' : '')}" title="Proofreading">Proof</span>
                                     <span class="step-divider"></span>
                                     <span class="step-node ${stress_p === 100 ? 'completed' : (activeStage === 'Stressifier' ? 'active' : '')}" title="Stressifier">Stress</span>
                                     <span class="step-divider"></span>
@@ -1894,20 +1886,15 @@
                 }
                 
                 const tSelect = document.getElementById("modelsTranslationSelect");
-                const eSelect = document.getElementById("modelsEditorSelect");
-                
+
                 tSelect.innerHTML = "";
-                eSelect.innerHTML = "";
-                
+
                 if (!data.available_models || data.available_models.length === 0) {
-                    const opt = `<option value="">No .gguf models found in ~/models/</option>`;
-                    tSelect.innerHTML = opt;
-                    eSelect.innerHTML = opt;
+                    tSelect.innerHTML = `<option value="">No .gguf models found in ~/models/</option>`;
                 } else {
                     data.available_models.forEach(model => {
                         const filename = model.split('/').pop();
                         tSelect.innerHTML += `<option value="${model}" ${data.translation_model === model ? 'selected' : ''}>${filename}</option>`;
-                        eSelect.innerHTML += `<option value="${model}" ${data.editor_model === model ? 'selected' : ''}>${filename}</option>`;
                     });
                 }
             } catch (err) {
@@ -1921,13 +1908,12 @@
             btn.textContent = "Saving...";
             
             const translation_model = document.getElementById("modelsTranslationSelect").value;
-            const editor_model = document.getElementById("modelsEditorSelect").value;
-            
+
             try {
                 const res = await fetch("/api/models/configure", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ translation_model, editor_model })
+                    body: JSON.stringify({ translation_model })
                 });
                 const data = await res.json();
                 if (data.status === "success") {
@@ -2096,14 +2082,6 @@
                             <!-- Populated dynamically -->
                         </select>
                         <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.35rem 0 0 0;">Used during PDF/EPUB text translation step.</p>
-                    </div>
-
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label for="modelsEditorSelect" style="font-weight: 600; color: #fff; margin-bottom: 0.5rem; display: block;">Proofreader / Editor Model (.gguf)</label>
-                        <select id="modelsEditorSelect" class="form-control" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 0.5rem; border-radius: 6px;">
-                            <!-- Populated dynamically -->
-                        </select>
-                        <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.35rem 0 0 0;">Used during post-translation grammatical error correction (GEC) step.</p>
                     </div>
                 </div>
             </div>

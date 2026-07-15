@@ -196,7 +196,7 @@ def list_books():
             # Calculate progress
             prog = calculate_progress(entry)
             if "error" in prog:
-                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "edit_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
+                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
                 
             # Scan output files
             output_dir = os.path.join(entry_path, "output")
@@ -794,7 +794,6 @@ def status_api(slug):
         "is_running": is_running,
         "marker_percent": prog["marker_percent"],
         "translation_percent": prog["translation_percent"],
-        "edit_percent": prog.get("edit_percent", 0.0),
         "stress_percent": prog["stress_percent"],
         "tts_percent": prog["tts_percent"],
         "logs": log_lines
@@ -1054,8 +1053,7 @@ def get_models_info():
     import glob
     settings = load_global_settings()
     translation_model = settings.get("translation_model", "/data/data/com.termux/files/home/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf")
-    editor_model = settings.get("editor_model", "/data/data/com.termux/files/home/models/qwen25-coder-7b/qwen2.5-coder-7b-instruct-q4_0.gguf")
-    
+
     models_dir = os.path.expanduser("~/models")
     available = []
     if os.path.exists(models_dir):
@@ -1082,7 +1080,6 @@ def get_models_info():
             
     return jsonify({
         "translation_model": translation_model,
-        "editor_model": editor_model,
         "available_models": available,
         "server_status": {
             "running": is_open,
@@ -1095,14 +1092,11 @@ def get_models_info():
 def configure_models():
     data = request.get_json() or {}
     translation_model = data.get("translation_model")
-    editor_model = data.get("editor_model")
-    
+
     settings = load_global_settings()
     if translation_model:
         settings["translation_model"] = translation_model
-    if editor_model:
-        settings["editor_model"] = editor_model
-        
+
     save_global_settings(settings)
     return jsonify({"status": "success"})
 
