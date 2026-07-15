@@ -1123,11 +1123,7 @@ def preview_manga(slug):
     if not os.listdir(src_preview_dir):
         try:
             if is_dir_source:
-                from natsort import natsorted
-                src_dir = os.path.join(paths["book_dir"], "source")
-                files = natsorted([f for f in os.listdir(src_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
-                for f in files[:30]:
-                    shutil.copy2(os.path.join(src_dir, f), os.path.join(src_preview_dir, f))
+                pass  # Read directly from actual source directory
             elif source_ext in [".zip", ".cbz"]:
                 source_file = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
                 subprocess.run(["unzip", "-j", source_file, "*.png", "*.jpg", "*.jpeg", "-d", src_preview_dir], capture_output=True)
@@ -1140,34 +1136,13 @@ def preview_manga(slug):
         except Exception:
             pass
             
-    # 2. Cleaned pages extraction (copying from books/slug/cleaned/)
+    # 2. Cleaned pages extraction (not needed anymore, we serve directly from the actual cleaned folder)
     cleaned_preview_dir = os.path.join(preview_cache, "cleaned")
     os.makedirs(cleaned_preview_dir, exist_ok=True)
-    actual_cleaned_dir = os.path.join(paths["book_dir"], "cleaned")
-    if os.path.exists(actual_cleaned_dir):
-        try:
-            for f in os.listdir(actual_cleaned_dir):
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    dst = os.path.join(cleaned_preview_dir, f)
-                    if not os.path.exists(dst):
-                        shutil.copy2(os.path.join(actual_cleaned_dir, f), dst)
-        except Exception:
-            pass
             
-    # 3. Translated pages extraction
+    # 3. Translated pages extraction (only extract if archive exists and target_preview is empty)
     tgt_preview_dir = os.path.join(preview_cache, "translated")
     os.makedirs(tgt_preview_dir, exist_ok=True)
-    actual_translated_dir = os.path.join(paths["book_dir"], "translated")
-    if os.path.exists(actual_translated_dir):
-        try:
-            for f in os.listdir(actual_translated_dir):
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    dst = os.path.join(tgt_preview_dir, f)
-                    if not os.path.exists(dst):
-                        shutil.copy2(os.path.join(actual_translated_dir, f), dst)
-        except Exception:
-            pass
-            
     if os.path.exists(translated_file) and not os.listdir(tgt_preview_dir):
         try:
             subprocess.run(["unzip", "-j", translated_file, "*.png", "*.jpg", "*.jpeg", "-d", tgt_preview_dir], capture_output=True)
@@ -1175,15 +1150,30 @@ def preview_manga(slug):
             pass
             
     from natsort import natsorted
-    src_files = natsorted([f for f in os.listdir(src_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
-    clean_files = natsorted([f for f in os.listdir(cleaned_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
-    tgt_files = natsorted([f for f in os.listdir(tgt_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+    actual_source_dir = os.path.join(paths["book_dir"], "source")
+    actual_cleaned_dir = os.path.join(paths["book_dir"], "cleaned")
+    actual_translated_dir = os.path.join(paths["book_dir"], "translated")
+
+    if is_dir_source and os.path.exists(actual_source_dir):
+        src_files = natsorted([f for f in os.listdir(actual_source_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+    else:
+        src_files = natsorted([f for f in os.listdir(src_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+
+    if os.path.exists(actual_cleaned_dir):
+        clean_files = natsorted([f for f in os.listdir(actual_cleaned_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+    else:
+        clean_files = natsorted([f for f in os.listdir(cleaned_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+
+    if os.path.exists(actual_translated_dir):
+        tgt_files = natsorted([f for f in os.listdir(actual_translated_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
+    else:
+        tgt_files = natsorted([f for f in os.listdir(tgt_preview_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
     
     return jsonify({
         "status": "success",
-        "source_pages": src_files[:10],
-        "cleaned_pages": clean_files[:10],
-        "translated_pages": tgt_files[:10]
+        "source_pages": src_files,
+        "cleaned_pages": clean_files,
+        "translated_pages": tgt_files
     })
 
 @app.route("/api/preview/manga-file/<slug>/<folder>/<filename>")
@@ -1192,6 +1182,13 @@ def serve_manga_preview_file(slug, folder, filename):
     if not validate_slug(slug) or folder not in ["source", "translated", "cleaned"]:
         return "Invalid parameters", 400
     paths = resolve_book_paths(repo_dir, slug)
+    
+    # Try actual directory first
+    actual_path = os.path.join(paths["book_dir"], folder, filename)
+    if os.path.exists(actual_path):
+        return send_file(actual_path)
+        
+    # Fallback to preview_cache
     file_path = os.path.join(paths["book_dir"], "preview_cache", folder, filename)
     if os.path.exists(file_path):
         return send_file(file_path)
