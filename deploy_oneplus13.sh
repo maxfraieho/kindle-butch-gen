@@ -22,7 +22,44 @@ error() {
     exit 1
 }
 
+AUTOSTART=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -a|--autostart)
+            AUTOSTART=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [-a|--autostart]"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [-a|--autostart]"
+            exit 1
+            ;;
+    esac
+done
+
 log "Starting deployment of kindle-butch-gen on OnePlus 13..."
+
+# Ask interactively if not passed as CLI argument
+if [ "$AUTOSTART" = "false" ]; then
+    echo -n -e "${BLUE}[DEPL]${NC} Do you want to configure automatic startup of services (sshd, llama-server, web server) on Termux launch? (y/N): "
+    read -r choice
+    case "$choice" in 
+        [yY]|[yY][eE][sS])
+            AUTOSTART=true
+            log "Autostart configuration enabled."
+            ;;
+        *)
+            AUTOSTART=false
+            log "Autostart configuration skipped."
+            ;;
+    esac
+fi
 
 # -------------------------------------------------------------
 # STEP 1: Install Termux Host Prerequisites
@@ -30,8 +67,8 @@ log "Starting deployment of kindle-butch-gen on OnePlus 13..."
 log "Installing host Termux packages..."
 pkg update -y
 pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip
-pip install --upgrade pip || true
-pip install Flask flask-httpauth requests ukrainian_word_stress ipa-uk tqdm marisa-trie blinker
+pip install --upgrade pip --break-system-packages || true
+pip install Flask flask-httpauth requests ukrainian_word_stress ipa-uk tqdm marisa-trie blinker --break-system-packages
 success "Termux host packages installed."
 
 # -------------------------------------------------------------
@@ -131,6 +168,47 @@ log "Setting up kindle-butch-gen files..."
 mkdir -p "$HOME/kindle-butch-gen"
 # Run verification check
 chmod +x "$HOME/kindle-butch-gen/kbg.sh" || true
+
+# -------------------------------------------------------------
+# STEP 5: Configure Autostart (Optional)
+# -------------------------------------------------------------
+if [ "$AUTOSTART" = "true" ]; then
+    log "Configuring autostart of services in ~/.bashrc..."
+    
+    # Define the autostart block
+    AUTOSTART_BLOCK=$(cat << 'EOF'
+
+# ── Autostart Services ──────────────────────────────────────────
+# Prevent duplicate instances and run asynchronously
+
+# 1. Autostart SSH daemon
+if ! pgrep -x "sshd" >/dev/null; then
+    sshd
+fi
+
+# 2. Autostart Llama Translation Server (Hy-MT2-7B on port 8081)
+if ! pgrep -f "llama-server.*8081" >/dev/null; then
+    echo "Autostart: Starting llama-server on port 8081..."
+    nohup bash "$HOME/start-translation-server.sh" > "$HOME/llama-boot.log" 2>&1 &
+fi
+
+# 3. Autostart Flask Web Server (on port 5000)
+if ! pgrep -f "python3 kbg_web/app.py" >/dev/null; then
+    echo "Autostart: Starting Flask web server on port 5000..."
+    termux-wake-lock 2>/dev/null || true
+    (cd "$HOME/kindle-butch-gen" &&  nohup python3 kbg_web/app.py --port 5000 > "$HOME/kbg-flask.log" 2>&1 &)
+fi
+EOF
+)
+
+    BASHRC_FILE="$HOME/.bashrc"
+    if [ -f "$BASHRC_FILE" ] && grep -q "Autostart: Starting Flask web server" "$BASHRC_FILE"; then
+        log "Autostart is already configured in ~/.bashrc."
+    else
+        echo "$AUTOSTART_BLOCK" >> "$BASHRC_FILE"
+        success "Autostart configured successfully in ~/.bashrc."
+    fi
+fi
 
 log "Deployment complete!"
 echo -e "\n${GREEN}===================================================================${NC}"
