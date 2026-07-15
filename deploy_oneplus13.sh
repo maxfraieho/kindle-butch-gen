@@ -210,6 +210,49 @@ EOF
     fi
 fi
 
+# -------------------------------------------------------------
+# STEP 6: Download Required Models (Optional / Interactive)
+# -------------------------------------------------------------
+log "Checking required translation models..."
+MODEL_DIR="$HOME/models/hy-mt2"
+MODEL_PATH="$MODEL_DIR/Hy-MT2-7B-Q4_K_M.gguf"
+mkdir -p "$MODEL_DIR"
+
+if [ -f "$MODEL_PATH" ]; then
+    success "Translation model Hy-MT2-7B-Q4_K_M.gguf is already present at $MODEL_PATH."
+else
+    echo -e "\n${BLUE}[DEPL]${NC} Translation model Hy-MT2-7B-Q4_K_M.gguf (4.4GB) is missing."
+    echo "This model is required for translating book texts."
+    echo "Please choose an option:"
+    echo "  1) Download the default model from Hugging Face (~4.4GB)"
+    echo "  2) Paste a custom download link"
+    echo "  3) Skip downloading for now"
+    echo -n -e "${BLUE}[DEPL]${NC} Enter choice [1-3]: "
+    read -r model_choice
+    
+    case "$model_choice" in
+        1)
+            log "Downloading Hy-MT2-7B-Q4_K_M.gguf from Hugging Face..."
+            curl -L --progress-bar -o "$MODEL_PATH" "https://huggingface.co/mradermacher/Hy-MT2-7B-i1-GGUF/resolve/main/Hy-MT2-7B.i1-Q4_K_M.gguf"
+            success "Model downloaded and saved to $MODEL_PATH."
+            ;;
+        2)
+            echo -n -e "${BLUE}[DEPL]${NC} Please paste the direct download URL for the GGUF model: "
+            read -r custom_url
+            if [ -n "$custom_url" ]; then
+                log "Downloading model from custom URL..."
+                curl -L --progress-bar -o "$MODEL_PATH" "$custom_url"
+                success "Model downloaded and saved to $MODEL_PATH."
+            else
+                log "Custom URL was empty. Skipping model download."
+            fi
+            ;;
+        *)
+            log "Model download skipped. You will need to manually place the model at $MODEL_PATH."
+            ;;
+    esac
+fi
+
 log "Deployment complete!"
 echo -e "\n${GREEN}===================================================================${NC}"
 echo -e " kindle-butch-gen is deployed on your OnePlus 13!"
