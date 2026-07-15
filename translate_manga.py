@@ -331,7 +331,7 @@ def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
     def _padded_bbox_fallback():
         bw, bh = x2 - x1, y2 - y1
         pad_x, pad_y = int(bw * padding_ratio), int(bh * padding_ratio)
-        return (max(0, x1 - pad_x), max(0, y1 - pad_y), min(w_img, x2 + pad_x), min(h_img, y2 + pad_y))
+        return (int(max(0, x1 - pad_x)), int(max(0, y1 - pad_y)), int(min(w_img, x2 + pad_x)), int(min(h_img, y2 + pad_y)))
 
     # Small search margin - just enough to recover component edges a
     # too-tight OCR bbox might have clipped, not a scan for "anything
@@ -374,7 +374,11 @@ def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
 
     bx1, by1, bx2, by2 = sx1 + union[0], sy1 + union[1], sx1 + union[2], sy1 + union[3]
     pad_x, pad_y = int((bx2 - bx1) * padding_ratio), int((by2 - by1) * padding_ratio)
-    return (max(0, bx1 - pad_x), max(0, by1 - pad_y), min(w_img, bx2 + pad_x), min(h_img, by2 + pad_y))
+    # bx1..by2 can be numpy.int32 (from cv2.connectedComponentsWithStats's
+    # `stats` array) rather than plain Python int - cast explicitly so
+    # this box is safe to json.dump() (bubbles_meta.json needs it to be),
+    # not just safe to pass to cv2/PIL calls (which don't care).
+    return (int(max(0, bx1 - pad_x)), int(max(0, by1 - pad_y)), int(min(w_img, bx2 + pad_x)), int(min(h_img, by2 + pad_y)))
 
 def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines, box, font_path, min_size):
     """Stage E: after typeset, flag anything that still looks wrong so it
@@ -405,18 +409,85 @@ def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines,
             "reason": "overflow" if overflow_ratio > 1.05 else "min_size_floor"
         })
 
-def translate_batch_llm(texts, source_lang, glossary, api_url):
+def assign_bubble_ids(page_stem, blocks):
+    """TASK-21: stable bubble IDs for manual editing. Ranks blocks by
+    (y1, x1) reading order for the ID *value* (so IDs are consistent
+    across runs with the same detections, regardless of blk_list's
+    internal order), but returns the ID list in the SAME order as the
+    input `blocks` so callers can zip it against their own per-block loop."""
+    indexed = list(enumerate(blocks))
+    ranked = sorted(indexed, key=lambda pair: (pair[1].xyxy[1], pair[1].xyxy[0]))
+    id_for_original_index = {}
+    for rank, (orig_idx, blk) in enumerate(ranked):
+        id_for_original_index[orig_idx] = f"{page_stem}_b{rank:02d}"
+    return [id_for_original_index[i] for i in range(len(blocks))]
+
+def write_bubbles_meta(book_dir, page_stem, entries):
+    """TASK-21: writes book_dir/bubbles_meta/<page_stem>.json - one file
+    per page, the source of truth the manual-edit overlay UI draws bubble
+    bounding boxes and current text from."""
+    meta_dir = os.path.join(book_dir, "bubbles_meta")
+    os.makedirs(meta_dir, exist_ok=True)
+    path = os.path.join(meta_dir, f"{page_stem}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+    return path
+
+def match_bubbles_iou(old_entries, new_entries, iou_threshold=0.5):
+    """TASK-21: reconciles bubble IDs across a page regeneration.
+    dedupe_blocks (Stage A) can legitimately produce a different block
+    count/order between runs, so a plain index-based ID would silently
+    disconnect a pending edit from its bubble. Greedy best-IoU-first
+    matching (each old bubble matched to at most one new bubble, and vice
+    versa). Returns {old_id: new_id_or_None} - None means no confident
+    match was found in the new set, so the caller should mark any edit
+    referencing that old bubble as "orphaned" rather than silently
+    dropping it."""
+    candidates = []
+    for old in old_entries:
+        best_iou = 0.0
+        best_new_id = None
+        for new in new_entries:
+            iou = _iou(old["bbox"], new["bbox"])
+            if iou > best_iou:
+                best_iou = iou
+                best_new_id = new["id"]
+        candidates.append((best_iou, old["id"], best_new_id))
+    # Strongest matches claim their target first, so a weak/ambiguous
+    # match never steals a new bubble a stronger match also wanted.
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    result = {}
+    used_new = set()
+    for iou, old_id, new_id in candidates:
+        if new_id is not None and new_id not in used_new and iou > iou_threshold:
+            result[old_id] = new_id
+            used_new.add(new_id)
+        else:
+            result[old_id] = None
+    return result
+
+def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None):
     if not texts:
         return {}
-        
+
+    # TASK-21: texts with a human-edited override skip the LLM entirely -
+    # both to avoid wasting a translation call and, more importantly, to
+    # guarantee the human edit survives verbatim rather than risking the
+    # LLM producing something different on a re-run.
+    overrides = overrides or {}
+    result = {txt: overrides[txt] for txt in texts if txt in overrides}
+    remaining = [txt for txt in texts if txt not in overrides]
+    if not remaining:
+        return result
+
     # Construct terminology instructions from glossary
     glossary_rules = ""
     if glossary:
         glossary_rules = "Follow this terminology exactly:\n"
         for src_word, tgt_word in glossary.items():
             glossary_rules += f"- {src_word} -> {tgt_word}\n"
-            
-    prompt_list = "\n".join([f"{i+1}. {txt}" for i, txt in enumerate(texts)])
+
+    prompt_list = "\n".join([f"{i+1}. {txt}" for i, txt in enumerate(remaining)])
     
     system_prompt = f"""You are a professional manga translator. Translate the following numbered list of texts from {source_lang.upper()} to Ukrainian.
 Preserve context, sound effects (if present), informal spoken registers, character personalities, and sentence fragments.
@@ -440,9 +511,8 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
         if response.status_code == 200:
             res_json = response.json()
             content = res_json["choices"][0]["message"]["content"].strip()
-            result = {}
             lines = content.split("\n")
-            
+
             for line in lines:
                 line = line.strip()
                 if not line:
@@ -452,25 +522,229 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
                     try:
                         idx = int(parts[0].strip()) - 1
                         val = parts[1].strip()
-                        if 0 <= idx < len(texts):
-                            result[texts[idx]] = val
+                        if 0 <= idx < len(remaining):
+                            result[remaining[idx]] = val
                     except ValueError:
                         continue
-            
-            # Fill missing translations with original texts
-            for txt in texts:
+
+            # Fill missing translations with original text
+            for txt in remaining:
                 if txt not in result:
                     result[txt] = txt
-                    
+
             return result
         else:
             log(f"Error: API returned status code {response.status_code}: {response.text}")
     except Exception as e:
         log(f"Translation API request failed: {e}")
-        
-    # Fallback to returning original text if translation fails
-    return {txt: txt for txt in texts}
 
+    # Fallback to returning original text if translation fails
+    for txt in remaining:
+        result.setdefault(txt, txt)
+    return result
+
+def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, font_path, overrides=None):
+    """TASK-21: runs the Stage A-E pipeline (detect -> dedupe -> OCR ->
+    translate -> inpaint -> typeset -> post-check) on a single
+    already-loaded page image. Pure image processing, no file I/O - both
+    the full-book loop in main() and the single-page --regenerate-page
+    path share this, so a manual edit's regen goes through exactly the
+    same pipeline a fresh page does (fixes TASK-19_manga_typeset_autofix's
+    "regen must go through the full A-E pipeline, not just typeset, or
+    the ghost-text problem returns" requirement).
+
+    overrides: optional {original_ocr_text: edited_translation} dict, see
+    translate_batch_llm - lets a human edit survive a page regeneration
+    verbatim instead of being re-translated by the LLM.
+
+    Returns (final_img_bgr, cleaned_img_bgr, page_quality_flags,
+    page_bubbles_meta). If no text bubbles are found/recognized,
+    final_img_bgr and cleaned_img_bgr are both `img` untouched, and both
+    lists are empty."""
+    page_quality_flags = []
+    page_bubbles_meta = []
+
+    mask, mask_refined, blk_list = detector(img, refine_mode=REFINEMASK_INPAINT, keep_undetected_mask=True)
+    blk_list = dedupe_blocks(blk_list)
+
+    if not blk_list:
+        return img, img, page_quality_flags, page_bubbles_meta
+
+    page_ocr_texts = []
+    block_crops = []
+    h_img, w_img = img.shape[:2]
+
+    if lang != 'ja':
+        import pytesseract
+
+    for blk in blk_list:
+        x1, y1, x2, y2 = blk.xyxy
+        # Add 5px padding for safer boundary OCR
+        x1_pad = max(0, x1 - 5)
+        y1_pad = max(0, y1 - 5)
+        x2_pad = min(w_img, x2 + 5)
+        y2_pad = min(h_img, y2 + 5)
+
+        crop = img[y1_pad:y2_pad, x1_pad:x2_pad]
+        if crop.size == 0:
+            continue
+
+        pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
+
+        if lang == 'ja':
+            txt = mocr(pil_crop).strip()
+        else:
+            txt = pytesseract.image_to_string(pil_crop, lang='eng', config='--psm 6').strip()
+
+        txt = txt.replace("\n", " ").replace("\r", " ").strip()
+        txt = " ".join(txt.split())
+
+        if txt:
+            page_ocr_texts.append(txt)
+            block_crops.append((blk, txt))
+
+    if not page_ocr_texts:
+        return img, img, page_quality_flags, page_bubbles_meta
+
+    translations = translate_batch_llm(page_ocr_texts, lang, glossary, api_url, overrides=overrides)
+
+    # Stage B: larger radius + per-block flat-fill fallback for cases the
+    # wider TELEA radius alone still leaves a "ghost" of the original
+    # text under (bold/large source fonts).
+    inpainted = robust_inpaint(img, mask_refined, blk_list)
+
+    pil_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_img)
+
+    page_stem = os.path.splitext(page_basename)[0]
+    bubble_ids = assign_bubble_ids(page_stem, [blk for blk, _ in block_crops])
+
+    for block_index, (blk, orig_txt) in enumerate(block_crops):
+        translated_txt = translations.get(orig_txt, orig_txt)
+        if not translated_txt:
+            continue
+
+        # Stage C: use the actual cleaned/masked region for this block
+        # (padded) as the typeset box, instead of the OCR-tight blk.xyxy.
+        x1, y1, x2, y2 = get_bubble_box(blk, mask_refined, img.shape)
+        w_box = x2 - x1
+        h_box = y2 - y1
+
+        # Stage D: floor/ceiling-clamped font size, hyphenated hard-wrap.
+        best_size, wrapped_lines = fit_text(translated_txt, font_path, w_box, h_box)
+        draw_text_centered(draw, wrapped_lines, font_path, best_size, (x1, y1, x2, y2))
+
+        # Stage E: flag anything that still looks wrong for later review.
+        block_flags = []
+        post_render_check(block_flags, page_basename, block_index, best_size, wrapped_lines,
+                           (x1, y1, x2, y2), font_path, min_size=12)
+        page_quality_flags.extend(block_flags)
+
+        page_bubbles_meta.append({
+            "id": bubble_ids[block_index],
+            "bbox": [x1, y1, x2, y2],
+            "original_text": orig_txt,
+            "translated_text": translated_txt,
+            "quality_flags": block_flags[0] if block_flags else {}
+        })
+
+    final_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    return final_img, inpainted, page_quality_flags, page_bubbles_meta
+
+def regenerate_single_page(args, glossary, detector, mocr):
+    """TASK-21: re-runs the FULL A-E pipeline (process_page) on just one
+    page, for a manual bubble-edit regen. Deliberately does NOT skip
+    straight to typeset on the existing cleaned image - re-running
+    detection/dedup/inpaint too means the TASK-20 fixes (ghost-text
+    removal, deduped blocks) still apply to a regenerated page, not just
+    a fresh one. Re-extracts the target page from the ORIGINAL source
+    (same extract_manga_pages() path/PDF/CBZ/directory every normal run
+    uses) rather than reading a persisted "source" copy, since archive
+    sources are only ever extracted to a temp dir today - this keeps
+    directory/CBZ/PDF sources all working uniformly with no special-casing.
+
+    Prints a single JSON line to stdout on success:
+    {"status": "success", "bubble_id_mapping": {old_id: new_id_or_null},
+    "bubbles": [...new bubbles_meta entries...]} - kbg_web/app.py's
+    regenerate-manga-page route parses this to reconcile pending edits
+    (mark matched ones "regenerated", unmatched ones "orphaned")."""
+    page_filename = args.regenerate_page
+
+    overrides = {}
+    if args.overrides_json and os.path.exists(args.overrides_json):
+        try:
+            with open(args.overrides_json, "r", encoding="utf-8") as f:
+                overrides = json.load(f)
+        except Exception as e:
+            log(f"Warning: Failed to load overrides JSON: {e}")
+
+    regen_temp_in = tempfile.mkdtemp()
+    try:
+        extract_manga_pages(args.input, regen_temp_in)
+        page_path = os.path.join(regen_temp_in, page_filename)
+        if not os.path.exists(page_path):
+            log(f"Error: page '{page_filename}' not found after re-extracting source '{args.input}'.")
+            print(json.dumps({"status": "error", "message": f"page '{page_filename}' not found in source"}))
+            sys.exit(1)
+
+        img = cv2.imread(page_path)
+        if img is None:
+            log(f"Error: failed to read page '{page_path}'.")
+            print(json.dumps({"status": "error", "message": "failed to read page image"}))
+            sys.exit(1)
+
+        font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+        if not os.path.exists(font_path):
+            font_path = None
+
+        final_img, cleaned_img, page_flags, new_bubbles = process_page(
+            img, page_filename, glossary, args.api_url, args.lang, detector, mocr, font_path,
+            overrides=overrides
+        )
+
+        book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+        page_stem = os.path.splitext(page_filename)[0]
+
+        cleaned_dir = os.path.join(book_dir, "cleaned")
+        translated_dir = os.path.join(book_dir, "translated")
+        os.makedirs(cleaned_dir, exist_ok=True)
+        os.makedirs(translated_dir, exist_ok=True)
+        cv2.imwrite(os.path.join(cleaned_dir, page_filename), cleaned_img)
+        cv2.imwrite(os.path.join(translated_dir, page_filename), final_img)
+
+        # Load the OLD bubbles_meta.json snapshot BEFORE overwriting it,
+        # so pending edits referencing old bubble IDs can be reconciled.
+        meta_path = os.path.join(book_dir, "bubbles_meta", f"{page_stem}.json")
+        old_bubbles = []
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    old_bubbles = json.load(f)
+            except Exception:
+                old_bubbles = []
+
+        write_bubbles_meta(book_dir, page_stem, new_bubbles)
+        id_mapping = match_bubbles_iou(old_bubbles, new_bubbles)
+
+        # Update the book-wide quality_flags.json: replace only this
+        # page's entries, leave every other page's flags untouched.
+        quality_flags_path = os.path.join(book_dir, "quality_flags.json")
+        all_flags = []
+        if os.path.exists(quality_flags_path):
+            try:
+                with open(quality_flags_path, "r", encoding="utf-8") as f:
+                    all_flags = json.load(f)
+            except Exception:
+                all_flags = []
+        all_flags = [f for f in all_flags if f.get("page") != page_filename]
+        all_flags.extend(page_flags)
+        with open(quality_flags_path, "w", encoding="utf-8") as f:
+            json.dump(all_flags, f, ensure_ascii=False, indent=2)
+
+        log(f"Regenerated page '{page_filename}': {len(new_bubbles)} bubble(s), {len(page_flags)} quality flag(s).")
+        print(json.dumps({"status": "success", "bubble_id_mapping": id_mapping, "bubbles": new_bubbles}, ensure_ascii=False))
+    finally:
+        shutil.rmtree(regen_temp_in, ignore_errors=True)
 
 def main():
     parser = argparse.ArgumentParser(description="Manga translation pipeline (Segmentation -> OCR -> LLM translation -> Inpainting -> Typesetting)")
@@ -485,6 +759,8 @@ def main():
     parser.add_argument("--no-ebook", action="store_true", help="Skip AZW3 generation via Mapaki")
     parser.add_argument("--max-width", type=int, default=1280, help="Maximum width of pages (0 to disable)")
     parser.add_argument("--max-height", type=int, default=1920, help="Maximum height of pages (0 to disable)")
+    parser.add_argument("--regenerate-page", help="TASK-21: re-run the full A-E pipeline on just this one page filename (manual bubble edit regen), instead of the whole book")
+    parser.add_argument("--overrides-json", help="TASK-21: path to a JSON {original_ocr_text: edited_translation} map, used only with --regenerate-page")
     args = parser.parse_args()
 
     # Load glossary if provided
@@ -510,6 +786,10 @@ def main():
     else:
         log("Using Tesseract OCR for English...")
         import pytesseract
+
+    if args.regenerate_page:
+        regenerate_single_page(args, glossary, detector, mocr)
+        return
 
     # Create temporary directories for processing
     temp_in = tempfile.mkdtemp()
@@ -584,112 +864,31 @@ def main():
                 log(f"Warning: Failed to read page {page_path}")
                 continue
                 
-            # Run text detector
-            mask, mask_refined, blk_list = detector(img, refine_mode=REFINEMASK_INPAINT, keep_undetected_mask=True)
+            final_img, cleaned_img, page_flags, page_bubbles = process_page(
+                img, basename, glossary, args.api_url, args.lang, detector, mocr, font_path
+            )
+            quality_flags.extend(page_flags)
 
-            # Stage A: merge overlapping/duplicate blocks before OCR so one
-            # physical bubble never gets OCR'd/translated/typeset twice.
-            blk_list = dedupe_blocks(blk_list)
+            if not page_bubbles:
+                log("No text bubbles found/recognized. Copying original page.")
 
-            if not blk_list:
-                log("No text bubbles found. Copying original page.")
-                cv2.imwrite(os.path.join(temp_out, os.path.basename(page_path)), img)
-                continue
-                
-            # Perform OCR on text bubble crops
-            page_ocr_texts = []
-            block_crops = []
-            h_img, w_img = img.shape[:2]
-            
-            for blk in blk_list:
-                x1, y1, x2, y2 = blk.xyxy
-                # Add 5px padding for safer boundary OCR
-                x1_pad = max(0, x1 - 5)
-                y1_pad = max(0, y1 - 5)
-                x2_pad = min(w_img, x2 + 5)
-                y2_pad = min(h_img, y2 + 5)
-                
-                crop = img[y1_pad:y2_pad, x1_pad:x2_pad]
-                if crop.size == 0:
-                    continue
-                    
-                pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
-                
-                # Run OCR
-                if args.lang == 'ja':
-                    txt = mocr(pil_crop).strip()
-                else:
-                    txt = pytesseract.image_to_string(pil_crop, lang='eng', config='--psm 6').strip()
-                
-                # Cleanup text format
-                txt = txt.replace("\n", " ").replace("\r", " ").strip()
-                # Remove extra spaces
-                txt = " ".join(txt.split())
-                
-                if txt:
-                    page_ocr_texts.append(txt)
-                    block_crops.append((blk, txt))
-                    
-            if not page_ocr_texts:
-                log("No text recognized. Copying original page.")
-                cv2.imwrite(os.path.join(temp_out, os.path.basename(page_path)), img)
-                if args.output.lower().endswith('.cbz'):
-                    cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
-                    os.makedirs(cleaned_dir, exist_ok=True)
-                    cv2.imwrite(os.path.join(cleaned_dir, os.path.basename(page_path)), img)
-                continue
-                
-            # Translate recognized texts
-            translations = translate_batch_llm(page_ocr_texts, args.lang, glossary, args.api_url)
-            
-            # Clean image (Inpaint original text bubbles using mask).
-            # Stage B: larger radius + per-block flat-fill fallback for
-            # cases the wider TELEA radius alone still leaves a "ghost" of
-            # the original text under (bold/large source fonts).
-            inpainted = robust_inpaint(img, mask_refined, blk_list)
+            cv2.imwrite(os.path.join(temp_out, basename), final_img)
+
             if args.output.lower().endswith('.cbz'):
                 cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
                 os.makedirs(cleaned_dir, exist_ok=True)
-                cv2.imwrite(os.path.join(cleaned_dir, os.path.basename(page_path)), inpainted)
-            
-            # Typeset translated text back onto bubble
-            pil_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
-            draw = ImageDraw.Draw(pil_img)
-            
-            for block_index, (blk, orig_txt) in enumerate(block_crops):
-                translated_txt = translations.get(orig_txt, orig_txt)
-                if not translated_txt:
-                    continue
+                cv2.imwrite(os.path.join(cleaned_dir, basename), cleaned_img)
 
-                # Stage C: use the actual cleaned/masked region for this
-                # block (padded) as the typeset box, instead of the
-                # OCR-tight blk.xyxy - the tight box is why translated text
-                # (usually longer than the source) overflows or looks
-                # disproportionate relative to the bubble's real interior.
-                x1, y1, x2, y2 = get_bubble_box(blk, mask_refined, img.shape)
-                w_box = x2 - x1
-                h_box = y2 - y1
+                if page_bubbles:
+                    translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
+                    os.makedirs(translated_dir, exist_ok=True)
+                    cv2.imwrite(os.path.join(translated_dir, basename), final_img)
 
-                # Find optimal font size and wrapped lines (Stage D: no
-                # more dead 8px/unwrapped fallback, floor/ceiling clamped)
-                best_size, wrapped_lines = fit_text(translated_txt, font_path, w_box, h_box)
-
-                # Render centered text
-                draw_text_centered(draw, wrapped_lines, font_path, best_size, (x1, y1, x2, y2))
-
-                # Stage E: flag anything that still looks wrong for later review
-                post_render_check(quality_flags, os.path.basename(page_path), block_index,
-                                   best_size, wrapped_lines, (x1, y1, x2, y2), font_path, min_size=12)
-                
-            # Convert back to cv2 BGR format and save
-            final_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            cv2.imwrite(os.path.join(temp_out, os.path.basename(page_path)), final_img)
-            
-            # Copy typeset image to translated directory in real-time
-            if args.output.lower().endswith('.cbz'):
-                translated_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "translated"))
-                os.makedirs(translated_dir, exist_ok=True)
-                cv2.imwrite(os.path.join(translated_dir, os.path.basename(page_path)), final_img)
+                    # TASK-21: per-page bubble metadata for the manual-edit
+                    # overlay UI (bbox + current text + quality flags).
+                    book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+                    page_stem = os.path.splitext(basename)[0]
+                    write_bubbles_meta(book_dir, page_stem, page_bubbles)
 
         # Stage E: write accumulated quality flags for this book, a future
         # input for a manual-review queue (not built in this pass).

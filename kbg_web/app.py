@@ -1340,6 +1340,40 @@ def serve_manga_preview_file(slug, folder, filename):
         return send_file(file_path)
     return "Not found", 404
 
+@app.route("/api/preview/manga-bubbles/<slug>/<page_filename>")
+@auth.login_required
+def preview_manga_bubbles(slug, page_filename):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    page_filename = os.path.basename(page_filename)
+    page_stem = os.path.splitext(page_filename)[0]
+    meta_path = os.path.join(paths["book_dir"], "bubbles_meta", f"{page_stem}.json")
+    if not os.path.exists(meta_path):
+        return jsonify({"status": "error", "message": "Page not processed yet - no bubble metadata found"}), 404
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            bubbles = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read bubble metadata: {e}"}), 500
+    return jsonify({"status": "success", "page": page_filename, "bubbles": bubbles})
+
+@app.route("/api/preview/manga-quality-flags/<slug>")
+@auth.login_required
+def preview_manga_quality_flags(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    quality_flags_path = os.path.join(paths["book_dir"], "quality_flags.json")
+    if not os.path.exists(quality_flags_path):
+        return jsonify({"status": "success", "flags": []})
+    try:
+        with open(quality_flags_path, "r", encoding="utf-8") as f:
+            flags = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read quality flags: {e}"}), 500
+    return jsonify({"status": "success", "flags": flags})
+
 @app.route("/api/preview/book/<slug>")
 @auth.login_required
 def preview_book_stages(slug):
@@ -1713,8 +1747,180 @@ def edit_approve(slug, edit_id):
         if not merged_patched and not batch_patched:
             return jsonify({"status": "error", "message": "Could not locate the original text in merged markdown or any batch file — approve aborted, nothing was changed"}), 500
 
+    # mode == "manga" intentionally falls through with no file mutation
+    # here: regenerate-manga-page already bakes the edit into the actual
+    # page image (a manga edit only affects pixels, unlike text/stress
+    # which patch a shared cache/markdown file), so approving one is just
+    # a reviewer confirming the regenerated result, not a data write.
+
     edit_store.mark_status(slug, edit_id, "approved", applied_at=datetime.now().isoformat())
     return jsonify({"status": "success"})
+
+@app.route("/api/edit/discard/<slug>/<edit_id>", methods=["POST"])
+@auth.login_required
+def edit_discard(slug, edit_id):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+    edit = edit_store.get_edit(slug, edit_id)
+    if not edit:
+        return jsonify({"status": "error", "message": "Edit not found"}), 404
+    edit_store.mark_status(slug, edit_id, "discarded")
+    return jsonify({"status": "success"})
+
+@app.route("/api/edit/manga-text/<slug>/<page_filename>", methods=["PUT"])
+@auth.login_required
+def edit_manga_text(slug, page_filename):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+
+    data = request.get_json() or {}
+    bubble_id = data.get("bubble_id", "").strip()
+    new_text = data.get("translated_text", "").strip()
+    if not bubble_id or not new_text:
+        return jsonify({"status": "error", "message": "bubble_id and translated_text are required"}), 400
+
+    page_filename = os.path.basename(page_filename)
+    page_stem = os.path.splitext(page_filename)[0]
+    paths = resolve_book_paths(repo_dir, slug)
+    meta_path = os.path.join(paths["book_dir"], "bubbles_meta", f"{page_stem}.json")
+    if not os.path.exists(meta_path):
+        return jsonify({"status": "error", "message": "Page not processed yet - no bubble metadata found"}), 404
+
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            bubbles = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read bubble metadata: {e}"}), 500
+
+    bubble = next((b for b in bubbles if b["id"] == bubble_id), None)
+    if not bubble:
+        return jsonify({"status": "error", "message": f"Bubble '{bubble_id}' not found on this page"}), 404
+
+    edit = edit_store.add_edit(slug, mode="manga", target_id=f"{page_filename}#{bubble_id}",
+                                field="translated_text", original_value=bubble["translated_text"],
+                                edited_value=new_text)
+    return jsonify({"status": "success", "edit": edit})
+
+@app.route("/api/edit/regenerate-manga-page/<slug>/<page_filename>", methods=["POST"])
+@auth.login_required
+def edit_regenerate_manga_page(slug, page_filename):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+
+    page_filename = os.path.basename(page_filename)
+    paths = resolve_book_paths(repo_dir, slug)
+    config_path = paths["config_path"]
+    if not os.path.exists(config_path):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    if not cfg.get("is_manga", False):
+        return jsonify({"status": "error", "message": "Not a manga"}), 400
+
+    # Same source resolution run_conversion_api already uses for the full
+    # manga run - --regenerate-page re-extracts from this same source, so
+    # directory/CBZ/PDF sources all work uniformly with no special-casing.
+    manga_input = ""
+    if os.path.isdir(os.path.join(paths["book_dir"], "source")):
+        manga_input = os.path.join(paths["book_dir"], "source")
+    else:
+        for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
+            if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
+                manga_input = os.path.join(paths["book_dir"], f"{slug}{possible_ext}")
+                break
+    if not manga_input:
+        return jsonify({"status": "error", "message": "Manga source file or directory not found"}), 400
+
+    target_lang = cfg.get("target_lang", "uk")
+    manga_output = os.path.join(paths["book_dir"], "output", f"{slug}_translated_{target_lang}.cbz")
+
+    prefix = f"{page_filename}#"
+    pending = [e for e in edit_store.list_edits(slug, mode="manga", status="pending") if e["target_id"].startswith(prefix)]
+    if not pending:
+        return jsonify({"status": "error", "message": "No pending edits for this page - nothing to regenerate"}), 400
+
+    page_stem = os.path.splitext(page_filename)[0]
+    meta_path = os.path.join(paths["book_dir"], "bubbles_meta", f"{page_stem}.json")
+    bubbles_by_id = {}
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                bubbles_by_id = {b["id"]: b for b in json.load(f)}
+        except Exception:
+            bubbles_by_id = {}
+
+    overrides = {}
+    for e in pending:
+        bubble_id = e["target_id"].split("#", 1)[1]
+        bubble = bubbles_by_id.get(bubble_id)
+        if bubble:
+            overrides[bubble["original_text"]] = e["edited_value"]
+
+    overrides_path = os.path.join(paths["cache_dir"], f"manga_regen_overrides_{page_stem}.json")
+    os.makedirs(paths["cache_dir"], exist_ok=True)
+    with open(overrides_path, "w", encoding="utf-8") as f:
+        json.dump(overrides, f, ensure_ascii=False)
+
+    cmd = [
+        "proot-distro", "login", "ubuntu", "--",
+        "python3", "-u", "/data/data/com.termux/files/home/kindle-butch-gen/translate_manga.py",
+        "--input", manga_input,
+        "--output", manga_output,
+        "--lang", cfg.get("source_lang", "en"),
+        "--regenerate-page", page_filename,
+        "--overrides-json", overrides_path
+    ]
+    glossary_path = os.path.join(paths["book_dir"], "glossary.json")
+    if os.path.exists(glossary_path):
+        cmd.extend(["--glossary", glossary_path])
+
+    try:
+        # Single-page regen (detector init + a few OCR/LLM calls) is fast
+        # enough to run synchronously - the UI shows a spinner rather than
+        # needing a background-job+poll flow, per the doc's own framing.
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error", "message": "Regeneration timed out after 180s"}), 500
+    finally:
+        try:
+            os.remove(overrides_path)
+        except Exception:
+            pass
+
+    if res.returncode != 0:
+        return jsonify({"status": "error", "message": f"Regeneration failed: {res.stderr[-2000:]}"}), 500
+
+    # translate_manga.py prints exactly one JSON line to stdout on success.
+    result_line = None
+    for line in res.stdout.strip().splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            result_line = line
+    if not result_line:
+        return jsonify({"status": "error", "message": f"Regeneration completed but produced no result JSON: {res.stdout[-1000:]}"}), 500
+
+    try:
+        result = json.loads(result_line)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to parse regeneration result: {e}"}), 500
+
+    if result.get("status") != "success":
+        return jsonify({"status": "error", "message": result.get("message", "Regeneration failed")}), 500
+
+    id_mapping = result.get("bubble_id_mapping", {})
+    now = datetime.now().isoformat()
+    for e in pending:
+        old_bubble_id = e["target_id"].split("#", 1)[1]
+        new_bubble_id = id_mapping.get(old_bubble_id)
+        if new_bubble_id is not None:
+            edit_store.mark_status(slug, e["id"], "regenerated", applied_at=now)
+        else:
+            # The bubble this edit targeted has no confident IoU match in
+            # the fresh detection - don't silently drop the edit, surface
+            # it for a human to resolve.
+            edit_store.mark_status(slug, e["id"], "orphaned")
+
+    return jsonify({"status": "success", "bubbles": result.get("bubbles", []), "bubble_id_mapping": id_mapping})
 
 def find_book_epub(book_dir, slug):
     import os
