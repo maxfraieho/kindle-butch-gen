@@ -1289,6 +1289,7 @@
 
                             ${optionsHtml}
 
+                            ${!book.progress.is_manga ? `
                             <details class="settings-details" id="details-${book.slug}" ${detailsOpenAttr}>
                                 <summary>🛠️ TTS Settings</summary>
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
@@ -1341,6 +1342,7 @@
                                     </div>
                                 </form>
                             </details>
+                            ` : ''}
 
                             <div class="controls">
                                 ${book.is_running 
