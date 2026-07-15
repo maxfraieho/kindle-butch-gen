@@ -1239,7 +1239,20 @@
                                 <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Translate</label>
                                 <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Build Kindle AZW3</label>
                             </div>
-                            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                            
+                            <div class="form-group" style="margin-top:0.75rem; margin-bottom:0.75rem;">
+                                <label for="manga-res-${book.slug}" style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.25rem;">Target Device / Screen Resolution</label>
+                                <select id="manga-res-${book.slug}" class="form-control" style="padding: 0.4rem 0.5rem; font-size: 0.85rem; width: 100%;">
+                                    <option value="1280x1920" selected>Safe Default (1280x1920)</option>
+                                    <option value="1860x2480">Kindle Scribe (1860x2480)</option>
+                                    <option value="1236x1648">Paperwhite 5 / Oasis 3 (1236x1648)</option>
+                                    <option value="1072x1448">Paperwhite 3/4 / Voyage / Basic 11 (1072x1448)</option>
+                                    <option value="600x800">Kindle Basic / Older (600x800)</option>
+                                    <option value="original">Original (No resizing)</option>
+                                </select>
+                            </div>
+
+                            <div style="font-size: 0.8rem; color: var(--text-secondary); padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
                                 📖 <strong>Manga Mode:</strong> Packs pages to CBZ and compiles to AZW3 for Kindle (RTL layout).
                             </div>
                         `;
@@ -1449,11 +1462,13 @@
             const no_ebook = !ebook;
             const no_audio = !audio;
 
+            const mangaRes = document.getElementById(`manga-res-${slug}`)?.value || '1280x1920';
+
             try {
                 const response = await fetch(`/api/run/${slug}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clean, no_translate, no_ebook, no_audio })
+                    body: JSON.stringify({ clean, no_translate, no_ebook, no_audio, manga_resolution: mangaRes })
                 });
                 const res = await response.json();
                 if (response.ok) {

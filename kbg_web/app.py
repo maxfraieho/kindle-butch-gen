@@ -638,6 +638,19 @@ def run_conversion_api(slug):
             cmd.append("--no-translate")
         if data.get("no_ebook"):
             cmd.append("--no-ebook")
+            
+        manga_resolution = data.get("manga_resolution", "1280x1920")
+        max_width, max_height = 1280, 1920
+        if manga_resolution == "original":
+            max_width, max_height = 0, 0
+        elif "x" in manga_resolution:
+            try:
+                w_str, h_str = manga_resolution.split("x")
+                max_width, max_height = int(w_str), int(h_str)
+            except ValueError:
+                pass
+        
+        cmd.extend(["--max-width", str(max_width), "--max-height", str(max_height)])
     else:
         # Check if it is an EPUB book (so we use direct EPUB translation)
         epub_source_file = os.path.join(paths["book_dir"], f"{slug}.epub")
