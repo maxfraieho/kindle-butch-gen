@@ -513,6 +513,43 @@
         let bookData = null;
         let currentMangaPage = 0;
 
+        function escapeHtml(s) {
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        function wordDiffHtml(oldText, newText, showNew) {
+            const oldWords = (oldText || '').split(/(\s+)/);
+            const newWords = (newText || '').split(/(\s+)/);
+            const m = oldWords.length, n = newWords.length;
+            const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+            for (let i = m - 1; i >= 0; i--) {
+                for (let j = n - 1; j >= 0; j--) {
+                    dp[i][j] = oldWords[i] === newWords[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+                }
+            }
+            let i = 0, j = 0;
+            const out = [];
+            while (i < m && j < n) {
+                if (oldWords[i] === newWords[j]) {
+                    out.push({ w: showNew ? newWords[j] : oldWords[i], same: true });
+                    i++; j++;
+                } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                    if (!showNew) out.push({ w: oldWords[i], same: false });
+                    i++;
+                } else {
+                    if (showNew) out.push({ w: newWords[j], same: false });
+                    j++;
+                }
+            }
+            while (!showNew && i < m) { out.push({ w: oldWords[i], same: false }); i++; }
+            while (showNew && j < n) { out.push({ w: newWords[j], same: false }); j++; }
+            return out.map(o => o.same ? escapeHtml(o.w) :
+                `<span style="background:${showNew ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}; text-decoration:${showNew ? 'none' : 'line-through'};">${escapeHtml(o.w)}</span>`
+            ).join('');
+        }
+
         async function fetchBookData() {
             try {
                 // First, check list of books to find metadata
@@ -553,25 +590,58 @@
             }
 
             area.innerHTML = `
-                <div class="unified-viewer">
-                    <div class="viewer-viewport" id="viewer-viewport"></div>
-                    
-                    <div class="unified-controls">
-                        <button class="nav-btn" id="btn-prev">← Назад</button>
-                        
-                        <div class="segmented-control" id="viewer-state-selector">
-                            <button class="segment-btn active" data-state="original">Original</button>
-                            <button class="segment-btn" data-state="cleaned">Cleaned</button>
-                            <button class="segment-btn" data-state="processed">Translated</button>
-                        </div>
-                        
-                        <button class="nav-btn" id="btn-next">Вперед →</button>
-                    </div>
-                    <div class="unified-status" id="page-indicator">Сторінка ...</div>
+                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                    <button class="tab-btn active" id="manga-tab-viewer" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📖 Viewer</button>
+                    <button class="tab-btn" id="manga-tab-pending" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📝 Pending Edits</button>
                 </div>
+                <div id="manga-tab-content"></div>
             `;
 
+            const mangaTabContent = document.getElementById("manga-tab-content");
+            const btnViewer = document.getElementById("manga-tab-viewer");
+            const btnPending = document.getElementById("manga-tab-pending");
+
+            btnViewer.addEventListener("click", () => {
+                btnViewer.style.color = "var(--primary)"; btnViewer.style.borderBottomColor = "var(--primary)";
+                btnPending.style.color = "var(--text-secondary)"; btnPending.style.borderBottomColor = "transparent";
+                renderMangaViewerTab();
+            });
+            btnPending.addEventListener("click", () => {
+                btnPending.style.color = "var(--primary)"; btnPending.style.borderBottomColor = "var(--primary)";
+                btnViewer.style.color = "var(--text-secondary)"; btnViewer.style.borderBottomColor = "transparent";
+                renderMangaPendingEditsTab();
+            });
+
             let activeState = "processed";
+            let currentPageBubbles = [];
+            let selectedBubbleId = null;
+
+            function renderMangaViewerTab() {
+                mangaTabContent.innerHTML = `
+                    <div class="unified-viewer">
+                        <div class="viewer-viewport" id="viewer-viewport"></div>
+
+                        <div class="unified-controls">
+                            <button class="nav-btn" id="btn-prev">← Назад</button>
+
+                            <div class="segmented-control" id="viewer-state-selector">
+                                <button class="segment-btn active" data-state="original">Original</button>
+                                <button class="segment-btn" data-state="cleaned">Cleaned</button>
+                                <button class="segment-btn" data-state="processed">Translated</button>
+                            </div>
+
+                            <button class="nav-btn" id="btn-next">Вперед →</button>
+                        </div>
+                        <div class="unified-status" id="page-indicator">Сторінка ...</div>
+                        <div id="manga-regen-bar" style="display:none; justify-content:center; margin-top:0.5rem;">
+                            <button class="nav-btn" id="manga-regen-btn" style="background:var(--primary); color:#fff; padding:0.6rem 1.2rem;">🔄 Regenerate page</button>
+                        </div>
+                        <div id="manga-bubble-panel" style="display:none;"></div>
+                    </div>
+                `;
+                wireMangaViewer();
+                showPage(currentMangaPage);
+            }
 
             const updateSegments = () => {
                 document.querySelectorAll(".segment-btn").forEach(btn => {
@@ -614,6 +684,9 @@
                     }
                 }
 
+                closeBubblePanel();
+                document.getElementById("manga-regen-bar").style.display = "none";
+
                 if (isEmpty) {
                     viewport.innerHTML = `
                         <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:50vh; color:var(--text-secondary)">
@@ -621,6 +694,21 @@
                             <div style="font-size:0.8rem; margin-top:0.5rem">Запустіть конвеєр перекладу манги</div>
                         </div>
                     `;
+                } else if (activeState === "processed") {
+                    // TASK-21: clickable bubble overlay only on the
+                    // Translated view - the wrapper below is sized exactly
+                    // to the rendered <img> (inline-block) so absolutely
+                    // positioned bubble divs inside it line up correctly.
+                    viewport.innerHTML = `
+                        <div class="viewport-image-wrapper">
+                            <div id="bubble-overlay-container" style="position:relative; display:inline-block; line-height:0;">
+                                <img class="viewport-image" id="manga-viewport-img" src="${imageUrl}" alt="${titleText}">
+                            </div>
+                        </div>
+                    `;
+                    const imgEl = document.getElementById("manga-viewport-img");
+                    const onReady = () => loadBubblesOverlay(slug, tgtFile);
+                    if (imgEl.complete) onReady(); else imgEl.addEventListener("load", onReady);
                 } else {
                     viewport.innerHTML = `
                         <div class="viewport-image-wrapper">
@@ -632,35 +720,332 @@
                 document.getElementById("page-indicator").textContent = `Сторінка ${idx + 1} з ${bookData.source_pages.length} | ${activeState.toUpperCase()}`;
                 document.getElementById("btn-prev").disabled = idx === 0;
                 document.getElementById("btn-next").disabled = idx === bookData.source_pages.length - 1;
-                
+
                 updateSegments();
             };
 
-            document.querySelectorAll(".segment-btn").forEach(btn => {
-                btn.addEventListener("click", () => {
-                    activeState = btn.dataset.state;
-                    showPage(currentMangaPage);
+            // TASK-21: bubble quality-flag color coding, per the doc's
+            // thresholds - red = auto-fix didn't fully resolve it, yellow
+            // = borderline, none = clean.
+            const bubbleFlagColor = (qf) => {
+                if (!qf || Object.keys(qf).length === 0) return null;
+                if (qf.overflow_ratio > 1.0 || qf.hit_min_size) return "#ef4444";
+                if (qf.overflow_ratio >= 0.9) return "#f59e0b";
+                return null;
+            };
+
+            async function loadBubblesOverlay(bookSlug, pageFilename) {
+                try {
+                    const res = await fetch(`/api/preview/manga-bubbles/${bookSlug}/${pageFilename}`);
+                    if (!res.ok) { currentPageBubbles = []; renderBubbleOverlayDivs(); return; }
+                    const data = await res.json();
+                    currentPageBubbles = data.bubbles || [];
+                } catch (err) {
+                    currentPageBubbles = [];
+                }
+                renderBubbleOverlayDivs();
+                refreshRegenerateButton();
+            }
+
+            function renderBubbleOverlayDivs() {
+                const container = document.getElementById("bubble-overlay-container");
+                const img = document.getElementById("manga-viewport-img");
+                if (!container || !img || !img.naturalWidth) return;
+
+                container.querySelectorAll(".bubble-hotspot").forEach(el => el.remove());
+
+                const scaleX = img.clientWidth / img.naturalWidth;
+                const scaleY = img.clientHeight / img.naturalHeight;
+
+                currentPageBubbles.forEach(b => {
+                    const [x1, y1, x2, y2] = b.bbox;
+                    const color = bubbleFlagColor(b.quality_flags);
+                    const div = document.createElement("div");
+                    div.className = "bubble-hotspot";
+                    div.style.cssText = `position:absolute; left:${x1 * scaleX}px; top:${y1 * scaleY}px; width:${(x2 - x1) * scaleX}px; height:${(y2 - y1) * scaleY}px; border:2px solid ${color || 'rgba(139,92,246,0.5)'}; border-radius:4px; cursor:pointer; box-sizing:border-box; transition:background-color 120ms;`;
+                    div.title = b.translated_text;
+                    div.addEventListener("mouseenter", () => { div.style.backgroundColor = "rgba(139,92,246,0.15)"; });
+                    div.addEventListener("mouseleave", () => { div.style.backgroundColor = "transparent"; });
+                    div.addEventListener("click", () => selectBubble(b.id));
+                    container.appendChild(div);
                 });
-            });
+            }
+            window.addEventListener("resize", () => { if (document.getElementById("bubble-overlay-container")) renderBubbleOverlayDivs(); });
 
-            document.getElementById("btn-prev").addEventListener("click", () => {
-                if (currentMangaPage > 0) showPage(currentMangaPage - 1);
-            });
-            document.getElementById("btn-next").addEventListener("click", () => {
-                if (currentMangaPage < bookData.source_pages.length - 1) showPage(currentMangaPage + 1);
-            });
+            function selectBubble(bubbleId) {
+                selectedBubbleId = bubbleId;
+                const bubble = currentPageBubbles.find(b => b.id === bubbleId);
+                if (!bubble) return;
 
-            const keyHandler = (e) => {
-                if (e.key === "ArrowLeft" && currentMangaPage > 0) {
-                    showPage(currentMangaPage - 1);
-                } else if (e.key === "ArrowRight" && currentMangaPage < bookData.source_pages.length - 1) {
-                    showPage(currentMangaPage + 1);
+                const img = document.getElementById("manga-viewport-img");
+                const panel = document.getElementById("manga-bubble-panel");
+                const [x1, y1, x2, y2] = bubble.bbox;
+
+                // Crop the bubble region from the already-loaded <img> via
+                // canvas - no extra network request needed for the preview.
+                const canvas = document.createElement("canvas");
+                canvas.width = x2 - x1;
+                canvas.height = y2 - y1;
+                const ctx = canvas.getContext("2d");
+                try { ctx.drawImage(img, x1, y1, x2 - x1, y2 - y1, 0, 0, x2 - x1, y2 - y1); } catch (e) {}
+                const cropDataUrl = canvas.toDataURL();
+
+                const qf = bubble.quality_flags || {};
+                let qfText = "Автофікс не знайшов проблем із цією бульбашкою.";
+                if (Object.keys(qf).length > 0) {
+                    const parts = [];
+                    if (qf.overflow_ratio > 1.0) parts.push(`текст виходить за межі бульбашки на ${Math.round((qf.overflow_ratio - 1) * 100)}%`);
+                    if (qf.hit_min_size) parts.push(`шрифт на мінімальному розмірі ${qf.chosen_size}px`);
+                    qfText = parts.join("; ") || "Позначено автофіксом як межовий випадок.";
+                }
+
+                panel.style.display = "block";
+                panel.innerHTML = `
+                    <div class="paragraph-card" style="margin-top:1rem;">
+                        <div class="card-meta">
+                            <span>Бульбашка ${bubble.id}</span>
+                            <button class="nav-btn" style="padding:0.25rem 0.6rem; font-size:0.78rem;" onclick="closeBubblePanel()">✕ Закрити</button>
+                        </div>
+                        <div style="text-align:center; margin-bottom:0.8rem;">
+                            <img src="${cropDataUrl}" style="max-width:100%; border-radius:6px; border:1px solid var(--border-color);">
+                        </div>
+                        <div class="stage-box" style="margin-bottom:0.6rem;">
+                            <div class="stage-title">Оригінал (OCR, read-only)</div>
+                            <div class="stage-content">${escapeHtml(bubble.original_text)}</div>
+                        </div>
+                        <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.3rem;">Переклад</label>
+                        <textarea id="bubble-edit-textarea" class="edit-textarea" style="width:100%; min-height:80px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(bubble.translated_text)}</textarea>
+                        <div style="font-size:0.8rem; color:var(--text-secondary); margin:0.5rem 0;">📊 ${qfText}</div>
+                        <div style="display:flex; align-items:center; gap:0.6rem;">
+                            <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveBubbleEdit('${slug}', '${tgtFileForPanel()}')">💾 Save</button>
+                            <span id="bubble-edit-status" style="font-size:0.8rem; color:var(--text-secondary);"></span>
+                        </div>
+                    </div>
+                `;
+                panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+
+            function tgtFileForPanel() {
+                return bookData.translated_pages[currentMangaPage];
+            }
+
+            window.closeBubblePanel = () => {
+                selectedBubbleId = null;
+                const panel = document.getElementById("manga-bubble-panel");
+                if (panel) { panel.style.display = "none"; panel.innerHTML = ""; }
+            };
+
+            window.saveBubbleEdit = async (bookSlug, pageFilename) => {
+                const textarea = document.getElementById("bubble-edit-textarea");
+                const statusEl = document.getElementById("bubble-edit-status");
+                const newText = textarea.value.trim();
+                if (!newText) return;
+                statusEl.textContent = "Saving...";
+                try {
+                    const res = await fetch(`/api/edit/manga-text/${bookSlug}/${pageFilename}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ bubble_id: selectedBubbleId, translated_text: newText })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.message);
+                    statusEl.textContent = "Saved as pending edit.";
+                    refreshRegenerateButton();
+                } catch (err) {
+                    statusEl.textContent = "Error: " + err.message;
                 }
             };
-            document.removeEventListener("keydown", keyHandler);
-            document.addEventListener("keydown", keyHandler);
 
-            showPage(0);
+            async function refreshRegenerateButton() {
+                const bar = document.getElementById("manga-regen-bar");
+                if (!bar) return;
+                const tgtFile = bookData.translated_pages && bookData.translated_pages[currentMangaPage];
+                if (!tgtFile) { bar.style.display = "none"; return; }
+                try {
+                    const res = await fetch(`/api/edit/queue/${slug}?mode=manga&status=pending`);
+                    const edits = await res.json();
+                    const hasPending = edits.some(e => e.target_id.startsWith(`${tgtFile}#`));
+                    bar.style.display = hasPending ? "flex" : "none";
+                } catch (err) {
+                    bar.style.display = "none";
+                }
+            }
+
+            function wireMangaViewer() {
+                document.getElementById("manga-regen-btn").addEventListener("click", async () => {
+                    const btn = document.getElementById("manga-regen-btn");
+                    const tgtFile = bookData.translated_pages[currentMangaPage];
+                    btn.disabled = true;
+                    btn.textContent = "⏳ Regenerating... (may take up to a minute)";
+                    try {
+                        const res = await fetch(`/api/edit/regenerate-manga-page/${slug}/${tgtFile}`, { method: "POST" });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.message);
+                        closeBubblePanel();
+                        // Cache-bust the <img> src since the file changed
+                        // but the filename didn't.
+                        showPage(currentMangaPage);
+                    } catch (err) {
+                        alert("Regenerate failed: " + err.message);
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = "🔄 Regenerate page";
+                    }
+                });
+
+                document.querySelectorAll(".segment-btn").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        activeState = btn.dataset.state;
+                        showPage(currentMangaPage);
+                    });
+                });
+
+                document.getElementById("btn-prev").addEventListener("click", () => {
+                    if (currentMangaPage > 0) showPage(currentMangaPage - 1);
+                });
+                document.getElementById("btn-next").addEventListener("click", () => {
+                    if (currentMangaPage < bookData.source_pages.length - 1) showPage(currentMangaPage + 1);
+                });
+
+                const keyHandler = (e) => {
+                    if (e.key === "ArrowLeft" && currentMangaPage > 0) {
+                        showPage(currentMangaPage - 1);
+                    } else if (e.key === "ArrowRight" && currentMangaPage < bookData.source_pages.length - 1) {
+                        showPage(currentMangaPage + 1);
+                    }
+                };
+                document.removeEventListener("keydown", keyHandler);
+                document.addEventListener("keydown", keyHandler);
+            }
+
+            async function renderMangaPendingEditsTab() {
+                mangaTabContent.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">Завантаження...</div>`;
+
+                let edits = [];
+                let flags = [];
+                try {
+                    const [editsRes, flagsRes] = await Promise.all([
+                        fetch(`/api/edit/queue/${slug}?mode=manga&status=pending`),
+                        fetch(`/api/preview/manga-quality-flags/${slug}`)
+                    ]);
+                    edits = await editsRes.json();
+                    const flagsData = await flagsRes.json();
+                    flags = flagsData.flags || [];
+                } catch (err) {
+                    mangaTabContent.innerHTML = `<div style="text-align:center; padding:2rem; color:#ef4444;">Failed to load: ${err.message}</div>`;
+                    return;
+                }
+
+                // Group pending edits by page (target_id = "<page>#<bubble_id>").
+                const byPage = {};
+                edits.forEach(e => {
+                    const [page] = e.target_id.split("#");
+                    (byPage[page] = byPage[page] || []).push(e);
+                });
+
+                let html = "";
+                if (Object.keys(byPage).length === 0) {
+                    html += `<div class="glass-card" style="text-align:center; padding:2rem; color:var(--text-secondary);">Немає pending-правок для манги.</div>`;
+                } else {
+                    for (const [page, pageEdits] of Object.entries(byPage)) {
+                        html += `
+                            <div class="paragraph-card" style="margin-bottom:1rem;">
+                                <div class="card-meta">
+                                    <span>📄 ${page} — ${pageEdits.length} правк${pageEdits.length === 1 ? 'а' : 'и'}</span>
+                                    <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="regeneratePageFromQueue('${page}', this)">🔄 Regenerate page</button>
+                                </div>
+                                ${pageEdits.map(e => `
+                                    <div style="border-top:1px dashed var(--border-color); padding-top:0.6rem; margin-top:0.6rem;">
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.4rem;">${e.target_id.split("#")[1]}</div>
+                                        <div class="grid-stages">
+                                            <div class="stage-box">
+                                                <div class="stage-title">Before</div>
+                                                <div class="stage-content">${wordDiffHtml(e.original_value, e.edited_value, false)}</div>
+                                            </div>
+                                            <div class="stage-box">
+                                                <div class="stage-title">After</div>
+                                                <div class="stage-content stage-stressed">${wordDiffHtml(e.original_value, e.edited_value, true)}</div>
+                                            </div>
+                                        </div>
+                                        <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                                            <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="approveMangaEdit('${e.id}', this)">✅ Approve</button>
+                                            <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="discardEdit('${e.id}', this)">🗑️ Discard</button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    }
+                }
+
+                // Auto-flagged subsection: bubbles TASK-20's auto-fix didn't
+                // fully resolve, whether or not a human has touched them.
+                html += `<h3 style="color:var(--text-secondary); font-size:0.95rem; margin:1.5rem 0 0.8rem;">⚠️ Auto-flagged (не редаговано вручну)</h3>`;
+                if (flags.length === 0) {
+                    html += `<div class="glass-card" style="text-align:center; padding:1.5rem; color:var(--text-secondary); font-size:0.9rem;">Немає авто-позначених проблем.</div>`;
+                } else {
+                    html += `<div class="glass-card" style="padding:1rem;"><table style="width:100%; font-size:0.85rem; border-collapse:collapse;">
+                        <thead><tr style="color:var(--text-secondary); text-align:left;"><th style="padding:0.4rem;">Page</th><th>Reason</th><th>Overflow</th><th>Size</th></tr></thead>
+                        <tbody>
+                        ${flags.map(f => `
+                            <tr style="border-top:1px solid var(--border-color);">
+                                <td style="padding:0.4rem;">${f.page}</td>
+                                <td>${f.reason === 'overflow' ? 'Overflow' : 'Min font size'}</td>
+                                <td>${f.overflow_ratio}x</td>
+                                <td>${f.chosen_size}px</td>
+                            </tr>
+                        `).join('')}
+                        </tbody>
+                    </table></div>`;
+                }
+
+                mangaTabContent.innerHTML = html;
+            }
+
+            window.approveMangaEdit = async (editId, btn) => {
+                btn.disabled = true;
+                btn.textContent = "Approving...";
+                try {
+                    const res = await fetch(`/api/edit/approve/${slug}/${editId}`, { method: "POST" });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.message);
+                    renderMangaPendingEditsTab();
+                } catch (err) {
+                    alert("Approve failed: " + err.message);
+                    btn.disabled = false;
+                    btn.textContent = "✅ Approve";
+                }
+            };
+
+            window.regeneratePageFromQueue = async (page, btn) => {
+                btn.disabled = true;
+                btn.textContent = "⏳...";
+                try {
+                    const res = await fetch(`/api/edit/regenerate-manga-page/${slug}/${page}`, { method: "POST" });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.message);
+                    renderMangaPendingEditsTab();
+                } catch (err) {
+                    alert("Regenerate failed: " + err.message);
+                    btn.disabled = false;
+                    btn.textContent = "🔄 Regenerate page";
+                }
+            };
+
+            window.discardEdit = async (editId, btn) => {
+                btn.disabled = true;
+                try {
+                    const res = await fetch(`/api/edit/discard/${slug}/${editId}`, { method: "POST" });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.message);
+                    renderMangaPendingEditsTab();
+                } catch (err) {
+                    alert("Discard failed: " + err.message);
+                    btn.disabled = false;
+                }
+            };
+
+            renderMangaViewerTab();
         }
 
         let currentParagraphsPage = 1;
@@ -856,43 +1241,6 @@
                             </div>
                         </div>
                     `).join('');
-                }
-
-                function wordDiffHtml(oldText, newText, showNew) {
-                    const oldWords = (oldText || '').split(/(\s+)/);
-                    const newWords = (newText || '').split(/(\s+)/);
-                    const m = oldWords.length, n = newWords.length;
-                    const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
-                    for (let i = m - 1; i >= 0; i--) {
-                        for (let j = n - 1; j >= 0; j--) {
-                            dp[i][j] = oldWords[i] === newWords[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-                        }
-                    }
-                    let i = 0, j = 0;
-                    const out = [];
-                    while (i < m && j < n) {
-                        if (oldWords[i] === newWords[j]) {
-                            out.push({ w: showNew ? newWords[j] : oldWords[i], same: true });
-                            i++; j++;
-                        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-                            if (!showNew) out.push({ w: oldWords[i], same: false });
-                            i++;
-                        } else {
-                            if (showNew) out.push({ w: newWords[j], same: false });
-                            j++;
-                        }
-                    }
-                    while (!showNew && i < m) { out.push({ w: oldWords[i], same: false }); i++; }
-                    while (showNew && j < n) { out.push({ w: newWords[j], same: false }); j++; }
-                    return out.map(o => o.same ? escapeHtml(o.w) :
-                        `<span style="background:${showNew ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}; text-decoration:${showNew ? 'none' : 'line-through'};">${escapeHtml(o.w)}</span>`
-                    ).join('');
-                }
-
-                function escapeHtml(s) {
-                    const div = document.createElement('div');
-                    div.textContent = s;
-                    return div.innerHTML;
                 }
 
                 window.approveEdit = async (editId, btn) => {
