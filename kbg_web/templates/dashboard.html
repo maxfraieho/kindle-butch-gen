@@ -1934,15 +1934,33 @@
             const btn = document.getElementById("modelsStartBtn");
             btn.disabled = true;
             btn.textContent = "Starting...";
-            
+
             try {
                 const res = await fetch("/api/models/start", { method: "POST" });
                 const data = await res.json();
-                if (data.status === "success") {
-                    alert("Translation server start triggered! It will take a few seconds to load the model.");
-                    setTimeout(loadModelsData, 4000);
-                } else {
+                if (data.status !== "success") {
                     alert("Error starting server: " + data.message);
+                    return;
+                }
+
+                // Keep the button disabled until the server actually
+                // reports running (model load can take up to ~30s+ on
+                // device) instead of re-enabling right after the
+                // fire-and-forget /api/models/start call returns - avoids
+                // a double-click spawning a second server (TASK-18).
+                const deadline = Date.now() + 90000;
+                let running = false;
+                while (Date.now() < deadline) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    await loadModelsData();
+                    const statusEl = document.getElementById("modelsServerStatus");
+                    if (statusEl && statusEl.innerText === "Running") {
+                        running = true;
+                        break;
+                    }
+                }
+                if (!running) {
+                    alert("Server did not report as running within 90s - check ~/llama-translation-server.log on-device.");
                 }
             } catch (err) {
                 alert("Request failed: " + err);
