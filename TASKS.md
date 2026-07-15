@@ -131,3 +131,21 @@
 * **Verification Method:** Verified on the OnePlus 13 phone by successfully compiling Mapaki, running the updated `translate_manga.py` on Frieren manga, confirming image downscaling from 1500x2250 to 1280x1920, and successfully producing a valid 1.4MB `test_manga_out.azw3` file. Verified that the dashboard successfully hides the settings block when loading manga.
 * **Type:** `direct`
 
+## [x] TASK-17: Onboarding sweep — delete actions, page-jump pagination, verify UI-model-management, remove Proofreading stage
+* **Problem:** Following `AGENT_ONBOARDING_kindle-butch-gen.md`'s 7-item list:
+  1. Books could not be removed from the dashboard once added.
+  2. Output files (per-book and in the newly-added Downloads Archive) could not be deleted.
+  3. The chunk/paragraph previewer only had Prev/Next (30 chunks/page), so reaching page 100+ of a long book required dozens of clicks.
+  4. Repeat manga conversion with `--no-translate` was re-copying the *original* untranslated page into output, discarding prior translation work.
+  5. The Proofreading stage (`edit_epub.py`, a second-pass LLM re-check of translated text run via `kbg.sh edit <slug>`) turned out not to be needed in practice, but its backend logic and UI (progress-bar step, Editor Model selector) were still present.
+* **Solution:**
+  1. Added `POST /api/delete/<slug>` (refuses while running) + a Delete button on each book card.
+  2. Added `POST /api/delete-file/<slug>/<filename>` (reuses the existing path-traversal guard from `download_output_file`) + delete buttons in `downloads.html` and the per-book downloads list in `dashboard.html`.
+  3. Added a numeric page-jump input + Go button to `stages.html`'s paragraph pagination controls, reusing the existing `fetchParagraphsPage()`/`/api/preview/book/<slug>?page=` machinery — no backend change needed.
+  4. Recovered and applied a stale-but-correct fix found uncommitted on the dev server: `--no-translate` now looks up the already-translated image first, falling back to the original only if it hasn't been translated yet.
+  5. Confirmed `/api/models`, `/api/models/configure`, `/api/models/start`, `/api/models/stop` (run the translation model server from the UI) were already implemented — no new code needed, just live-verified.
+  6. Deleted `edit_epub.py`, removed the `kbg.sh edit` action, and stripped `edit_percent`/`edit_progress.json`/`editor_model` from `status_helper.py`, `app.py`, `monitor_book.sh`, and the dashboard's progress tracker + Settings modal.
+  7. Also recovered/committed a global Downloads Archive page (`/downloads`, `kbg_web/templates/downloads.html`) and a `dashboard.html` bug fix (missing null-checks in the `formValues` restore logic) found alongside the manga fix on the dev server.
+* **Verification Method:** `python3 -m py_compile` on all touched Python files; grepped the full repo to confirm no dangling `edit_epub`/`edit_percent`/`editor_model` references after removal; deployed to the OnePlus 13 via scp (git pull wasn't possible — phone has no SSH key to reach GitHub or the dev server) and restarted `kbg_web`; live-verified via `https://kindle.exodus.pp.ua`: `/api/status` no longer returns `edit_percent`, `/api/models` no longer returns `editor_model`, `/api/downloads` and `/downloads` respond correctly, `/api/delete*` correctly reject nonexistent targets, and `/api/preview/book/vibe-programming` confirmed real-world need for item 4 (169 pages of 30 chunks each). Did not destructively test delete against real book data.
+* **Type:** `delegate` (dev-server WIP recovery) + `direct` (remaining items)
+
