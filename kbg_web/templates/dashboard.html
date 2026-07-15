@@ -1399,6 +1399,10 @@
                                 }
                                 <button onclick="toggleBookTerminal('${book.slug}', '${book.title}')" class="btn btn-secondary">Console Logs</button>
                                 <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center;">Visual Preview</a>
+                                ${!book.is_running
+                                    ? `<button onclick="deleteBook('${book.slug}', '${book.title.replace(/'/g, "\\'")}')" class="btn btn-danger" title="Delete this book permanently">🗑️ Delete</button>`
+                                    : ''
+                                }
                             </div>
 
                             ${book.output_files && book.output_files.length > 0 ? `
@@ -1552,6 +1556,23 @@
                     fetchBooks();
                 } else {
                     alert('Error stopping conversion: ' + res.message);
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            }
+        }
+
+        async function deleteBook(slug, title) {
+            if (!confirm(`Delete "${title}" permanently? This removes all source, cache, and output files and cannot be undone.`)) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/delete/${slug}`, { method: 'POST' });
+                const res = await response.json();
+                if (response.ok) {
+                    fetchBooks();
+                } else {
+                    alert('Error deleting book: ' + res.message);
                 }
             } catch (err) {
                 alert('Request failed: ' + err.message);
