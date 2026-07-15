@@ -752,6 +752,8 @@
                             <button class="nav-btn" id="para-prev-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage <= 1 ? 'disabled' : ''}>← Prev</button>
                             <span id="para-page-indicator" style="font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; font-family: monospace;">Page ${currentParagraphsPage}/${totalPages} (${totalChunks} chunks)</span>
                             <button class="nav-btn" id="para-next-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                            <input type="number" id="para-page-jump" min="1" max="${totalPages}" placeholder="#" style="width: 3.5rem; padding: 0.4rem 0.5rem; font-size: 0.85rem; background: #18181b; color: white; border: 1px solid var(--border-color); border-radius: 6px; text-align: center;">
+                            <button class="nav-btn" id="para-jump-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Go</button>
                         </div>
                     </div>
                     <div class="book-stages-list" id="paragraphs-list"></div>
@@ -819,6 +821,21 @@
                     if (currentParagraphsPage < totalPages) {
                         fetchParagraphsPage(currentParagraphsPage + 1);
                     }
+                });
+
+                const jumpToPage = () => {
+                    const input = document.getElementById("para-page-jump");
+                    const target = parseInt(input.value, 10);
+                    if (!Number.isNaN(target)) {
+                        const clamped = Math.min(Math.max(target, 1), totalPages);
+                        if (clamped !== currentParagraphsPage) {
+                            fetchParagraphsPage(clamped);
+                        }
+                    }
+                };
+                document.getElementById("para-jump-btn").addEventListener("click", jumpToPage);
+                document.getElementById("para-page-jump").addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") jumpToPage();
                 });
 
                 renderItems("all");
