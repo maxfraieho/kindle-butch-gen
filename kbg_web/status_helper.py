@@ -155,15 +155,6 @@ def calculate_progress(slug):
                 except Exception:
                     pass
                     
-            edit_percent = 0.0
-            edit_prog_path = os.path.join(paths["cache_dir"], "edit_progress.json")
-            if os.path.exists(edit_prog_path):
-                try:
-                    with open(edit_prog_path, "r", encoding="utf-8") as f:
-                        edit_percent = json.load(f).get("percent", 0.0)
-                except Exception:
-                    pass
-                    
             return {
                 "is_manga": is_manga,
                 "manga_percent": pct,
@@ -171,7 +162,6 @@ def calculate_progress(slug):
                 "manga_total_pages": tot,
                 "marker_percent": 100.0,
                 "translation_percent": pct,
-                "edit_percent": edit_percent,
                 "stress_percent": 0.0,
                 "tts_percent": 0.0
             }
@@ -348,20 +338,10 @@ def calculate_progress(slug):
         tts_percent = 0.0
         stress_percent = 0.0
     
-    edit_percent = 0.0
-    edit_prog_path = os.path.join(paths["cache_dir"], "edit_progress.json")
-    if os.path.exists(edit_prog_path):
-        try:
-            with open(edit_prog_path, "r", encoding="utf-8") as f:
-                edit_percent = json.load(f).get("percent", 0.0)
-        except Exception:
-            pass
-            
     return {
         "is_manga": False,
         "marker_percent": round(marker_percent, 1),
         "translation_percent": round(translation_percent, 1),
-        "edit_percent": round(edit_percent, 1),
         "stress_percent": round(stress_percent, 1),
         "tts_percent": round(tts_percent, 1)
     }

@@ -64,8 +64,7 @@ try:
     t = p.get('translation_percent', 0)
     s = p.get('stress_percent', 0)
     tts = p.get('tts_percent', 0)
-    e = p.get('edit_percent', 0)
-    print(f'{int(running)}|{t:.1f}|{s:.1f}|{tts:.1f}|{e:.1f}')
+    print(f'{int(running)}|{t:.1f}|{s:.1f}|{tts:.1f}')
 except Exception as ex:
     print(f'error:{ex}')
 " 2>/dev/null)
@@ -76,8 +75,8 @@ except Exception as ex:
         continue
     fi
 
-    IFS='|' read -r running trans stress tts edit <<< "$STATUS"
-    log "Running=$running | Trans=${trans}% | Stress=${stress}% | TTS=${tts}% | Edit=${edit}%"
+    IFS='|' read -r running trans stress tts <<< "$STATUS"
+    log "Running=$running | Trans=${trans}% | Stress=${stress}% | TTS=${tts}%"
 
     # Check if fully done
     if (( $(echo "$tts >= 99.9" | python3 -c "import sys; print(int(eval(sys.stdin.read())))") )); then

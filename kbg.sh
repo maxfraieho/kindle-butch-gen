@@ -20,7 +20,6 @@ show_usage() {
   echo "Actions:"
   echo "  add <slug> --pdf <path> --title <title> --authors <authors> --lang <lang>"
   echo "  run <slug> [--clean] [--no-translate] [--no-ebook] [--no-audio]"
-  echo "  edit <slug>"
   echo "  status <slug>"
   echo "  serve [--port <port>] [--dev]"
   exit 1
@@ -225,76 +224,6 @@ except Exception:
     
     # Run the orchestrator with safe argument passing
     python3 run_conversion_batches.py --book "$SLUG" "${run_args[@]}"
-    ;;
-
-  edit)
-    SLUG="$2"
-    if [ -z "$SLUG" ]; then
-      echo "Error: Missing book slug" >&2
-      show_usage
-    fi
-    validate_slug "$SLUG"
-    
-    MODEL_PATH=$(python3 -c "import json, os; print(json.load(open('/data/data/com.termux/files/home/kindle-butch-gen/global_settings.json')).get('editor_model', '/data/data/com.termux/files/home/models/qwen25-coder-7b/qwen2.5-coder-7b-instruct-q4_0.gguf'))")
-    MODEL_DIR=$(dirname "$MODEL_PATH")
-    if [ ! -f "$MODEL_PATH" ]; then
-      echo "Editor model (Qwen-2.5-Coder-7B) not found at $MODEL_PATH."
-      echo "Downloading from Hugging Face..."
-      mkdir -p "$MODEL_DIR"
-      curl -L -o "$MODEL_PATH" "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_0.gguf"
-    fi
-    
-    echo "Starting editor server on port 8081..."
-    pkill -f "llama-server.*8081" 2>/dev/null || true
-    sleep 1
-    
-    cd ~/llama.cpp
-    LD_LIBRARY_PATH=$HOME:/system/lib64:/vendor/lib64:$PREFIX/lib nohup ./build/bin/llama-server \
-      -m "$MODEL_PATH" \
-      -c 2048 \
-      -ngl 99 \
-      -t 4 \
-      --host 0.0.0.0 \
-      --port 8081 \
-      > ~/llama-editor-server.log 2>&1 &
-      
-    echo -n "Waiting for editor server to boot..."
-    for i in {1..45}; do
-      if LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
-        echo " Connected!"
-        break
-      fi
-      if ! pgrep -f "llama-server.*8081" >/dev/null; then
-        echo " Error: llama-server process died." >&2
-        exit 1
-      fi
-      echo -n "."
-      sleep 1
-    done
-    
-    if ! LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081/health" | grep -q '"status":\s*"ok"' 2>/dev/null; then
-      echo " Error: Editor server failed to load the model on port 8081." >&2
-      exit 1
-    fi
-    
-    cd "$REPO_DIR"
-    
-    echo "Running proofreading/editing pipeline..."
-    python3 edit_epub.py \
-      --input "books/$SLUG/output/${SLUG}_translated_uk.epub" \
-      --output "books/$SLUG/output/${SLUG}_edited_uk.epub" \
-      --book "$SLUG"
-      
-    # Compile the edited EPUB to AZW3
-    echo "Converting edited EPUB to AZW3..."
-    proot-distro login ubuntu -- ebook-convert \
-      "/data/data/com.termux/files/home/kindle-butch-gen/books/$SLUG/output/${SLUG}_edited_uk.epub" \
-      "/data/data/com.termux/files/home/kindle-butch-gen/books/$SLUG/output/${SLUG}_edited_uk.azw3"
-      
-    # Copy both files to /sdcard/Download/
-    cp "books/$SLUG/output/${SLUG}_edited_uk.epub" "/sdcard/Download/${SLUG}_edited_uk.epub"
-    cp "books/$SLUG/output/${SLUG}_edited_uk.azw3" "/sdcard/Download/${SLUG}_edited_uk.azw3"
-    echo "Edited books copied to /sdcard/Download/"
     ;;
 
   status)
