@@ -743,10 +743,11 @@
 
                 tabContent.innerHTML = `
                     <div class="filters" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
-                        <div style="display: flex; gap: 0.5rem;">
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             <button class="filter-btn active" data-filter="all">Show All</button>
                             <button class="filter-btn" data-filter="audio">With Audio Only</button>
                             <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
+                            <button class="filter-btn" data-filter="pending-edits">📝 Pending Edits</button>
                         </div>
                         <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.8rem; background: rgba(255,255,255,0.02); padding: 0.3rem 0.6rem; border-radius: 8px; border: 1px solid var(--border-color);">
                             <button class="nav-btn" id="para-prev-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage <= 1 ? 'disabled' : ''}>← Prev</button>
@@ -762,6 +763,10 @@
                 const list = document.getElementById("paragraphs-list");
 
                 const renderItems = (filter) => {
+                    if (filter === "pending-edits") {
+                        renderPendingEditsList();
+                        return;
+                    }
                     list.innerHTML = "";
                     let visibleIndex = 0;
                     bookData.paragraphs.forEach((p, idx) => {
@@ -776,8 +781,11 @@
                         card.innerHTML = `
                             <div class="card-meta">
                                 <span>Paragraph #${absoluteIdx} | Hash: ${p.hash.substring(0, 8)}...</span>
-                                <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
-                                    ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
+                                <span style="display:flex; gap:0.5rem; align-items:center;">
+                                    <button class="nav-btn" style="padding:0.25rem 0.6rem; font-size:0.78rem;" onclick="toggleEditForm('${p.hash}')">✏️ Edit</button>
+                                    <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
+                                        ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
+                                    </span>
                                 </span>
                             </div>
                             <div class="grid-stages">
@@ -793,13 +801,187 @@
                             ${p.has_audio ? `
                             <div class="audio-wrapper">
                                 <span class="audio-label">🔊 Listen Segment Preview:</span>
-                                <audio controls src="/api/preview/audio/${slug}/${p.hash}"></audio>
+                                <audio controls id="audio-player-${p.hash}" src="/api/preview/audio/${slug}/${p.hash}"></audio>
                             </div>
                             ` : ''}
+                            <div id="edit-form-${p.hash}" class="edit-form" style="display:none; margin-top:1rem; padding-top:1rem; border-top:1px dashed var(--border-color);">
+                                <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.3rem;">Translated text</label>
+                                <textarea id="edit-translated-${p.hash}" class="edit-textarea" style="width:100%; min-height:70px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(p.translated)}</textarea>
+                                <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin:0.6rem 0 0.3rem;">Stress marks</label>
+                                <textarea id="edit-stress-${p.hash}" class="edit-textarea" style="width:100%; min-height:70px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(p.stressed)}</textarea>
+                                <div style="display:flex; align-items:center; gap:0.6rem; margin-top:0.6rem; flex-wrap:wrap;">
+                                    <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveEdit('${p.hash}')">Save</button>
+                                    <button class="nav-btn" id="regen-audio-btn-${p.hash}" style="padding:0.4rem 0.9rem; display:none;" onclick="regenerateAudio('${p.hash}')">🔊 Regenerate audio</button>
+                                    <span id="edit-status-${p.hash}" style="font-size:0.8rem; color:var(--text-secondary);"></span>
+                                </div>
+                            </div>
                         `;
                         list.appendChild(card);
                         visibleIndex++;
                     });
+                };
+
+                async function renderPendingEditsList() {
+                    list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">Loading pending edits...</div>`;
+                    let edits = [];
+                    try {
+                        const res = await fetch(`/api/edit/queue/${slug}?status=pending`);
+                        edits = await res.json();
+                    } catch (err) {
+                        list.innerHTML = `<div style="text-align:center; padding:2rem; color:#ef4444;">Failed to load pending edits: ${err.message}</div>`;
+                        return;
+                    }
+                    if (edits.length === 0) {
+                        list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">No pending edits.</div>`;
+                        return;
+                    }
+                    list.innerHTML = edits.map(e => `
+                        <div class="paragraph-card">
+                            <div class="card-meta">
+                                <span>${e.mode === 'text' ? 'Text edit' : 'Stress edit'} | Hash: ${e.target_id.substring(0, 8)}... | ${new Date(e.created_at).toLocaleString()}</span>
+                                <span class="badge badge-no-audio">${e.status}</span>
+                            </div>
+                            <div class="grid-stages">
+                                <div class="stage-box">
+                                    <div class="stage-title">Before</div>
+                                    <div class="stage-content">${wordDiffHtml(e.original_value, e.edited_value, false)}</div>
+                                </div>
+                                <div class="stage-box">
+                                    <div class="stage-title">After</div>
+                                    <div class="stage-content stage-stressed">${wordDiffHtml(e.original_value, e.edited_value, true)}</div>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:0.6rem; margin-top:0.8rem;">
+                                <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="approveEdit('${e.id}', this)">✅ Approve</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                function wordDiffHtml(oldText, newText, showNew) {
+                    const oldWords = (oldText || '').split(/(\s+)/);
+                    const newWords = (newText || '').split(/(\s+)/);
+                    const m = oldWords.length, n = newWords.length;
+                    const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+                    for (let i = m - 1; i >= 0; i--) {
+                        for (let j = n - 1; j >= 0; j--) {
+                            dp[i][j] = oldWords[i] === newWords[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+                        }
+                    }
+                    let i = 0, j = 0;
+                    const out = [];
+                    while (i < m && j < n) {
+                        if (oldWords[i] === newWords[j]) {
+                            out.push({ w: showNew ? newWords[j] : oldWords[i], same: true });
+                            i++; j++;
+                        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                            if (!showNew) out.push({ w: oldWords[i], same: false });
+                            i++;
+                        } else {
+                            if (showNew) out.push({ w: newWords[j], same: false });
+                            j++;
+                        }
+                    }
+                    while (!showNew && i < m) { out.push({ w: oldWords[i], same: false }); i++; }
+                    while (showNew && j < n) { out.push({ w: newWords[j], same: false }); j++; }
+                    return out.map(o => o.same ? escapeHtml(o.w) :
+                        `<span style="background:${showNew ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}; text-decoration:${showNew ? 'none' : 'line-through'};">${escapeHtml(o.w)}</span>`
+                    ).join('');
+                }
+
+                function escapeHtml(s) {
+                    const div = document.createElement('div');
+                    div.textContent = s;
+                    return div.innerHTML;
+                }
+
+                window.approveEdit = async (editId, btn) => {
+                    btn.disabled = true;
+                    btn.textContent = 'Approving...';
+                    try {
+                        const res = await fetch(`/api/edit/approve/${slug}/${editId}`, { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.message);
+                        renderPendingEditsList();
+                    } catch (err) {
+                        alert('Approve failed: ' + err.message);
+                        btn.disabled = false;
+                        btn.textContent = '✅ Approve';
+                    }
+                };
+
+                window.toggleEditForm = (hash) => {
+                    const el = document.getElementById(`edit-form-${hash}`);
+                    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+                };
+
+                window.saveEdit = async (hash) => {
+                    const translatedEl = document.getElementById(`edit-translated-${hash}`);
+                    const stressEl = document.getElementById(`edit-stress-${hash}`);
+                    // defaultValue holds the original pre-fill text (unescaped by the
+                    // browser), independent of live user edits in .value - avoids
+                    // ever needing to smuggle raw book text through an onclick attr.
+                    const originalTranslated = translatedEl.defaultValue;
+                    const originalStress = stressEl.defaultValue;
+                    const newTranslated = translatedEl.value.trim();
+                    const newStress = stressEl.value.trim();
+                    const statusEl = document.getElementById(`edit-status-${hash}`);
+                    const regenBtn = document.getElementById(`regen-audio-btn-${hash}`);
+                    statusEl.textContent = 'Saving...';
+                    try {
+                        let changed = false;
+                        if (newTranslated && newTranslated !== originalTranslated) {
+                            const res = await fetch(`/api/edit/text/${slug}/${hash}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ original_text: originalTranslated, new_text: newTranslated })
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.message);
+                            changed = true;
+                        }
+                        if (newStress && newStress !== originalStress) {
+                            const res = await fetch(`/api/edit/stress/${slug}/${hash}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ original_stress: originalStress, new_stress: newStress })
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.message);
+                            changed = true;
+                        }
+                        if (changed) {
+                            statusEl.textContent = 'Saved as pending edit.';
+                            if (regenBtn) regenBtn.style.display = 'inline-block';
+                        } else {
+                            statusEl.textContent = 'No changes to save.';
+                        }
+                    } catch (err) {
+                        statusEl.textContent = 'Error: ' + err.message;
+                    }
+                };
+
+                window.regenerateAudio = async (hash) => {
+                    const btn = document.getElementById(`regen-audio-btn-${hash}`);
+                    const statusEl = document.getElementById(`edit-status-${hash}`);
+                    btn.disabled = true;
+                    btn.textContent = 'Regenerating...';
+                    try {
+                        const res = await fetch(`/api/edit/regenerate-audio/${slug}/${hash}`, { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.message);
+                        const audioEl = document.getElementById(`audio-player-${hash}`);
+                        if (audioEl) {
+                            audioEl.src = `/api/preview/audio/${slug}/${data.new_hash}`;
+                            audioEl.load();
+                        }
+                        statusEl.textContent = 'Audio regenerated - listen above, then Approve from the Pending Edits tab.';
+                        btn.textContent = '✓ Regenerated';
+                    } catch (err) {
+                        statusEl.textContent = 'Regenerate failed: ' + err.message;
+                        btn.textContent = '🔊 Regenerate audio';
+                        btn.disabled = false;
+                    }
                 };
 
                 const filters = document.querySelectorAll(".filter-btn");

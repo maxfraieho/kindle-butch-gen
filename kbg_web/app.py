@@ -14,6 +14,7 @@ if repo_dir not in sys.path:
 
 from common.book_paths import resolve_book_paths
 from kbg_web.status_helper import calculate_progress, get_pdf_page_count
+from kbg_web import edit_store
 
 TTS_ENGINES = {
     "supertonic3": {
@@ -1479,6 +1480,241 @@ def preview_book_stages(slug):
             "total_blocks": epub_progress.get("total_blocks", 0)
         }
     })
+
+def _tts_voice_slug_and_model(paths, repo_dir):
+    tts_engine = paths.get("tts_engine", "supertonic3")
+    if tts_engine == "styletts2":
+        return "styletts2", os.path.join(repo_dir, "models", "styletts2", "model.onnx")
+    return "supertonic-3-tts-int8", ""
+
+# -------------------------------------------------------------
+# POINT-EDIT ROUTES (text/audio) — see EDIT_METHODOLOGY_kindle-butch-gen.md
+# Non-destructive overlay via edit_store.py. Approve is the only step that
+# touches generated artifacts (translate_cache/merged markdown/batch files).
+# No automatic full-book re-pass — see TASK-17 for why that was removed.
+# -------------------------------------------------------------
+
+@app.route("/api/edit/text/<slug>/<chunk_hash>", methods=["PUT"])
+@auth.login_required
+def edit_text(slug, chunk_hash):
+    if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
+        return jsonify({"status": "error", "message": "Invalid parameters"}), 400
+
+    data = request.get_json() or {}
+    original_text = data.get("original_text", "")
+    new_text = data.get("new_text", "").strip()
+    if not original_text or not new_text:
+        return jsonify({"status": "error", "message": "original_text and new_text are required"}), 400
+
+    import hashlib
+    if hashlib.sha256(original_text.encode("utf-8")).hexdigest() != chunk_hash:
+        return jsonify({"status": "error", "message": "original_text does not match chunk_hash — data is stale, refresh and retry"}), 409
+
+    edit = edit_store.add_edit(slug, mode="text", target_id=chunk_hash, field="translated_text",
+                                original_value=original_text, edited_value=new_text)
+    return jsonify({"status": "success", "edit": edit})
+
+@app.route("/api/edit/stress/<slug>/<chunk_hash>", methods=["PUT"])
+@auth.login_required
+def edit_stress(slug, chunk_hash):
+    if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
+        return jsonify({"status": "error", "message": "Invalid parameters"}), 400
+
+    data = request.get_json() or {}
+    original_stress = data.get("original_stress", "")
+    new_stress = data.get("new_stress", "").strip()
+    if not new_stress:
+        return jsonify({"status": "error", "message": "new_stress is required"}), 400
+
+    edit = edit_store.add_edit(slug, mode="stress", target_id=chunk_hash, field="stress",
+                                original_value=original_stress, edited_value=new_stress)
+    return jsonify({"status": "success", "edit": edit})
+
+@app.route("/api/edit/queue/<slug>")
+@auth.login_required
+def edit_queue(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+    mode = request.args.get("mode")
+    status = request.args.get("status")
+    return jsonify(edit_store.list_edits(slug, mode=mode, status=status))
+
+@app.route("/api/edit/regenerate-audio/<slug>/<chunk_hash>", methods=["POST"])
+@auth.login_required
+def edit_regenerate_audio(slug, chunk_hash):
+    if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
+        return jsonify({"status": "error", "message": "Invalid parameters"}), 400
+
+    paths = resolve_book_paths(repo_dir, slug)
+    if not os.path.exists(paths["config_path"]):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+
+    pending = edit_store.list_edits(slug, status="pending")
+    stress_edit = next((e for e in pending if e["target_id"] == chunk_hash and e["mode"] == "stress"), None)
+    text_edit = next((e for e in pending if e["target_id"] == chunk_hash and e["mode"] == "text"), None)
+
+    if stress_edit:
+        # Already manually stress-marked by the user — synthesize as-is.
+        tts_text = stress_edit["edited_value"]
+        source_edit = stress_edit
+    elif text_edit:
+        tts_text = text_edit["edited_value"]
+        source_edit = text_edit
+        target_lang = paths.get("target_lang", "uk")
+        if target_lang == "uk":
+            try:
+                cmd_stress = [
+                    "proot-distro", "login", "ubuntu", "--",
+                    "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py",
+                    "--inline", tts_text
+                ]
+                res_stress = subprocess.run(cmd_stress, capture_output=True, text=True, timeout=15)
+                if res_stress.returncode == 0 and res_stress.stdout.strip():
+                    tts_text = res_stress.stdout.strip()
+            except Exception as e:
+                print(f"Warning: inline stressifier failed during regenerate-audio: {e}", file=sys.stderr)
+    else:
+        return jsonify({"status": "error", "message": "No pending edit found for this chunk — save an edit first"}), 400
+
+    import hashlib
+    new_hash = hashlib.sha256(tts_text.encode("utf-8")).hexdigest()
+
+    voice_slug, model_path = _tts_voice_slug_and_model(paths, repo_dir)
+    chunks_dir = os.path.join(paths["audio_dir"], f"chunks_{voice_slug}")
+    cache_path = os.path.join(paths["cache_dir"], f"tts_cache_{voice_slug}.json")
+    os.makedirs(chunks_dir, exist_ok=True)
+    os.makedirs(paths["cache_dir"], exist_ok=True)
+
+    payload = {
+        "tts_engine": paths.get("tts_engine", "supertonic3"),
+        "model_path": model_path,
+        "output_dir": os.path.abspath(chunks_dir),
+        "cache_path": os.path.abspath(cache_path),
+        "chunks": [{"hash": new_hash, "text": tts_text}],
+        "speaker_id": paths.get("tts_speaker_id", 2),
+        "speed": paths.get("tts_speed", 1.0),
+        "noise_scale": paths.get("tts_noise_scale", 0.667),
+        "noise_w": paths.get("tts_noise_w", 0.8),
+        "lang": paths.get("target_lang", "uk")
+    }
+    helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
+    res = subprocess.run([sys.executable, helper_path], input=json.dumps(payload, ensure_ascii=False),
+                          capture_output=True, text=True)
+    if res.returncode != 0:
+        return jsonify({"status": "error", "message": f"Synthesis failed: {res.stderr}"}), 500
+
+    new_wav_path = os.path.join(chunks_dir, f"{new_hash}.wav")
+    if not os.path.exists(new_wav_path):
+        return jsonify({"status": "error", "message": "Synthesis reported success but no wav file was produced"}), 500
+
+    edit_store.mark_status(slug, source_edit["id"], "regenerated")
+    return jsonify({"status": "success", "new_hash": new_hash})
+
+@app.route("/api/edit/approve/<slug>/<edit_id>", methods=["POST"])
+@auth.login_required
+def edit_approve(slug, edit_id):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+
+    paths = resolve_book_paths(repo_dir, slug)
+    edit = edit_store.get_edit(slug, edit_id)
+    if not edit:
+        return jsonify({"status": "error", "message": "Edit not found"}), 404
+    if edit["status"] == "approved":
+        return jsonify({"status": "error", "message": "Edit already approved"}), 400
+
+    if edit["mode"] == "stress":
+        target_lang = paths.get("target_lang", "uk")
+        stress_cache_path = os.path.join(paths["book_dir"], "translated", f"stress_cache_{target_lang}.json")
+        stress_cache = {}
+        if os.path.exists(stress_cache_path):
+            try:
+                with open(stress_cache_path, "r", encoding="utf-8") as f:
+                    stress_cache = json.load(f)
+            except Exception:
+                pass
+        stress_cache[edit["target_id"]] = edit["edited_value"]
+        os.makedirs(os.path.dirname(stress_cache_path), exist_ok=True)
+        with open(stress_cache_path, "w", encoding="utf-8") as f:
+            json.dump(stress_cache, f, ensure_ascii=False, indent=2)
+
+    elif edit["mode"] == "text":
+        old_text = edit["original_value"]
+        new_text = edit["edited_value"]
+
+        # 1. translate_cache.json — keyed by hash of the ORIGINAL SOURCE
+        # (RU/EN) segment, not the translated chunk, so we can't look it up
+        # by re-hashing old_text. Segments (translate_stage.py, ~1200 chars)
+        # and TTS chunks (~150-1000 chars) are also different granularities,
+        # so a chunk isn't guaranteed to equal a full cached segment value.
+        # Best-effort: patch by exact value match if found; if not, skip —
+        # this only affects a full re-translate (rare, opt-in), not what's
+        # actually served (steps 2/3 below cover that).
+        if os.path.exists(paths["translate_cache"]):
+            try:
+                with open(paths["translate_cache"], "r", encoding="utf-8") as f:
+                    trans_cache = json.load(f)
+            except Exception:
+                trans_cache = {}
+        else:
+            trans_cache = {}
+        cache_patched = False
+        for seg_hash, seg_translation in trans_cache.items():
+            if seg_translation == old_text:
+                trans_cache[seg_hash] = new_text
+                cache_patched = True
+                break
+        if cache_patched:
+            os.makedirs(paths["cache_dir"], exist_ok=True)
+            with open(paths["translate_cache"], "w", encoding="utf-8") as f:
+                json.dump(trans_cache, f, ensure_ascii=False, indent=2)
+
+        # 2. merged_translated_<lang>.md — the canonical file everything
+        # (preview, audio_stage.py, ebook-convert on the no-PDF resume path)
+        # reads from. Reconstruct via the exact same chunking the preview
+        # endpoint uses rather than a blind substring replace on raw markdown.
+        target_lang = paths.get("target_lang", "uk")
+        source_lang = paths.get("source_lang", "ru")
+        suffix = f"_translated_{target_lang}" if (target_lang != source_lang) else ""
+        if suffix:
+            target_md_file = os.path.join(paths["translated_dir"], f"merged_translated_{target_lang}.md")
+        else:
+            target_md_file = os.path.join(paths["translated_dir"], f"merged_source_{source_lang}.md")
+        merged_patched = False
+        if os.path.exists(target_md_file):
+            with open(target_md_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            if old_text in content:
+                content = content.replace(old_text, new_text, 1)
+                with open(target_md_file, "w", encoding="utf-8") as f:
+                    f.write(content)
+                merged_patched = True
+
+        # 3. Per-batch translated markdown files — books that still have
+        # their source PDF get merged_translated_<lang>.md unconditionally
+        # rebuilt from these on the next conversion run, which would
+        # silently discard step 2's patch otherwise.
+        batch_patched = False
+        if os.path.exists(paths["batches_dir"]):
+            import glob
+            for batch_md in glob.glob(os.path.join(paths["batches_dir"], "batch_*", "*", f"*{suffix}.md")):
+                try:
+                    with open(batch_md, "r", encoding="utf-8") as f:
+                        batch_content = f.read()
+                except Exception:
+                    continue
+                if old_text in batch_content:
+                    batch_content = batch_content.replace(old_text, new_text, 1)
+                    with open(batch_md, "w", encoding="utf-8") as f:
+                        f.write(batch_content)
+                    batch_patched = True
+                    break
+
+        if not merged_patched and not batch_patched:
+            return jsonify({"status": "error", "message": "Could not locate the original text in merged markdown or any batch file — approve aborted, nothing was changed"}), 500
+
+    edit_store.mark_status(slug, edit_id, "approved", applied_at=datetime.now().isoformat())
+    return jsonify({"status": "success"})
 
 def find_book_epub(book_dir, slug):
     import os
