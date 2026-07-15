@@ -634,6 +634,10 @@ def run_conversion_api(slug):
         glossary_path = os.path.join(paths["book_dir"], "glossary.json")
         if os.path.exists(glossary_path):
             cmd.extend(["--glossary", glossary_path])
+        if data.get("no_translate"):
+            cmd.append("--no-translate")
+        if data.get("no_ebook"):
+            cmd.append("--no-ebook")
     else:
         # Check if it is an EPUB book (so we use direct EPUB translation)
         epub_source_file = os.path.join(paths["book_dir"], f"{slug}.epub")
