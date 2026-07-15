@@ -119,3 +119,15 @@
   4. Updated `README_Termux.md` to clearly explain downloaded files, expected sizes, and system storage requirements prior to showing the one-line installer command.
 * **Verification Method:** Verified size check, download, and resume functionality by simulating partial downloads and checking logs. Verified that `stress-uk` is correctly installed and imported during deployment tests.
 * **Type:** `direct`
+
+## [x] TASK-16: Manga export to Kindle-compatible format (AZW3 via Mapaki)
+* **Problem:** There was no option to export translated manga in a Kindle-compatible format. Additionally, when exporting manga, the web interface displayed an irrelevant audio/TTS settings block.
+* **Solution:**
+  1. Integrated the native Go-based `Mapaki` tool into the manga translation pipeline inside the PRoot Ubuntu container.
+  2. Implemented Pillow-based downscaling prior to packing so that any image exceeding 1920px in height is scaled down to exactly 1920px (preserving aspect ratio) to prevent Scribe/Kindle blank page render bugs.
+  3. Added a new `--left-to-right` CLI option to `translate_manga.py` and passed it dynamically to Mapaki.
+  4. Modified `kbg_web/templates/dashboard.html` to hide the audiobook/TTS settings section for manga books (where `book.progress.is_manga` is true).
+  5. The Flask app output scanner automatically detects and exposes the resulting `.azw3` file alongside the `.cbz` archive for download.
+* **Verification Method:** Verified on the OnePlus 13 phone by successfully compiling Mapaki, running the updated `translate_manga.py` on Frieren manga, confirming image downscaling from 1500x2250 to 1280x1920, and successfully producing a valid 1.4MB `test_manga_out.azw3` file. Verified that the dashboard successfully hides the settings block when loading manga.
+* **Type:** `direct`
+

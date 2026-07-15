@@ -238,6 +238,7 @@ def main():
     parser.add_argument("--glossary", help="Path to glossary.json file")
     parser.add_argument("--api-url", default="http://127.0.0.1:8081/v1/chat/completions", help="llama-server API Endpoint")
     parser.add_argument("--progress-file", help="Path to write progress JSON")
+    parser.add_argument("--left-to-right", action="store_true", help="Set reading direction to LTR")
     args = parser.parse_args()
 
     # Load glossary if provided
@@ -407,11 +408,61 @@ def main():
                 os.makedirs(translated_dir, exist_ok=True)
                 cv2.imwrite(os.path.join(translated_dir, os.path.basename(page_path)), final_img)
             
+        # Downscale images with height > 1920px to prevent Kindle blank pages bug
+        log("Preprocessing translated images for Kindle (downscale height > 1920px)...")
+        for f in os.listdir(temp_out):
+            fpath = os.path.join(temp_out, f)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) and os.path.isfile(fpath):
+                try:
+                    with Image.open(fpath) as img_pil:
+                        width, height = img_pil.size
+                        if height > 1920:
+                            new_height = 1920
+                            new_width = int(width * (new_height / height))
+                            log(f"Downscaling {f} from {width}x{height} to {new_width}x{new_height}")
+                            resized = img_pil.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                            resized.save(fpath)
+                except Exception as ex:
+                    log(f"Warning: Failed to downscale image {f}: {ex}")
+
         # Packaging processed pages
         if args.output.lower().endswith('.cbz'):
             log(f"Packaging pages into CBZ archive: {args.output}")
             shutil.make_archive(args.output[:-4], 'zip', temp_out)
             shutil.move(args.output[:-4] + '.zip', args.output)
+
+            # Generate AZW3 using Mapaki
+            mapaki_bin = shutil.which("mapaki")
+            if not mapaki_bin:
+                for possible_path in ["/root/go/bin/mapaki", os.path.expanduser("~/go/bin/mapaki"), "/usr/local/bin/mapaki"]:
+                    if os.path.exists(possible_path):
+                        mapaki_bin = possible_path
+                        break
+
+            if mapaki_bin:
+                azw3_output = args.output[:-4] + ".azw3"
+                log(f"Generating AZW3 using Mapaki: {azw3_output}")
+
+                title = os.path.splitext(os.path.basename(args.output))[0]
+                clean_title = title.replace('_', ' ').replace('-', ' ').title()
+
+                cmd = [
+                    mapaki_bin,
+                    "-i", temp_out,
+                    "-o", azw3_output,
+                    "--title", clean_title
+                ]
+                if args.left_to_right:
+                    cmd.append("--left-to-right")
+
+                try:
+                    log(f"Running Mapaki: {' '.join(cmd)}")
+                    subprocess.run(cmd, check=True)
+                    log(f"AZW3 manga generated successfully at: {azw3_output}")
+                except Exception as e:
+                    log(f"Error running Mapaki: {e}")
+            else:
+                log("Mapaki executable not found. Skipping AZW3 generation.")
         else:
             log(f"Saving pages to directory: {args.output}")
             os.makedirs(args.output, exist_ok=True)
