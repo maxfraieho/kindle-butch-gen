@@ -1815,6 +1815,73 @@ def edit_manga_text(slug, page_filename):
                                 edited_value=new_text)
     return jsonify({"status": "success", "edit": edit})
 
+@app.route("/api/edit/manga-bbox/<slug>/<page_filename>", methods=["PUT"])
+@auth.login_required
+def edit_manga_bbox(slug, page_filename):
+    # TASK-36: manual geometry/font-size override, independent of and
+    # separate-Save-button from edit_manga_text above - a human can fix
+    # only the box, only the font size, or both, without touching the
+    # translated text itself.
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+
+    data = request.get_json() or {}
+    bubble_id = data.get("bubble_id", "").strip()
+    bbox = data.get("bbox")
+    ref_size = data.get("ref_size")
+    font_size = data.get("font_size")
+
+    if not bubble_id:
+        return jsonify({"status": "error", "message": "bubble_id is required"}), 400
+    if bbox is None and font_size is None:
+        return jsonify({"status": "error", "message": "at least one of bbox or font_size is required"}), 400
+
+    if bbox is not None:
+        if not (isinstance(bbox, list) and len(bbox) == 4 and all(isinstance(v, (int, float)) for v in bbox)):
+            return jsonify({"status": "error", "message": "bbox must be [x1, y1, x2, y2]"}), 400
+        if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+            return jsonify({"status": "error", "message": "bbox must have positive width and height"}), 400
+        if not (isinstance(ref_size, list) and len(ref_size) == 2 and all(isinstance(v, (int, float)) for v in ref_size)):
+            return jsonify({"status": "error", "message": "ref_size ([w, h]) is required when bbox is set"}), 400
+
+    if font_size is not None:
+        try:
+            font_size = int(font_size)
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "font_size must be an integer"}), 400
+        if font_size < 8 or font_size > 200:
+            return jsonify({"status": "error", "message": "font_size out of range (8-200)"}), 400
+
+    page_filename = os.path.basename(page_filename)
+    page_stem = os.path.splitext(page_filename)[0]
+    paths = resolve_book_paths(repo_dir, slug)
+    meta_path = os.path.join(paths["book_dir"], "bubbles_meta", f"{page_stem}.json")
+    if not os.path.exists(meta_path):
+        return jsonify({"status": "error", "message": "Page not processed yet - no bubble metadata found"}), 404
+
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            bubbles = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read bubble metadata: {e}"}), 500
+
+    bubble = next((b for b in bubbles if b["id"] == bubble_id), None)
+    if not bubble:
+        return jsonify({"status": "error", "message": f"Bubble '{bubble_id}' not found on this page"}), 404
+
+    original_value = {"bbox": bubble.get("bbox"), "ref_size": bubble.get("bbox_ref_size")}
+    edited_value = {}
+    if bbox is not None:
+        edited_value["bbox"] = [int(v) for v in bbox]
+        edited_value["ref_size"] = [int(v) for v in ref_size]
+    if font_size is not None:
+        edited_value["font_size"] = font_size
+
+    edit = edit_store.add_edit(slug, mode="manga", target_id=f"{page_filename}#{bubble_id}",
+                                field="manual_bbox_override", original_value=original_value,
+                                edited_value=edited_value)
+    return jsonify({"status": "success", "edit": edit})
+
 @app.route("/api/edit/regenerate-manga-page/<slug>/<page_filename>", methods=["POST"])
 @auth.login_required
 def edit_regenerate_manga_page(slug, page_filename):
@@ -1874,16 +1941,38 @@ def edit_regenerate_manga_page(slug, page_filename):
             bubbles_by_id = {}
 
     overrides = {}
+    bbox_overrides = {}
     for e in pending:
         bubble_id = e["target_id"].split("#", 1)[1]
         bubble = bubbles_by_id.get(bubble_id)
-        if bubble:
-            overrides[bubble["original_text"]] = e["edited_value"]
+        if not bubble:
+            continue
+        orig_text = bubble["original_text"]
+        if e.get("field") == "translated_text":
+            overrides[orig_text] = e["edited_value"]
+        elif e.get("field") == "manual_bbox_override":
+            # TASK-36: bbox/font_size overrides are captured by the client
+            # against whatever image dimensions were on screen at edit
+            # time (ref_size) - kept UNSCALED here and scaled later inside
+            # translate_manga.py once the actual regen's working image
+            # dimensions are known (same reference-scaling approach TASK-27
+            # established), not here where that size isn't available yet.
+            ev = e.get("edited_value") or {}
+            entry = bbox_overrides.setdefault(orig_text, {})
+            if "bbox" in ev and "ref_size" in ev:
+                entry["bbox"] = ev["bbox"]
+                entry["ref_size"] = ev["ref_size"]
+            if "font_size" in ev:
+                entry["font_size"] = ev["font_size"]
+                entry.setdefault("ref_size", ev.get("ref_size"))
 
     overrides_path = os.path.join(paths["cache_dir"], f"manga_regen_overrides_{page_stem}.json")
+    bbox_overrides_path = os.path.join(paths["cache_dir"], f"manga_regen_bbox_overrides_{page_stem}.json")
     os.makedirs(paths["cache_dir"], exist_ok=True)
     with open(overrides_path, "w", encoding="utf-8") as f:
         json.dump(overrides, f, ensure_ascii=False)
+    with open(bbox_overrides_path, "w", encoding="utf-8") as f:
+        json.dump(bbox_overrides, f, ensure_ascii=False)
 
     cmd = [
         "proot-distro", "login", "ubuntu", "--",
@@ -1892,7 +1981,8 @@ def edit_regenerate_manga_page(slug, page_filename):
         "--output", manga_output,
         "--lang", cfg.get("source_lang", "en"),
         "--regenerate-page", page_filename,
-        "--overrides-json", overrides_path
+        "--overrides-json", overrides_path,
+        "--bbox-overrides-json", bbox_overrides_path
     ]
     glossary_path = os.path.join(paths["book_dir"], "glossary.json")
     if os.path.exists(glossary_path):
@@ -1908,6 +1998,10 @@ def edit_regenerate_manga_page(slug, page_filename):
     finally:
         try:
             os.remove(overrides_path)
+        except Exception:
+            pass
+        try:
+            os.remove(bbox_overrides_path)
         except Exception:
             pass
 
