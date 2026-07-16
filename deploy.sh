@@ -113,7 +113,12 @@ fi
 # STEP 2: Configure Ubuntu PRoot Container with GPU Bind Mounts
 # -------------------------------------------------------------
 log "Setting up Ubuntu PRoot container..."
-if ! proot-distro list | grep -q "Installed: yes" | grep -q "ubuntu"; then
+# TASK-32 hardware-test fix: the previous check piped `grep -q` into a
+# second grep - `grep -q` produces no stdout, so the second grep ALWAYS
+# exited 1 and the script ALWAYS attempted `proot-distro install ubuntu`,
+# which hard-fails (via set -e) on any device where ubuntu is already
+# installed. Check the canonical installed-rootfs directory instead.
+if [ ! -d "$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu" ]; then
     log "Installing Ubuntu container via proot-distro..."
     proot-distro install ubuntu
 else
@@ -260,42 +265,68 @@ success "Ubuntu compilation and setup finished successfully."
 # -------------------------------------------------------------
 # STEP 5: Configure Autostart (Optional)
 # -------------------------------------------------------------
+# TASK-43: all four autostart steps (sshd, llama-server, Flask, and the
+# TASK-41 auto-resume-interrupted-conversion check) now live in ONE shared
+# script (bin/start-all-services.sh, part of this repo - a fresh clone
+# already has it via STEP 3 above) instead of being inlined separately
+# into ~/.bashrc. This is called from two independent triggers:
+#   - ~/.bashrc, on every new Termux shell session (covers "user manually
+#     reopens the Termux app after a crash" - confirmed working live in
+#     production: a real Termux crash mid-conversion, on manual restart
+#     the interrupted book resumed with zero manual steps)
+#   - ~/.termux/boot/start-services.sh (STEP 5b below), on a genuine
+#     Android device boot - requires the separate Termux:Boot plugin app,
+#     which this script cannot install for you (Android doesn't allow
+#     silent APK installation even from Termux) - see the printed
+#     instructions in the final summary and
+#     docs/deployment/termux-boot-setup.md for the manual step.
 if [ "$AUTOSTART" = "true" ]; then
     log "Configuring autostart of services in ~/.bashrc..."
-    
-    # Define the autostart block
+
+    chmod +x "$HOME/kindle-butch-gen/bin/start-all-services.sh" 2>/dev/null || true
+
     AUTOSTART_BLOCK=$(cat << 'EOF'
 
-# ── Autostart Services ──────────────────────────────────────────
-# Prevent duplicate instances and run asynchronously
-
-# 1. Autostart SSH daemon
-if ! pgrep -x "sshd" >/dev/null; then
-    sshd
-fi
-
-# 2. Autostart Llama Translation Server (Hy-MT2-7B on port 8081)
-if ! pgrep -f "llama-server.*8081" >/dev/null; then
-    echo "Autostart: Starting llama-server on port 8081..."
-    nohup bash "$HOME/start-translation-server.sh" > "$HOME/llama-boot.log" 2>&1 &
-fi
-
-# 3. Autostart Flask Web Server (on port 5000)
-if ! pgrep -f "python3 kbg_web/app.py" >/dev/null; then
-    echo "Autostart: Starting Flask web server on port 5000..."
-    termux-wake-lock 2>/dev/null || true
-    (cd "$HOME/kindle-butch-gen" &&  nohup python3 kbg_web/app.py --port 5000 > "$HOME/kbg-flask.log" 2>&1 &)
-fi
+# ── Autostart Services (kindle-butch-gen) ────────────────────────
+# See bin/start-all-services.sh for the actual steps - kept as a single
+# shared script so ~/.bashrc and ~/.termux/boot/start-services.sh (see
+# docs/deployment/termux-boot-setup.md) can't drift out of sync.
+bash "$HOME/kindle-butch-gen/bin/start-all-services.sh"
 EOF
 )
 
     BASHRC_FILE="$HOME/.bashrc"
-    if [ -f "$BASHRC_FILE" ] && grep -q "Autostart: Starting Flask web server" "$BASHRC_FILE"; then
+    if [ -f "$BASHRC_FILE" ] && grep -q "start-all-services.sh" "$BASHRC_FILE"; then
         log "Autostart is already configured in ~/.bashrc."
     else
         echo "$AUTOSTART_BLOCK" >> "$BASHRC_FILE"
         success "Autostart configured successfully in ~/.bashrc."
     fi
+
+    # -------------------------------------------------------------
+    # STEP 5b: Termux:Boot integration (device-reboot autostart)
+    # -------------------------------------------------------------
+    # ~/.bashrc only fires when a NEW SHELL SESSION starts (i.e. the user
+    # manually opens/reopens the Termux app) - it does NOT run on a plain
+    # Android device reboot unless the user happens to open Termux
+    # afterward. Termux:Boot (a separate, official Termux plugin app) is
+    # the only way to get genuine device-boot automation: it runs every
+    # executable script under ~/.termux/boot/ on Android's BOOT_COMPLETED
+    # broadcast. This step always creates/updates the boot script (safe,
+    # additive, works even if the plugin isn't installed yet) - it simply
+    # has no effect until the user separately installs the plugin app.
+    log "Configuring Termux:Boot integration (requires a separate plugin app - see instructions below)..."
+    mkdir -p "$HOME/.termux/boot"
+    cat > "$HOME/.termux/boot/start-services.sh" << 'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+# Auto-generated by kindle-butch-gen's deploy.sh - runs on Android device
+# boot IF the Termux:Boot plugin app is installed. Delegates to the same
+# shared script ~/.bashrc uses, so both triggers always stay in sync.
+termux-wake-lock 2>/dev/null || true
+bash "$HOME/kindle-butch-gen/bin/start-all-services.sh"
+EOF
+    chmod +x "$HOME/.termux/boot/start-services.sh"
+    success "Termux:Boot script written to ~/.termux/boot/start-services.sh."
 fi
 
 # -------------------------------------------------------------
@@ -454,4 +485,22 @@ echo -e " TASK-32: this device isn't automatically tracked by GitNexus code"
 echo -e " search (which runs on the LAN dev server, not this device). If it"
 echo -e " should be, run this on the dev server (192.168.3.184):"
 echo -e "   👉 docker exec gitnexus-server node /app/gitnexus/dist/cli/index.js analyze /projects/kindle-butch-gen"
+if [ "$AUTOSTART" = "true" ]; then
+    echo -e ""
+    echo -e " TASK-43: autostart is configured for ~/.bashrc (fires when you"
+    echo -e " manually reopen Termux after a crash) - already sufficient for"
+    echo -e " services + auto-resuming an interrupted conversion. For it to ALSO"
+    echo -e " survive a genuine Android device reboot without you opening Termux"
+    echo -e " yourself, install the separate Termux:Boot plugin app (one-time,"
+    echo -e " manual - this script cannot install an APK for you):"
+    echo -e "   👉 F-Droid: https://f-droid.org/packages/com.termux.boot/"
+    echo -e "   👉 Same source as Termux itself (F-Droid or GitHub releases) -"
+    echo -e "      installing it from a different source than your Termux app"
+    echo -e "      itself is known to be unreliable."
+    echo -e "   After installing, open Termux:Boot once (grants it the"
+    echo -e "   RECEIVE_BOOT_COMPLETED permission) - the boot script at"
+    echo -e "   ~/.termux/boot/start-services.sh is already in place and will"
+    echo -e "   run automatically on every future device boot."
+    echo -e "   Full details: docs/deployment/termux-boot-setup.md"
+fi
 echo -e "${GREEN}===================================================================${NC}\n"
