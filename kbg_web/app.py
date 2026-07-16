@@ -4,6 +4,7 @@ import re
 import json
 import subprocess
 import shutil
+import signal
 from datetime import datetime
 from flask import Flask, jsonify, request, render_template_string, render_template, send_file
 
@@ -2009,7 +2010,26 @@ def edit_regenerate_manga_page(slug, page_filename):
         # Single-page regen (detector init + a few OCR/LLM calls) is fast
         # enough to run synchronously - the UI shows a spinner rather than
         # needing a background-job+poll flow, per the doc's own framing.
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        #
+        # start_new_session=True (setsid) puts the whole proot -> bash ->
+        # python3 chain in its own process group, so a timeout can kill the
+        # ENTIRE tree via os.killpg. Plain subprocess.run(..., timeout=...)'s
+        # default TimeoutExpired handling only kills the direct child (the
+        # proot wrapper itself) - confirmed live during TASK-36 testing that
+        # this left the python3 translate_manga.py process it exec'd running
+        # ORPHANED inside proot-distro for several more minutes after Flask
+        # (and the client) had already given up, wasting phone battery/CPU
+        # with nothing watching it. It happened to complete correctly on its
+        # own both times this was observed, but that was luck, not a
+        # guarantee - a truly hung regen would run forever unmonitored.
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            stdout, stderr = proc.communicate(timeout=180)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            proc.communicate()  # reap the now-killed process, avoid a zombie
+            raise
+        res = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     except subprocess.TimeoutExpired:
         return jsonify({"status": "error", "message": "Regeneration timed out after 180s"}), 500
     finally:
