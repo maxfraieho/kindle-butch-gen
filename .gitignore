@@ -31,3 +31,4 @@ wget-log.*
 # Web Credentials & Scratch Workspace
 web_credentials.json
 scratch/
+books/
