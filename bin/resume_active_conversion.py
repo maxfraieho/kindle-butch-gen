@@ -61,16 +61,43 @@ def main():
     # start_new_session=True: same reasoning as TASK-40's regen-timeout fix -
     # this process should survive independently of whatever shell/session
     # .bashrc itself is running under.
-    subprocess.Popen(
+    proc = subprocess.Popen(
         cmd,
         stdout=log_file,
         stderr=subprocess.STDOUT if log_path else subprocess.DEVNULL,
         cwd=cwd,
         start_new_session=True,
     )
-    # Deliberately do NOT delete STATE_PATH here - if THIS resumed process
-    # also gets interrupted before Flask restarts and observes it complete,
-    # the state file must still be there to resume it again on the next boot.
+
+    # Stay alive as a watcher and clear the state file once the resumed run
+    # exits - ANY exit, success or failure, mirroring kbg_web/app.py's
+    # handle_process_completion semantics (a failing pipeline must not be
+    # auto-retried forever on every restart). Flask never learns about this
+    # process, so nobody else will ever clear the file; without this, a
+    # completed resumed run left the state file behind permanently and every
+    # subsequent Termux restart relaunched the pipeline (observed live
+    # 2026-07-16: a stale frieren state file survived a finished run).
+    # If the ENVIRONMENT itself dies again mid-run, this watcher dies with
+    # it and the file correctly remains for the next boot's resume.
+    proc.wait()
+
+    # Guard: Flask may have started a brand-new conversion meanwhile and
+    # written its own state file - only delete it if it still describes the
+    # run WE resumed.
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            current = json.load(f)
+        if current.get("cmd") == cmd:
+            os.remove(STATE_PATH)
+            print(f"[AutoResume] Resumed run for '{slug}' exited "
+                  f"(code {proc.returncode}); cleared {STATE_PATH}.")
+        else:
+            print(f"[AutoResume] State file was replaced by a newer run; "
+                  f"leaving it alone.")
+    except FileNotFoundError:
+        pass  # already cleared (e.g. by an explicit user stop) - fine
+    except Exception as e:
+        print(f"[AutoResume] Could not clear {STATE_PATH}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
