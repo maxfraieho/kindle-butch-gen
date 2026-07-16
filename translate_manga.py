@@ -234,7 +234,98 @@ def draw_text_centered(draw, lines, font_path, size, box):
         draw.text((x_offset, y_offset), line, font=font, fill="black", stroke_width=TEXT_STROKE_WIDTH, stroke_fill="white")
         y_offset += h + 2
 
+_DICT_WORDS = None
+_DICT_PATHS = ("/usr/share/dict/words", "/usr/share/dict/american-english", "/usr/share/dict/british-english")
+
+
+def _load_english_dictionary():
+    """TASK-33: cached lazy-load of a system word list, used as the
+    fallback source_confidence signal for OCR engines (MangaOcr) that
+    expose no confidence score of their own. Returns an empty set (not
+    None) if no dictionary file is present on this system - callers
+    must treat an empty set as 'signal unavailable', not 'zero real
+    words found'."""
+    global _DICT_WORDS
+    if _DICT_WORDS is not None:
+        return _DICT_WORDS
+    _DICT_WORDS = set()
+    for path in _DICT_PATHS:
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8", errors="ignore") as f:
+                    _DICT_WORDS = {w.strip().lower() for w in f if w.strip()}
+                break
+            except Exception:
+                pass
+    return _DICT_WORDS
+
+
+def real_word_fraction(text):
+    """TASK-33: fraction of this text's alphabetic tokens (len>=2, so
+    single letters like the article "a" don't skew the score) that are
+    found in the system English dictionary. Returns None - not 0.0 - if
+    no dictionary is installed or there are no alphabetic tokens to
+    check, so callers can tell 'no signal' apart from 'genuinely zero
+    real words'. This is a complementary signal to raw OCR confidence,
+    not a replacement: catches cases like frieren's real p020_b12
+    ("...WHAT FUN ; DO YOU TOO... WANT SHALL TO WE DO? | DANCE? Fred
+    eS") where individual characters/words are mostly legible (so
+    per-character OCR confidence could look fine) but the word ORDER is
+    scrambled nonsense with junk tokens mixed in."""
+    words = _load_english_dictionary()
+    if not words:
+        return None
+    tokens = [t.lower() for t in re.findall(r"[A-Za-z']+", text) if len(t) >= 2]
+    if not tokens:
+        return None
+    real = sum(1 for t in tokens if t.strip("'") in words)
+    return real / len(tokens)
+
+
+_OCR_EDGE_NOISE_CHARS = set("|\\/{}@:")
+
+
+def clean_ocr_edge_noise(text, page_name=None, bubble_ref=None):
+    """TASK-33: strips ONLY noise-character runs anchored at the very
+    start/end of raw OCR'd text - pipe, backslash, forward-slash, curly
+    braces, at-sign, colon (the exact set the task specified, nothing
+    added on top). Deliberately does NOT touch the same characters when
+    they appear mid-sentence (e.g. "OUR \\ FUTURE." keeps its stray
+    backslash) - garbage embedded inside otherwise-legible text is a
+    genuinely different, harder problem (would need real content
+    understanding to safely remove) than a junk prefix/suffix, and the
+    task's own instruction was explicit about not touching legitimate
+    mid-sentence punctuation. Applied BEFORE translation (garbage-in-
+    garbage-out: if the LLM never sees the junk, it can't leak into the
+    translation either). Every actual removal is logged for audit -
+    never a silent edit. Real examples this resolves (frieren):
+    "VIALA- THOR//" -> "VIALA- THOR" (trailing double-slash gone, the
+    hyphen is untouched since it's not in the noise set); "DID I REALLY
+    GO BACK IN |@ TIME? | \\ \\ \\ |" -> "DID I REALLY GO BACK IN |@
+    TIME?" (trailing pipe/backslash junk gone, the embedded |@ stays -
+    not anchored)."""
+    start = 0
+    while start < len(text) and (text[start].isspace() or text[start] in _OCR_EDGE_NOISE_CHARS):
+        start += 1
+    end = len(text)
+    while end > start and (text[end - 1].isspace() or text[end - 1] in _OCR_EDGE_NOISE_CHARS):
+        end -= 1
+    cleaned = text[start:end]
+    if not cleaned:
+        # The whole string was noise/whitespace - nothing legible left to
+        # translate anyway, but don't return an empty string silently;
+        # keep the original so it's still visible (and flaggable via
+        # source_confidence) rather than vanishing entirely.
+        return text
+    if cleaned != text:
+        ref = f"{page_name}/{bubble_ref}" if page_name else (bubble_ref or "?")
+        log(f"[OCR-noise] {ref}: {text!r} -> {cleaned!r}")
+    return cleaned
+
+
 def _iou(box_a, box_b):
+    """Intersection-over-union of two [x1,y1,x2,y2] boxes. 0.0 if they
+    don't intersect at all (also handles degenerate zero-area boxes)."""
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
     ix1, iy1 = max(ax1, bx1), max(ay1, by1)
@@ -253,13 +344,41 @@ class _MergedBlock:
     def __init__(self, xyxy):
         self.xyxy = xyxy
 
-def dedupe_blocks(blk_list, iou_threshold=0.3):
+def _containment_ratio(box_a, box_b):
+    """intersection / area of the SMALLER of the two boxes - unlike IoU,
+    this stays high (up to 1.0) when one box is fully or near-fully
+    nested inside a much bigger one, even though their AREAS differ a
+    lot (which is exactly what tanks plain IoU in that situation)."""
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    smaller = min(area_a, area_b)
+    return inter / smaller if smaller > 0 else 0.0
+
+
+def dedupe_blocks(blk_list, iou_threshold=0.3, containment_threshold=0.85):
     """Stage A: merge overlapping/duplicate detector blocks - a known
     imperfect-grouping failure mode for large/oval bubbles even after the
     detector's own internal NMS - before OCR, so one physical bubble never
     gets OCR'd/translated/typeset twice (the "double text" defect).
     Union-find so transitively-overlapping chains merge into one group,
-    not just directly-overlapping pairs."""
+    not just directly-overlapping pairs.
+
+    TASK-33: plain IoU alone misses a real, confirmed failure pattern -
+    a small block ALMOST ENTIRELY CONTAINED inside a much larger one
+    (e.g. the detector finding one whole speech bubble's full dialogue,
+    and separately finding just its opening clause as its own block)
+    produces a low IoU purely because the two areas differ so much, even
+    though the smaller block is ~100% redundant with part of the larger
+    one. Confirmed on real data (frieren c118 p022, _b07 100% contained
+    in _b06, IoU~0.14 - well under the 0.3 threshold, yet clearly
+    duplicated text). containment_threshold catches this case
+    specifically without lowering iou_threshold (which would risk
+    merging genuinely separate, merely-adjacent bubbles instead)."""
     n = len(blk_list)
     if n <= 1:
         return list(blk_list)
@@ -275,7 +394,8 @@ def dedupe_blocks(blk_list, iou_threshold=0.3):
             parent[ri] = rj
     for i in range(n):
         for j in range(i + 1, n):
-            if _iou(blk_list[i].xyxy, blk_list[j].xyxy) > iou_threshold:
+            box_i, box_j = blk_list[i].xyxy, blk_list[j].xyxy
+            if _iou(box_i, box_j) > iou_threshold or _containment_ratio(box_i, box_j) > containment_threshold:
                 union(i, j)
     groups = {}
     for i in range(n):
@@ -511,23 +631,6 @@ def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines,
             "hit_min_size": hit_floor,
             "reason": "overflow" if overflow_ratio > 1.05 else "min_size_floor"
         })
-
-def _iou(box_a, box_b):
-    """Intersection-over-union of two [x1,y1,x2,y2] boxes. 0.0 if they
-    don't intersect at all (also handles degenerate zero-area boxes)."""
-    ax1, ay1, ax2, ay2 = box_a
-    bx1, by1, bx2, by2 = box_b
-    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
-    inter = iw * ih
-    if inter <= 0:
-        return 0.0
-    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
-    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
-    union = area_a + area_b - inter
-    return inter / union if union > 0 else 0.0
-
 
 BOX_OVERLAP_IOU_THRESHOLD = 0.02  # TASK-36: below this is boundary-rounding noise, not a real visible overlap
 
@@ -797,12 +900,17 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
 
     page_ocr_texts = []
     block_crops = []
+    # TASK-33: source_confidence is a SEPARATE quality axis from render
+    # geometry (overflow_ratio/font_size/box_overlap) - keyed by the same
+    # stable original_ocr_text convention overrides/bbox_overrides
+    # already use, since positional block order isn't guaranteed stable.
+    source_confidence_by_text = {}
     h_img, w_img = img.shape[:2]
 
     if lang != 'ja':
         import pytesseract
 
-    for blk in blk_list:
+    for ocr_index, blk in enumerate(blk_list):
         x1, y1, x2, y2 = blk.xyxy
         # Add 5px padding for safer boundary OCR
         x1_pad = max(0, x1 - 5)
@@ -817,16 +925,63 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
         pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
 
         if lang == 'ja':
+            # TASK-33: MangaOcr's high-level API exposes no per-call
+            # confidence score, unlike Tesseract - honestly leave
+            # tess_conf unset rather than fabricate one. The dictionary
+            # fallback below is also skipped for Japanese source text
+            # (an English word list is meaningless against Japanese OCR
+            # output), so source_confidence stays unavailable for this
+            # language path - disclosed, not silently guessed at.
             txt = mocr(pil_crop).strip()
+            tess_conf = None
         else:
-            txt = pytesseract.image_to_string(pil_crop, lang='eng', config='--psm 6').strip()
+            # TASK-33: image_to_data (not image_to_string) is the only
+            # pytesseract call that exposes per-word confidence.
+            data = pytesseract.image_to_data(pil_crop, lang='eng', config='--psm 6', output_type=pytesseract.Output.DICT)
+            words, confs = [], []
+            for w_idx, word in enumerate(data.get("text", [])):
+                word = word.strip()
+                if not word:
+                    continue
+                words.append(word)
+                try:
+                    c = float(data.get("conf", [])[w_idx])
+                except (IndexError, TypeError, ValueError):
+                    c = -1
+                if c >= 0:
+                    confs.append(c)
+            txt = " ".join(words)
+            tess_conf = (sum(confs) / len(confs)) if confs else None
 
         txt = txt.replace("\n", " ").replace("\r", " ").strip()
         txt = " ".join(txt.split())
+        # TASK-33: strip anchored edge noise BEFORE translation - garbage
+        # the LLM never sees can't leak into the translated text either.
+        txt = clean_ocr_edge_noise(txt, page_name=page_basename, bubble_ref=f"block{ocr_index}")
 
         if txt:
             page_ocr_texts.append(txt)
             block_crops.append((blk, txt))
+            dict_frac = real_word_fraction(txt) if lang != 'ja' else None
+            # "low" if EITHER available signal says so - a false positive
+            # here just means a human glances at a translation that's
+            # actually fine; a false negative means real garbage ships
+            # unflagged. Erring toward surfacing more, not less.
+            # Threshold 68 (not the original 60), set from real comparative
+            # data across 11 real frieren bubbles during TASK-33 testing:
+            # legitimately good bubbles scored 71.0-95.4, one confirmed-
+            # garbage bubble scored 24.0, and the reported-scrambled p020
+            # _b12 (individually-real words in jumbled order - the
+            # dictionary check alone can't catch that, since it only
+            # checks vocabulary, not order) scored 61.5 - between the two
+            # clusters. 68 sits with margin on both sides of that gap.
+            is_low = (tess_conf is not None and tess_conf < 68) or (dict_frac is not None and dict_frac < 0.5)
+            if tess_conf is not None or dict_frac is not None:
+                source_confidence_by_text[txt] = {
+                    "tesseract_confidence": round(tess_conf, 1) if tess_conf is not None else None,
+                    "dictionary_real_word_fraction": round(dict_frac, 3) if dict_frac is not None else None,
+                    "low": is_low,
+                }
 
     if not page_ocr_texts:
         return img, img, page_quality_flags, page_bubbles_meta
@@ -905,6 +1060,23 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
                            (x1, y1, x2, y2), font_path, min_size=12)
         page_quality_flags.extend(block_flags)
 
+        bubble_quality_flags = dict(block_flags[0]) if block_flags else {}
+        # TASK-33: source_confidence is BEFORE-translation OCR quality -
+        # a separate axis from render geometry (overflow_ratio/font_size
+        # above), never merged into the same sub-dict/reason. A bubble
+        # can be flagged for both at once (bad OCR AND bad render fit).
+        src_conf = source_confidence_by_text.get(orig_txt)
+        if src_conf:
+            bubble_quality_flags["source_confidence"] = src_conf
+            if src_conf["low"]:
+                page_quality_flags.append({
+                    "page": page_basename,
+                    "bubble_id": bubble_ids[block_index],
+                    "reason": "low_source_confidence",
+                    "original_text": orig_txt,
+                    **src_conf,
+                })
+
         page_bubbles_meta.append({
             "id": bubble_ids[block_index],
             "bbox": [x1, y1, x2, y2],
@@ -917,7 +1089,7 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
             "bbox_ref_size": [w_img, h_img],
             "original_text": orig_txt,
             "translated_text": translated_txt,
-            "quality_flags": block_flags[0] if block_flags else {}
+            "quality_flags": bubble_quality_flags
         })
 
     # Stage E (continued, TASK-36): overlap detection needs every bubble's

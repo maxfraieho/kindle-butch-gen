@@ -190,7 +190,7 @@ UBUNTU_SETUP_SCRIPT_PATH="/data/data/com.termux/files/home/kindle-butch-gen/ubun
 
 echo "=== [Ubuntu Setup] ==="
 apt update
-apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg tesseract-ocr unrar-free p7zip-full libfreetype6-dev
+apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg tesseract-ocr unrar-free p7zip-full libfreetype6-dev wamerican
 
 # 1. Configure OpenCL ICD for Qualcomm Adreno GPU - TASK-32 Stage 2: only
 # attempted if Stage 1 (Termux-side /vendor/lib64/libOpenCL.so check,
