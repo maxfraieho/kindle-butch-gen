@@ -680,6 +680,11 @@
                             </div>
 
                             <button class="nav-btn" id="btn-next">Вперед →</button>
+
+                            <div style="display:flex; align-items:center; gap:0.4rem; margin-left:0.6rem;">
+                                <input type="number" id="manga-page-jump" min="1" max="${bookData.source_pages.length}" placeholder="#" style="width: 3.5rem; padding: 0.4rem 0.5rem; font-size: 0.85rem; background: #18181b; color: white; border: 1px solid var(--border-color); border-radius: 6px; text-align: center;">
+                                <button class="nav-btn" id="manga-jump-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Go</button>
+                            </div>
                         </div>
                         <div class="unified-status" id="page-indicator">Сторінка ...</div>
                         <div id="manga-regen-bar" style="display:none; justify-content:center; margin-top:0.5rem;">
@@ -996,6 +1001,24 @@
                 });
                 document.getElementById("btn-next").addEventListener("click", () => {
                     if (currentMangaPage < bookData.source_pages.length - 1) showPage(currentMangaPage + 1);
+                });
+
+                // Same page-jump pattern as the Paragraphs tab (TASK-17) -
+                // manga pages are already all loaded client-side in
+                // bookData, so this is a direct showPage() call, no fetch needed.
+                const jumpToMangaPage = () => {
+                    const input = document.getElementById("manga-page-jump");
+                    const target = parseInt(input.value, 10);
+                    if (!Number.isNaN(target)) {
+                        const clamped = Math.min(Math.max(target, 1), bookData.source_pages.length) - 1;
+                        if (clamped !== currentMangaPage) {
+                            showPage(clamped);
+                        }
+                    }
+                };
+                document.getElementById("manga-jump-btn").addEventListener("click", jumpToMangaPage);
+                document.getElementById("manga-page-jump").addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") jumpToMangaPage();
                 });
 
                 const keyHandler = (e) => {
