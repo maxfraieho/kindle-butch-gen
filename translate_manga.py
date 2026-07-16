@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import re
 import argparse
 import json
 import shutil
@@ -487,6 +488,50 @@ def match_bubbles_iou(old_entries, new_entries, iou_threshold=0.5):
             result[old_id] = None
     return result
 
+# TASK-29: source text is OCR'd from ALL-CAPS comic lettering, and the
+# translation LLM only inconsistently follows a prompt instruction asking
+# for normal sentence case (empirically confirmed - some lines came back
+# fully uppercase, others with just one stray lowercase word). Post-
+# process instead of relying on prompt compliance alone.
+_UPPER_RATIO_THRESHOLD = 0.7
+
+
+def _normalize_sentence_case(text, glossary):
+    """If most of the string's letters are uppercase, treat the whole
+    thing as mis-cased and rewrite it: lowercase everything, then
+    capitalize the first letter of the string and of each sentence
+    (after . ! ?). Glossary terms (character names etc.) are the only
+    proper nouns we can reliably identify after the fact, so re-
+    capitalize any occurrence of one to its exact glossary casing.
+    Strings that are already mostly normal case are left untouched."""
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return text
+    upper_ratio = sum(1 for c in letters if c.isupper()) / len(letters)
+    if upper_ratio < _UPPER_RATIO_THRESHOLD:
+        return text
+
+    lowered = text.lower()
+    result = []
+    capitalize_next = True
+    for ch in lowered:
+        if capitalize_next and ch.isalpha():
+            result.append(ch.upper())
+            capitalize_next = False
+        else:
+            result.append(ch)
+        if ch in ".!?":
+            capitalize_next = True
+    normalized = "".join(result)
+
+    for term in (glossary or {}).values():
+        if not term:
+            continue
+        normalized = re.sub(re.escape(term), term, normalized, flags=re.IGNORECASE)
+
+    return normalized
+
+
 def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None):
     if not texts:
         return {}
@@ -513,6 +558,7 @@ def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None):
     system_prompt = f"""You are a professional manga translator. Translate the following numbered list of texts from {source_lang.upper()} to Ukrainian.
 Preserve context, sound effects (if present), informal spoken registers, character personalities, and sentence fragments.
 Do NOT translate characters names if they are part of the glossary.
+The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting entirely. Output your translation in normal Ukrainian sentence case: capitalize only the first letter of each sentence and proper nouns, everything else lowercase. Never output an entire line in capital letters unless it is a genuine sound effect (onomatopoeia) or the character is explicitly shouting/emphasizing that specific word.
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
 {glossary_rules}
 """
@@ -542,7 +588,7 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
                     parts = line.split(".", 1)
                     try:
                         idx = int(parts[0].strip()) - 1
-                        val = parts[1].strip()
+                        val = _normalize_sentence_case(parts[1].strip(), glossary)
                         if 0 <= idx < len(remaining):
                             result[remaining[idx]] = val
                     except ValueError:
