@@ -17,6 +17,7 @@ repo_dir = os.path.dirname(os.path.abspath(__file__))
 if repo_dir not in sys.path:
     sys.path.insert(0, repo_dir)
 from kbg_web import edit_store
+from common.book_paths import resolve_book_paths
 
 # Import our TextDetector and natsort (installed in PRoot container)
 try:
@@ -88,6 +89,16 @@ def extract_manga_pages(input_path, temp_dir):
         else:
             raise ValueError(f"Unsupported input format: {ext}")
 
+# TASK-28: single source of truth for the stroke outline width used both
+# when actually drawing text (draw_text_centered) and when measuring it
+# (wrap_text/_hard_wrap_word/fit_text/draw_text_centered's own centering
+# math) - PIL's stroke_width widens the rendered glyph ink beyond its
+# plain getbbox() extent on every side, so any getbbox() call missing this
+# parameter underestimates the real rendered size and fit_text picks a
+# font size that overflows once the stroke is actually drawn.
+TEXT_STROKE_WIDTH = 2
+
+
 def _hard_wrap_word(word, font, max_width):
     """Character-level split for a single word wider than max_width on its
     own - wrap_text() below never breaks mid-word otherwise, so an overlong
@@ -98,14 +109,14 @@ def _hard_wrap_word(word, font, max_width):
     hyphenated break can never itself overflow)."""
     if not word:
         return [word]
-    bbox = font.getbbox(word)
+    bbox = font.getbbox(word, stroke_width=TEXT_STROKE_WIDTH)
     if bbox[2] - bbox[0] <= max_width:
         return [word]
     pieces = []
     current = ""
     for ch in word:
         candidate = current + ch
-        bbox = font.getbbox(candidate + "-")
+        bbox = font.getbbox(candidate + "-", stroke_width=TEXT_STROKE_WIDTH)
         if bbox[2] - bbox[0] <= max_width or not current:
             current = candidate
         else:
@@ -121,7 +132,7 @@ def wrap_text(text, font, max_width):
     current_line = []
     for word in words:
         test_line = " ".join(current_line + [word])
-        bbox = font.getbbox(test_line)
+        bbox = font.getbbox(test_line, stroke_width=TEXT_STROKE_WIDTH)
         width = bbox[2] - bbox[0]
         if width <= max_width or not current_line:
             current_line.append(word)
@@ -132,7 +143,7 @@ def wrap_text(text, font, max_width):
         # sole occupant of current_line and didn't fit), hard-wrap it in
         # place rather than silently exceeding max_width downstream.
         if len(current_line) == 1:
-            solo_bbox = font.getbbox(current_line[0])
+            solo_bbox = font.getbbox(current_line[0], stroke_width=TEXT_STROKE_WIDTH)
             if solo_bbox[2] - solo_bbox[0] > max_width:
                 pieces = _hard_wrap_word(current_line[0], font, max_width)
                 lines.extend(pieces[:-1])
@@ -158,7 +169,7 @@ def fit_text(text, font_path, max_width, max_height, min_size=12, max_size_ratio
         total_height = 0
         max_line_width = 0
         for line in lines:
-            bbox = font.getbbox(line)
+            bbox = font.getbbox(line, stroke_width=TEXT_STROKE_WIDTH)
             total_height += (bbox[3] - bbox[1]) + 2
             max_line_width = max(max_line_width, bbox[2] - bbox[0])
         return lines, total_height, max_line_width
@@ -198,19 +209,19 @@ def draw_text_centered(draw, lines, font_path, size, box):
     line_heights = []
     total_height = 0
     for line in lines:
-        bbox = font.getbbox(line)
+        bbox = font.getbbox(line, stroke_width=TEXT_STROKE_WIDTH)
         h = bbox[3] - bbox[1]
         line_heights.append(h)
         total_height += h + 2
-        
+
     y_offset = y1 + (box_h - total_height) // 2
-    
+
     for line, h in zip(lines, line_heights):
-        bbox = font.getbbox(line)
+        bbox = font.getbbox(line, stroke_width=TEXT_STROKE_WIDTH)
         w = bbox[2] - bbox[0]
         x_offset = x1 + (box_w - w) // 2
         # Render text with white border outline for visibility
-        draw.text((x_offset, y_offset), line, font=font, fill="black", stroke_width=2, stroke_fill="white")
+        draw.text((x_offset, y_offset), line, font=font, fill="black", stroke_width=TEXT_STROKE_WIDTH, stroke_fill="white")
         y_offset += h + 2
 
 def _iou(box_a, box_b):
@@ -399,7 +410,11 @@ def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines,
         font = ImageFont.load_default()
     max_line_width = 0
     for line in wrapped_lines:
-        bbox = font.getbbox(line)
+        # TASK-28: same stroke_width omission as fit_text/wrap_text - without
+        # it, overflow_ratio itself was underestimated, so some genuinely
+        # overflowing bubbles could score just under the 1.05 flag threshold
+        # and never get flagged for review.
+        bbox = font.getbbox(line, stroke_width=TEXT_STROKE_WIDTH)
         max_line_width = max(max_line_width, bbox[2] - bbox[0])
     overflow_ratio = max_line_width / box_w if box_w else 0
 
@@ -649,6 +664,13 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
         page_bubbles_meta.append({
             "id": bubble_ids[block_index],
             "bbox": [x1, y1, x2, y2],
+            # TASK-26: bbox is computed in THIS image's pixel space (the
+            # pre-downscale page passed into process_page), but cleaned/
+            # translated files get downscaled to max-width/height in a
+            # later pass. Without recording that reference size, any UI
+            # code overlaying/cropping bbox against the (smaller) final
+            # file silently drifts - the further from (0,0), the worse.
+            "bbox_ref_size": [w_img, h_img],
             "original_text": orig_txt,
             "translated_text": translated_txt,
             "quality_flags": block_flags[0] if block_flags else {}
@@ -820,10 +842,196 @@ def regenerate_single_page(args, glossary, detector, mocr):
     finally:
         shutil.rmtree(regen_temp_in, ignore_errors=True)
 
+# TASK-25: maps a book's target_lang to the Tesseract language-data code
+# needed to OCR its *translated* text (distinct from the source-language
+# OCR pytesseract/mocr calls elsewhere in this file already do).
+_TESS_LANG_MAP = {"uk": "ukr", "ru": "rus", "en": "eng"}
+
+
+def _resolve_manga_source(book_dir, slug):
+    """Same source resolution kbg_web/app.py already duplicates in two
+    routes (edit_regenerate_manga_page, run_conversion_api): a `source/`
+    directory takes priority, else a `<slug>.<ext>` archive in book_dir."""
+    source_dir = os.path.join(book_dir, "source")
+    if os.path.isdir(source_dir):
+        return source_dir
+    for ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
+        candidate = os.path.join(book_dir, f"{slug}{ext}")
+        if os.path.exists(candidate):
+            return candidate
+    return ""
+
+
+def backfill_bubbles_meta(slug, lang, detector, mocr):
+    """TASK-25: for manga translated before TASK-20/21 existed, there is no
+    bubbles_meta/ directory, so the manual-edit overlay UI has nothing to
+    draw. STRICTLY read-only w.r.t. cleaned/translated PNGs - never
+    rewrites them, never re-translates via LLM. Only ADDS
+    bubbles_meta/<page_stem>.json per already-translated page.
+
+    bbox geometry comes from re-running detect->dedupe->get_bubble_box on
+    the untouched SOURCE image (the same Stage A/C calls process_page()
+    makes). original_text is OCR of the source crop (same as
+    process_page's own source-OCR box/padding). translated_text is OCR of
+    the EXISTING translated PNG at the same typeset box - never a fresh
+    LLM translate call. quality_flags is deliberately null (TASK-20's
+    post_render_check never ran against these pages' actual historical
+    render, so approximating it would be a lie); every entry is tagged
+    backfilled=true so the UI can render it distinctly instead of
+    implying "checked and clean"."""
+    paths = resolve_book_paths(repo_dir, slug)
+    book_dir = paths["book_dir"]
+    translated_dir = os.path.join(book_dir, "translated")
+    bubbles_meta_dir = os.path.join(book_dir, "bubbles_meta")
+
+    manga_input = _resolve_manga_source(book_dir, slug)
+    if not manga_input:
+        log(f"Error: no manga source (source/ dir or {slug}.<ext> archive) found in {book_dir}.")
+        return
+    if not os.path.isdir(translated_dir):
+        log(f"Error: no translated/ directory found for '{slug}' - nothing to backfill against.")
+        return
+
+    target_lang = paths.get("target_lang", "uk")
+    tess_target_lang = _TESS_LANG_MAP.get(target_lang, "eng")
+
+    temp_in = tempfile.mkdtemp()
+    try:
+        extract_manga_pages(manga_input, temp_in)
+        source_pages = {
+            os.path.basename(p): p
+            for p in [os.path.join(temp_in, f) for f in os.listdir(temp_in)]
+            if p.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))
+        }
+
+        os.makedirs(bubbles_meta_dir, exist_ok=True)
+        translated_files = natsorted([
+            f for f in os.listdir(translated_dir)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))
+        ])
+
+        # Always needed for translated_text OCR below - target-language
+        # text is never Japanese/mocr, regardless of the manga's source lang.
+        import pytesseract
+
+        processed = 0
+        skipped_existing = 0
+        skipped_no_source = 0
+        skipped_unreadable = 0
+
+        for basename in translated_files:
+            page_stem = os.path.splitext(basename)[0]
+            meta_path = os.path.join(bubbles_meta_dir, f"{page_stem}.json")
+            if os.path.exists(meta_path):
+                skipped_existing += 1
+                continue
+
+            source_path = source_pages.get(basename)
+            if not source_path:
+                log(f"Warning: no matching source page for translated '{basename}' - skipping backfill for this page.")
+                skipped_no_source += 1
+                continue
+
+            translated_path = os.path.join(translated_dir, basename)
+            src_img = cv2.imread(source_path)
+            trans_img = cv2.imread(translated_path)
+            if src_img is None or trans_img is None:
+                log(f"Warning: failed to read image(s) for '{basename}' - skipping.")
+                skipped_unreadable += 1
+                continue
+
+            mask, mask_refined, blk_list = detector(src_img, refine_mode=REFINEMASK_INPAINT, keep_undetected_mask=True)
+            blk_list = dedupe_blocks(blk_list)
+
+            if not blk_list:
+                write_bubbles_meta(book_dir, page_stem, [])
+                processed += 1
+                continue
+
+            # Per the task spec: run robust_inpaint to mirror the same
+            # code path a real regen would use. Its output is discarded -
+            # get_bubble_box only reads mask_refined (unaffected by this
+            # call, robust_inpaint doesn't mutate it), so this has no
+            # bearing on the computed bboxes; included for parity anyway,
+            # never written to cleaned/.
+            _ = robust_inpaint(src_img, mask_refined, blk_list)
+
+            h_img, w_img = src_img.shape[:2]
+            th_img, tw_img = trans_img.shape[:2]
+            bubble_ids = assign_bubble_ids(page_stem, blk_list)
+            entries = []
+
+            for idx, blk in enumerate(blk_list):
+                bx1, by1, bx2, by2 = get_bubble_box(blk, mask_refined, src_img.shape)
+
+                # original_text: OCR the SOURCE crop at the OCR-tight
+                # padded box - identical to process_page's own source-OCR step.
+                sx1, sy1, sx2, sy2 = blk.xyxy
+                sx1p, sy1p = max(0, sx1 - 5), max(0, sy1 - 5)
+                sx2p, sy2p = min(w_img, sx2 + 5), min(h_img, sy2 + 5)
+                src_crop = src_img[sy1p:sy2p, sx1p:sx2p]
+                original_text = ""
+                if src_crop.size > 0:
+                    pil_src_crop = Image.fromarray(cv2.cvtColor(src_crop, cv2.COLOR_BGR2RGB))
+                    if lang == 'ja':
+                        original_text = mocr(pil_src_crop).strip()
+                    else:
+                        original_text = pytesseract.image_to_string(pil_src_crop, lang='eng', config='--psm 6').strip()
+                    original_text = " ".join(original_text.replace("\n", " ").replace("\r", " ").split())
+
+                # translated_text: OCR the EXISTING translated PNG at the
+                # get_bubble_box-derived typeset box - never re-translated.
+                # TASK-26: bx1..by2 are in SOURCE pixel space, but
+                # trans_img is frequently downscaled relative to source
+                # (confirmed 156/193 frieren pages) - scale before cropping,
+                # or this reads the wrong region entirely (the original bug:
+                # "поле Переклад містить обрізані фрагменти правильного тексту").
+                scale_x = tw_img / w_img if w_img else 1.0
+                scale_y = th_img / h_img if h_img else 1.0
+                tx1, ty1 = max(0, int(bx1 * scale_x)), max(0, int(by1 * scale_y))
+                tx2, ty2 = min(tw_img, int(bx2 * scale_x)), min(th_img, int(by2 * scale_y))
+                trans_crop = trans_img[ty1:ty2, tx1:tx2]
+                translated_text = ""
+                if trans_crop.size > 0:
+                    pil_trans_crop = Image.fromarray(cv2.cvtColor(trans_crop, cv2.COLOR_BGR2RGB))
+                    try:
+                        translated_text = pytesseract.image_to_string(pil_trans_crop, lang=tess_target_lang, config='--psm 6').strip()
+                    except Exception as e:
+                        log(f"Warning: OCR of translated crop failed for {page_stem} bubble {idx} (tesseract lang '{tess_target_lang}'): {e}")
+                    translated_text = " ".join(translated_text.replace("\n", " ").replace("\r", " ").split())
+
+                entries.append({
+                    "id": bubble_ids[idx],
+                    "bbox": [bx1, by1, bx2, by2],
+                    # TASK-26: bbox is in the SOURCE image's pixel space
+                    # (w_img/h_img below), but translated/cleaned PNGs from
+                    # the pre-TASK-20/21 pipeline were frequently downscaled
+                    # relative to source (confirmed: 156/193 frieren pages
+                    # differ) - record it so the UI can scale correctly
+                    # instead of assuming 1:1 with whatever's on screen.
+                    "bbox_ref_size": [w_img, h_img],
+                    "original_text": original_text,
+                    "translated_text": translated_text,
+                    "quality_flags": None,
+                    "backfilled": True
+                })
+
+            write_bubbles_meta(book_dir, page_stem, entries)
+            processed += 1
+            log(f"Backfilled bubbles_meta for '{basename}': {len(entries)} bubble(s).")
+
+        log(f"Backfill complete for '{slug}': {processed} page(s) processed, "
+            f"{skipped_existing} already had bubbles_meta, "
+            f"{skipped_no_source} had no matching source page, "
+            f"{skipped_unreadable} had unreadable image(s).")
+    finally:
+        shutil.rmtree(temp_in, ignore_errors=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Manga translation pipeline (Segmentation -> OCR -> LLM translation -> Inpainting -> Typesetting)")
-    parser.add_argument("--input", required=True, help="Path to input manga (PDF, CBZ, CBR, CB7, EPUB, or image folder)")
-    parser.add_argument("--output", required=True, help="Path to output CBZ archive or directory")
+    parser.add_argument("--input", help="Path to input manga (PDF, CBZ, CBR, CB7, EPUB, or image folder) - required unless --backfill-bubbles-meta")
+    parser.add_argument("--output", help="Path to output CBZ archive or directory - required unless --backfill-bubbles-meta")
     parser.add_argument("--lang", default="en", choices=["en", "ja"], help="Manga source language (en=English, ja=Japanese)")
     parser.add_argument("--glossary", help="Path to glossary.json file")
     parser.add_argument("--api-url", default="http://127.0.0.1:8081/v1/chat/completions", help="llama-server API Endpoint")
@@ -835,7 +1043,17 @@ def main():
     parser.add_argument("--max-height", type=int, default=1920, help="Maximum height of pages (0 to disable)")
     parser.add_argument("--regenerate-page", help="TASK-21: re-run the full A-E pipeline on just this one page filename (manual bubble edit regen), instead of the whole book")
     parser.add_argument("--overrides-json", help="TASK-21: path to a JSON {original_ocr_text: edited_translation} map, used only with --regenerate-page")
+    parser.add_argument("--backfill-bubbles-meta", action="store_true", help="TASK-25: read-only backfill of bubbles_meta/ for a book translated before TASK-20/21 existed - never touches cleaned/translated PNGs or re-translates")
+    parser.add_argument("--slug", help="Book slug - required with --backfill-bubbles-meta")
     args = parser.parse_args()
+
+    if args.backfill_bubbles_meta:
+        if not args.slug:
+            log("Error: --backfill-bubbles-meta requires --slug.")
+            sys.exit(1)
+    elif not args.input or not args.output:
+        log("Error: --input and --output are required unless --backfill-bubbles-meta is set.")
+        sys.exit(1)
 
     # Load glossary if provided
     glossary = {}
@@ -860,6 +1078,10 @@ def main():
     else:
         log("Using Tesseract OCR for English...")
         import pytesseract
+
+    if args.backfill_bubbles_meta:
+        backfill_bubbles_meta(args.slug, args.lang, detector, mocr)
+        return
 
     if args.regenerate_page:
         regenerate_single_page(args, glossary, detector, mocr)

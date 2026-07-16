@@ -803,12 +803,26 @@
 
                 container.querySelectorAll(".bubble-hotspot").forEach(el => el.remove());
 
-                const scaleX = img.clientWidth / img.naturalWidth;
-                const scaleY = img.clientHeight / img.naturalHeight;
-
                 currentPageBubbles.forEach(b => {
                     const [x1, y1, x2, y2] = b.bbox;
-                    const color = bubbleFlagColor(b.quality_flags);
+                    // TASK-26: bbox is recorded in the pixel space of the
+                    // page image bbox was computed against (bbox_ref_size),
+                    // NOT necessarily this <img>'s own natural size -
+                    // cleaned/translated files are frequently downscaled
+                    // relative to that reference (confirmed 156/193 pages
+                    // on frieren). Scale against bbox_ref_size when present;
+                    // fall back to the old (may drift) 1:1-with-displayed-
+                    // image behavior only for entries written before this fix.
+                    const refW = (b.bbox_ref_size && b.bbox_ref_size[0]) || img.naturalWidth;
+                    const refH = (b.bbox_ref_size && b.bbox_ref_size[1]) || img.naturalHeight;
+                    const scaleX = img.clientWidth / refW;
+                    const scaleY = img.clientHeight / refH;
+                    // TASK-25: a backfilled bubble was never checked by
+                    // TASK-20's post_render_check (quality_flags is null,
+                    // not "checked and clean") - grey it distinctly instead
+                    // of letting it fall through to bubbleFlagColor's
+                    // no-flags-found path, which looks identical to genuinely clean.
+                    const color = b.backfilled ? "rgba(148,163,184,0.6)" : bubbleFlagColor(b.quality_flags);
                     const div = document.createElement("div");
                     div.className = "bubble-hotspot";
                     div.style.cssText = `position:absolute; left:${x1 * scaleX}px; top:${y1 * scaleY}px; width:${(x2 - x1) * scaleX}px; height:${(y2 - y1) * scaleY}px; border:2px solid ${color || 'rgba(139,92,246,0.5)'}; border-radius:4px; cursor:pointer; box-sizing:border-box; transition:background-color 120ms;`;
@@ -830,22 +844,42 @@
                 const panel = document.getElementById("manga-bubble-panel");
                 const [x1, y1, x2, y2] = bubble.bbox;
 
+                // TASK-26: drawImage's source rect must be in THIS <img>'s
+                // own natural pixel space, but bbox is in bbox_ref_size's
+                // space (frequently a different, larger pre-downscale
+                // image) - scale before cropping, or the crop silently
+                // reads the wrong region (the reported "crop looks shifted"
+                // bug). Fall back to 1:1 only for pre-fix entries.
+                const cropRefW = (bubble.bbox_ref_size && bubble.bbox_ref_size[0]) || img.naturalWidth;
+                const cropRefH = (bubble.bbox_ref_size && bubble.bbox_ref_size[1]) || img.naturalHeight;
+                const cropScaleX = img.naturalWidth / cropRefW;
+                const cropScaleY = img.naturalHeight / cropRefH;
+                const cx1 = x1 * cropScaleX, cy1 = y1 * cropScaleY;
+                const cw = (x2 - x1) * cropScaleX, ch = (y2 - y1) * cropScaleY;
+
                 // Crop the bubble region from the already-loaded <img> via
                 // canvas - no extra network request needed for the preview.
                 const canvas = document.createElement("canvas");
-                canvas.width = x2 - x1;
-                canvas.height = y2 - y1;
+                canvas.width = cw;
+                canvas.height = ch;
                 const ctx = canvas.getContext("2d");
-                try { ctx.drawImage(img, x1, y1, x2 - x1, y2 - y1, 0, 0, x2 - x1, y2 - y1); } catch (e) {}
+                try { ctx.drawImage(img, cx1, cy1, cw, ch, 0, 0, cw, ch); } catch (e) {}
                 const cropDataUrl = canvas.toDataURL();
 
                 const qf = bubble.quality_flags || {};
-                let qfText = "Автофікс не знайшов проблем із цією бульбашкою.";
-                if (Object.keys(qf).length > 0) {
-                    const parts = [];
-                    if (qf.overflow_ratio > 1.0) parts.push(`текст виходить за межі бульбашки на ${Math.round((qf.overflow_ratio - 1) * 100)}%`);
-                    if (qf.hit_min_size) parts.push(`шрифт на мінімальному розмірі ${qf.chosen_size}px`);
-                    qfText = parts.join("; ") || "Позначено автофіксом як межовий випадок.";
+                let qfText;
+                if (bubble.backfilled) {
+                    // TASK-25: quality_flags is null for backfilled bubbles
+                    // by design - never approximate it, say so plainly.
+                    qfText = "Ця бульбашка відновлена після факту (TASK-25 backfill) — TASK-20 автофікс ніколи не перевіряв її реальний рендер, тому статус якості невідомий.";
+                } else {
+                    qfText = "Автофікс не знайшов проблем із цією бульбашкою.";
+                    if (Object.keys(qf).length > 0) {
+                        const parts = [];
+                        if (qf.overflow_ratio > 1.0) parts.push(`текст виходить за межі бульбашки на ${Math.round((qf.overflow_ratio - 1) * 100)}%`);
+                        if (qf.hit_min_size) parts.push(`шрифт на мінімальному розмірі ${qf.chosen_size}px`);
+                        qfText = parts.join("; ") || "Позначено автофіксом як межовий випадок.";
+                    }
                 }
 
                 panel.style.display = "block";
@@ -924,6 +958,14 @@
                 document.getElementById("manga-regen-btn").addEventListener("click", async () => {
                     const btn = document.getElementById("manga-regen-btn");
                     const tgtFile = bookData.translated_pages[currentMangaPage];
+                    // TASK-25: a backfilled page has no real quality_flags -
+                    // Regenerate runs the FULL A-E pipeline on the whole
+                    // page, not just the edited bubble, so warn before that
+                    // surprises someone expecting a narrow single-bubble fix.
+                    if (currentPageBubbles.some(b => b.backfilled)) {
+                        const ok = confirm("Ця сторінка відновлена через TASK-25 backfill (без реальних quality_flags). Regenerate оновить типографію ВСІЄЇ сторінки до нового пайплайна, не тільки відредаговану бульбашку. Продовжити?");
+                        if (!ok) return;
+                    }
                     btn.disabled = true;
                     btn.textContent = "⏳ Regenerating... (may take up to a minute)";
                     try {
@@ -1067,6 +1109,21 @@
             };
 
             window.regeneratePageFromQueue = async (page, btn) => {
+                // TASK-25: this tab doesn't have the target page's bubbles
+                // preloaded (unlike the viewer, which uses currentPageBubbles
+                // for the currently-displayed page) - fetch fresh to check.
+                try {
+                    const resBubbles = await fetch(`/api/preview/manga-bubbles/${slug}/${page}`);
+                    if (resBubbles.ok) {
+                        const bubblesData = await resBubbles.json();
+                        const hasBackfilled = (bubblesData.bubbles || []).some(b => b.backfilled);
+                        if (hasBackfilled) {
+                            const ok = confirm("Ця сторінка відновлена через TASK-25 backfill (без реальних quality_flags). Regenerate оновить типографію ВСІЄЇ сторінки до нового пайплайна, не тільки відредаговану бульбашку. Продовжити?");
+                            if (!ok) return;
+                        }
+                    }
+                } catch (e) { /* non-fatal - if the check fails, fall through to regenerate as before */ }
+
                 btn.disabled = true;
                 btn.textContent = "⏳...";
                 try {
