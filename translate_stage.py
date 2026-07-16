@@ -11,6 +11,7 @@ import requests
 from common.text_protect import PlaceholderManager
 from common.book_paths import resolve_book_paths
 from common.utils import get_hash, split_into_segments, to_xml_format, wait_for_server_ready, translate_segment_with_retry
+from common.file_lock import file_lock
 
 def log(message):
     print(f"[Translate] {message}", flush=True)
@@ -128,9 +129,11 @@ def main():
     log("Restoring placeholders...")
     final_text = pm.restore(translated_protected_text)
     
-    # Write to output
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(final_text)
+    # Write to output. Locked because a live edit (TASK-23) may concurrently
+    # patch this same per-batch file while the main pipeline is still running.
+    with file_lock(output_path):
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(final_text)
     log(f"Translation completed successfully! Saved to: {output_path}")
 
 if __name__ == "__main__":

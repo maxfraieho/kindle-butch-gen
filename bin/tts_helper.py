@@ -7,6 +7,41 @@ import subprocess
 import wave
 import struct
 
+_repo_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+if _repo_dir not in sys.path:
+    sys.path.insert(0, _repo_dir)
+from common.file_lock import file_lock, LockTimeoutError
+
+
+def _splice_audio_priority(chunks, seen_hashes, audio_priority_path):
+    """TASK-23: called once per chunk from inside the already-running,
+    already-model-loaded tts_helper.py loop, to pick up new live-edit
+    entries kbg_web/app.py queued (via edit_regenerate_audio) while this
+    book's audio_stage.py run is active - avoids spinning up a second
+    model-loaded process for a mid-run edit (the confirmed pre-TASK-23
+    resource-conflict race)."""
+    if not audio_priority_path or not os.path.exists(audio_priority_path):
+        return
+    try:
+        with file_lock(audio_priority_path, timeout=0.5):
+            with open(audio_priority_path, "r", encoding="utf-8") as f:
+                queued = json.load(f)
+            new_entries = [q for q in queued if q.get("hash") not in seen_hashes]
+            if new_entries:
+                for q in new_entries:
+                    chunks.append({"hash": q["hash"], "text": q["text"]})
+                    seen_hashes.add(q["hash"])
+                # Clear now that these entries are picked up - app.py will
+                # create a fresh file if another live edit lands later.
+                with open(audio_priority_path, "w", encoding="utf-8") as f:
+                    json.dump([], f)
+                print(f"[TTSHelper] Picked up {len(new_entries)} live-edit chunk(s) from priority queue.", flush=True)
+    except LockTimeoutError:
+        pass  # app.py is mid-write to the queue file; retry next chunk iteration
+    except Exception:
+        pass
+
+
 def normalize_accents(text):
     # Convert spacing acute accent (´, \u00b4) to combining acute accent (́, \u0301)
     return text.replace("\u00b4", "\u0301")
@@ -182,12 +217,17 @@ def run_supertonic3(payload):
     total = len(chunks)
     print(f"[TTSHelper] (Supertonic 3) Processing {total} chunks...", flush=True)
 
+    audio_priority_path = payload.get("audio_priority_path")
+    seen_hashes = {c.get("hash") for c in chunks}
+
     for i, chunk in enumerate(chunks):
         chunk_hash = chunk.get("hash")
         text = chunk.get("text", "").strip()
 
         if not chunk_hash or not text:
             continue
+
+        _splice_audio_priority(chunks, seen_hashes, audio_priority_path)
 
         # Transliterate English words and abbreviations
         text = transliterate_english_words(text)
@@ -342,12 +382,17 @@ def run_styletts2(payload):
     total = len(chunks)
     print(f"[TTSHelper] (StyleTTS2) Processing {total} chunks...", flush=True)
 
+    audio_priority_path = payload.get("audio_priority_path")
+    seen_hashes = {c.get("hash") for c in chunks}
+
     for i, chunk in enumerate(chunks):
         chunk_hash = chunk.get("hash")
         text = chunk.get("text", "").strip()
 
         if not chunk_hash or not text:
             continue
+
+        _splice_audio_priority(chunks, seen_hashes, audio_priority_path)
 
         # Transliterate English words and abbreviations
         text = transliterate_english_words(text)

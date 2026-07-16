@@ -13,6 +13,8 @@ sys.path.insert(0, repo_dir)
 
 from common.book_paths import resolve_book_paths
 from common.epub_validate import validate_epub
+from common.edit_patch import patch_batch_translation
+from kbg_web import edit_store
 
 def log(message, log_path):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -91,6 +93,23 @@ def run_marker_batch(start, end, pdf_path, batches_dir, log_path):
     
     log(f"Batch {start}-{end} completed successfully.", log_path)
     return True
+
+def apply_pending_text_edits(slug, batches_dir, suffix, log_path):
+    """TASK-23: called between batches while this book is still
+    status=running. Applies any live text edits that target text already
+    present in an already-completed batch file, so an edit made mid-run
+    doesn't sit stale until the whole book finishes."""
+    pending = edit_store.list_edits(slug, mode="text", status="pending")
+    if not pending:
+        return
+    for edit in pending:
+        old_text = edit.get("original_value")
+        new_text = edit.get("edited_value")
+        if not old_text or new_text is None:
+            continue
+        if patch_batch_translation(batches_dir, suffix, old_text, new_text):
+            edit_store.mark_status(slug, edit["id"], "regenerated", applied_at=datetime.now().isoformat())
+            log(f"[LiveEdit] Applied pending text edit {edit['id']} to a completed batch file.", log_path)
 
 def main():
     parser = argparse.ArgumentParser(description="Batch conversion, translation, and ebook generation pipeline")
@@ -237,7 +256,11 @@ def main():
                         log(f"Error: Translation of batch {start}-{end} failed!", log_path)
                         success = False
                         break
-                        
+
+            # TASK-23: batch boundary — the natural point to check for live
+            # edits against already-completed batches before moving on.
+            apply_pending_text_edits(slug, paths["batches_dir"], suffix, log_path)
+
         if not success:
             log("Pipeline aborted due to batch extraction/translation failures.", log_path)
             sys.exit(1)

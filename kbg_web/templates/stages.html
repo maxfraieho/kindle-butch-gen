@@ -485,6 +485,8 @@
             <a href="/" class="btn-back">← Back to Dashboard</a>
         </header>
 
+        <div id="live-edit-banner" style="display:none; margin-bottom:1rem; padding:0.75rem 1rem; border-radius:8px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; font-size:0.9rem;"></div>
+
         <div id="viewer-container" class="visualizer-card">
             <div class="loader" id="loader">
                 <div style="text-align: center;">
@@ -550,6 +552,52 @@
             ).join('');
         }
 
+        // TASK-23: while status=running, live edits made from this page are
+        // applied with priority by the running generator itself (manga/batch
+        // page-and-batch boundary checks, or the audio priority queue) —
+        // this banner just surfaces that state so it isn't a silent wait.
+        let liveStatusInterval = null;
+
+        async function pollLiveGenerationStatus() {
+            try {
+                const res = await fetch(`/api/status/${slug}`);
+                if (!res.ok) return;
+                const status = await res.json();
+                const banner = document.getElementById("live-edit-banner");
+
+                if (status.is_running) {
+                    let pendingCount = 0;
+                    try {
+                        const resEdits = await fetch(`/api/edit/queue/${slug}?status=pending`);
+                        if (resEdits.ok) {
+                            const edits = await resEdits.json();
+                            pendingCount = Array.isArray(edits) ? edits.length : 0;
+                        }
+                    } catch (e) { /* non-fatal - banner still shows without a count */ }
+
+                    const pct = Math.round(status.translation_percent || 0);
+                    let msg = `🔴 Generation in progress (${pct}% translated). Edits you make here are applied with priority as the pipeline reaches each page/batch.`;
+                    if (pendingCount > 0) {
+                        msg += ` ${pendingCount} edit(s) currently queued.`;
+                    }
+                    banner.textContent = msg;
+                    banner.style.display = "block";
+
+                    if (!liveStatusInterval) {
+                        liveStatusInterval = setInterval(pollLiveGenerationStatus, 12000);
+                    }
+                } else {
+                    banner.style.display = "none";
+                    if (liveStatusInterval) {
+                        clearInterval(liveStatusInterval);
+                        liveStatusInterval = null;
+                    }
+                }
+            } catch (err) {
+                console.error("pollLiveGenerationStatus failed:", err);
+            }
+        }
+
         async function fetchBookData() {
             try {
                 // First, check list of books to find metadata
@@ -574,6 +622,7 @@
                 
                 document.getElementById("loader").style.display = "none";
                 document.getElementById("content-area").style.display = "block";
+                pollLiveGenerationStatus();
             } catch (err) {
                 console.error(err);
                 document.getElementById("loader").innerHTML = `<div style="color:var(--danger)">Failed to load preview data. Make sure pipeline has run.</div>`;

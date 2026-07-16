@@ -13,6 +13,8 @@ if repo_dir not in sys.path:
     sys.path.insert(0, repo_dir)
 
 from common.book_paths import resolve_book_paths
+from common.edit_patch import patch_batch_translation
+from common.file_lock import file_lock
 from kbg_web.status_helper import calculate_progress, get_pdf_page_count
 from kbg_web import edit_store
 
@@ -1619,6 +1621,30 @@ def edit_regenerate_audio(slug, chunk_hash):
     os.makedirs(chunks_dir, exist_ok=True)
     os.makedirs(paths["cache_dir"], exist_ok=True)
 
+    # TASK-23: don't fire a second tts_helper.py (a second loaded TTS model)
+    # if audio_stage.py is already running for this book — its own
+    # tts_helper.py loop checks this file between chunks and picks new
+    # entries up using the already-loaded model instead.
+    if is_book_process_running(slug):
+        audio_priority_path = os.path.join(paths["audio_dir"], f"audio_priority_{voice_slug}.json")
+        os.makedirs(paths["audio_dir"], exist_ok=True)
+        with file_lock(audio_priority_path, timeout=2.0):
+            queued = []
+            if os.path.exists(audio_priority_path):
+                try:
+                    with open(audio_priority_path, "r", encoding="utf-8") as f:
+                        queued = json.load(f)
+                except Exception:
+                    queued = []
+            if not any(q.get("hash") == new_hash for q in queued):
+                queued.append({"hash": new_hash, "text": tts_text, "edit_id": source_edit["id"]})
+            with open(audio_priority_path, "w", encoding="utf-8") as f:
+                json.dump(queued, f, ensure_ascii=False, indent=2)
+        return jsonify({
+            "status": "queued",
+            "message": "Generation is currently in progress for this book - your edit is saved and will be synthesized automatically."
+        })
+
     payload = {
         "tts_engine": paths.get("tts_engine", "supertonic3"),
         "model_path": model_path,
@@ -1727,22 +1753,10 @@ def edit_approve(slug, edit_id):
         # 3. Per-batch translated markdown files — books that still have
         # their source PDF get merged_translated_<lang>.md unconditionally
         # rebuilt from these on the next conversion run, which would
-        # silently discard step 2's patch otherwise.
-        batch_patched = False
-        if os.path.exists(paths["batches_dir"]):
-            import glob
-            for batch_md in glob.glob(os.path.join(paths["batches_dir"], "batch_*", "*", f"*{suffix}.md")):
-                try:
-                    with open(batch_md, "r", encoding="utf-8") as f:
-                        batch_content = f.read()
-                except Exception:
-                    continue
-                if old_text in batch_content:
-                    batch_content = batch_content.replace(old_text, new_text, 1)
-                    with open(batch_md, "w", encoding="utf-8") as f:
-                        f.write(batch_content)
-                    batch_patched = True
-                    break
+        # silently discard step 2's patch otherwise. Locked (TASK-23):
+        # the main pipeline may still be writing other batch files
+        # concurrently if this book is still status=running.
+        batch_patched = patch_batch_translation(paths["batches_dir"], suffix, old_text, new_text)
 
         if not merged_patched and not batch_patched:
             return jsonify({"status": "error", "message": "Could not locate the original text in merged markdown or any batch file — approve aborted, nothing was changed"}), 500
@@ -1816,6 +1830,16 @@ def edit_regenerate_manga_page(slug, page_filename):
         cfg = json.load(f)
     if not cfg.get("is_manga", False):
         return jsonify({"status": "error", "message": "Not a manga"}), 400
+
+    # TASK-23: don't fire a second translate_manga.py process (same GPU/OCR/
+    # LLM resources) if the main pipeline is still running for this book -
+    # main()'s own per-page loop now checks pending edits at each page
+    # boundary and will pick this one up automatically.
+    if is_book_process_running(slug):
+        return jsonify({
+            "status": "queued",
+            "message": "Generation is currently in progress for this book - your edit is saved and will be applied automatically as the pipeline reaches this page."
+        })
 
     # Same source resolution run_conversion_api already uses for the full
     # manga run - --regenerate-page re-extracts from this same source, so
