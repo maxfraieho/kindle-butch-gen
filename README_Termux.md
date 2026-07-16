@@ -30,7 +30,7 @@
 Скопіюйте цю команду, вставте її в Termux і натисніть **Enter**:
 
 ```bash
-curl -O https://raw.githubusercontent.com/maxfraieho/kindle-butch-gen/master/deploy_oneplus13.sh && chmod +x deploy_oneplus13.sh && ./deploy_oneplus13.sh
+curl -O https://raw.githubusercontent.com/maxfraieho/kindle-butch-gen/master/deploy.sh && chmod +x deploy.sh && ./deploy.sh
 ```
 
 ---
