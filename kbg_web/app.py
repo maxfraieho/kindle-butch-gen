@@ -103,6 +103,42 @@ def request_entity_too_large(error):
 active_processes = {}
 completed_copied = set()
 
+# Auto-resume-on-restart: persists the CURRENTLY running conversion's exact
+# invocation to disk, so if Termux/Flask itself dies mid-run (not just this
+# one process - the whole environment going down, which active_processes
+# alone can't survive since it's purely in-memory), the autostart script
+# can detect an interrupted run and re-launch the identical command on the
+# next boot. The pipeline's own per-page skip-if-already-done logic (used
+# throughout this project already) means simply re-running the same
+# command resumes correctly with no extra state tracking needed here.
+ACTIVE_CONVERSION_STATE_PATH = os.path.join(repo_dir, ".active_conversion.json")
+
+
+def _write_active_conversion_state(slug, cmd, cwd, log_path):
+    try:
+        with open(ACTIVE_CONVERSION_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"slug": slug, "cmd": cmd, "cwd": cwd, "log_path": log_path}, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[AutoResume] Warning: failed to write active-conversion state: {e}")
+
+
+def _clear_active_conversion_state(slug=None):
+    # Only clear if the on-disk state still refers to THIS slug - avoids a
+    # race where book A's completion handler clears book B's still-running
+    # state if a later conversion started before A's completion was noticed
+    # (completion detection is lazy/poll-based here, see handle_process_completion).
+    try:
+        if not os.path.exists(ACTIVE_CONVERSION_STATE_PATH):
+            return
+        if slug is not None:
+            with open(ACTIVE_CONVERSION_STATE_PATH, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            if state.get("slug") != slug:
+                return
+        os.remove(ACTIVE_CONVERSION_STATE_PATH)
+    except Exception as e:
+        print(f"[AutoResume] Warning: failed to clear active-conversion state: {e}")
+
 def is_book_process_running(slug):
     # Scan /proc for running python processes that match this book slug
     import os
@@ -121,6 +157,13 @@ def is_book_process_running(slug):
     return False
 
 def handle_process_completion(slug, proc):
+    # Flask observed this process end (success OR failure) while it was
+    # still alive to see it - clear the auto-resume state regardless of
+    # exit code, so a genuinely-failed run isn't retried forever on every
+    # Termux restart. Only a crash that killed Flask/Termux itself BEFORE
+    # this function ever got to run leaves the state file behind, which is
+    # exactly the correct signal for the autostart script to resume it.
+    _clear_active_conversion_state(slug)
     if proc.poll() == 0:
         try:
             settings = load_global_settings()
@@ -705,6 +748,7 @@ def run_conversion_api(slug):
         )
         
         active_processes[slug] = proc
+        _write_active_conversion_state(slug, cmd, repo_dir, log_path)
         return jsonify({"status": "success", "message": "Pipeline started in background"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -727,11 +771,14 @@ def stop_conversion_api(slug):
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
-            
+
+        # Explicit user stop should not trigger auto-resume on next restart.
+        _clear_active_conversion_state(slug)
+
         paths = resolve_book_paths(repo_dir, slug)
         with open(paths["log_path"], "a", encoding="utf-8") as f:
             f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Conversion process terminated by user ---\n")
-            
+
         return jsonify({"status": "success", "message": "Process terminated successfully"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
