@@ -118,7 +118,8 @@ class PlaceholderManager:
         if not text:
             return ""
         text = re.sub(r"<!--[\s\S]*?-->", "", text) # Remove HTML comments
-        text = re.sub(r"(?m)^[ \t]*\|.*?\|[ \t]*$", "", text) # Remove Markdown tables
+        text = re.sub(r"(?m)^[ \t]*\|[-:\s|]+$", "", text) # Remove empty table borders / separators
+        text = text.replace("|", "") # Remove any other vertical bars
         text = re.sub(r"```[\s\S]*?```", "", text) # Remove code blocks
         text = re.sub(r"`[^`\n]+?`", "", text)     # Remove inline code
         text = re.sub(r"<[^>]+>", "", text)         # Remove HTML tags
