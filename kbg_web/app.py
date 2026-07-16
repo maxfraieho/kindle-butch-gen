@@ -1926,9 +1926,26 @@ def edit_regenerate_manga_page(slug, page_filename):
     manga_output = os.path.join(paths["book_dir"], "output", f"{slug}_translated_{target_lang}.cbz")
 
     prefix = f"{page_filename}#"
-    pending = [e for e in edit_store.list_edits(slug, mode="manga", status="pending") if e["target_id"].startswith(prefix)]
+    page_edits = [e for e in edit_store.list_edits(slug, mode="manga") if e["target_id"].startswith(prefix)]
+    pending = [e for e in page_edits if e.get("status") == "pending"]
     if not pending:
         return jsonify({"status": "error", "message": "No pending edits for this page - nothing to regenerate"}), 400
+
+    # Bug found live during TASK-36 testing: process_page() re-runs the
+    # WHOLE page from scratch on every regen (fresh OCR + fresh LLM
+    # translation), so an edit that's already "regenerated" from a PAST
+    # run is invisible to a LATER regen triggered for an unrelated reason
+    # (e.g. a geometry-only fix on a different bubble) unless it's
+    # included again here too - otherwise it silently reverts to a fresh
+    # (and possibly different) auto-translation. "regenerated" edits are
+    # therefore included in the override set on every future regen of
+    # this page, not just the run they were first created in - the
+    # pending-only check above still gates WHETHER a regen even happens
+    # (so clicking Regenerate on a page with zero new edits does nothing),
+    # but once triggered, every previously-confirmed fix for this page
+    # rides along. "orphaned"/"discarded" edits are excluded - they no
+    # longer correspond to anything meaningful to reapply.
+    to_apply = [e for e in page_edits if e.get("status") in ("pending", "regenerated")]
 
     page_stem = os.path.splitext(page_filename)[0]
     meta_path = os.path.join(paths["book_dir"], "bubbles_meta", f"{page_stem}.json")
@@ -1942,7 +1959,7 @@ def edit_regenerate_manga_page(slug, page_filename):
 
     overrides = {}
     bbox_overrides = {}
-    for e in pending:
+    for e in to_apply:
         bubble_id = e["target_id"].split("#", 1)[1]
         bubble = bubbles_by_id.get(bubble_id)
         if not bubble:
@@ -2027,10 +2044,13 @@ def edit_regenerate_manga_page(slug, page_filename):
 
     id_mapping = result.get("bubble_id_mapping", {})
     now = datetime.now().isoformat()
-    for e in pending:
+    for e in to_apply:
         old_bubble_id = e["target_id"].split("#", 1)[1]
         new_bubble_id = id_mapping.get(old_bubble_id)
         if new_bubble_id is not None:
+            # Re-marking an already-"regenerated" edit here too (fresh
+            # applied_at) - it just rode along in this regen, still
+            # correctly applied, timestamp reflects the latest confirmation.
             edit_store.mark_status(slug, e["id"], "regenerated", applied_at=now)
         else:
             # The bubble this edit targeted has no confident IoU match in

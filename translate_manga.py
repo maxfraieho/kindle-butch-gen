@@ -995,19 +995,38 @@ def apply_pending_manga_edits(book_dir, temp_in, glossary, api_url, lang, detect
     on-demand full re-extraction, since we're already inside main()'s
     loop with it available."""
     slug = os.path.basename(book_dir)
-    pending = edit_store.list_edits(slug, mode="manga", status="pending")
+    all_manga_edits = edit_store.list_edits(slug, mode="manga")
+    pending = [e for e in all_manga_edits if e.get("status") == "pending"]
     if not pending:
         return
 
-    pages_with_edits = {}
+    pages_needing_regen = set()
     for edit in pending:
+        target_id = edit.get("target_id", "")
+        if "#" in target_id:
+            pages_needing_regen.add(target_id.split("#", 1)[0])
+
+    # Bug found live during TASK-36 testing: process_page() re-runs the
+    # WHOLE page from scratch, so an edit already "regenerated" from a
+    # PAST run is invisible to a LATER regen triggered by a different
+    # bubble's new pending edit on the same page, unless it's included
+    # again here too - otherwise it silently reverts to a fresh (possibly
+    # different) auto-translation. pages_needing_regen above still gates
+    # WHETHER a page regenerates at all (only pages with a genuinely new
+    # pending edit qualify); once a page qualifies, every "regenerated"
+    # edit for it rides along too, not just the new one that triggered it.
+    edits_by_page = {}
+    for edit in all_manga_edits:
+        if edit.get("status") not in ("pending", "regenerated"):
+            continue
         target_id = edit.get("target_id", "")
         if "#" not in target_id:
             continue
-        page_filename, _ = target_id.split("#", 1)
-        pages_with_edits.setdefault(page_filename, []).append(edit)
+        page_filename = target_id.split("#", 1)[0]
+        if page_filename in pages_needing_regen:
+            edits_by_page.setdefault(page_filename, []).append(edit)
 
-    for page_filename, edits_for_page in pages_with_edits.items():
+    for page_filename, edits_for_page in edits_by_page.items():
         meta_path = os.path.join(book_dir, "bubbles_meta", f"{os.path.splitext(page_filename)[0]}.json")
         if not os.path.exists(meta_path):
             continue  # page not processed yet this run - nothing to regenerate against
