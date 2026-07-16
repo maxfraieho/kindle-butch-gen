@@ -6,11 +6,17 @@ import json
 import shutil
 import tempfile
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import requests
 import cv2
+
+repo_dir = os.path.dirname(os.path.abspath(__file__))
+if repo_dir not in sys.path:
+    sys.path.insert(0, repo_dir)
+from kbg_web import edit_store
 
 # Import our TextDetector and natsort (installed in PRoot container)
 try:
@@ -651,6 +657,110 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
     final_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     return final_img, inpainted, page_quality_flags, page_bubbles_meta
 
+def _persist_regenerated_page(book_dir, page_filename, final_img, cleaned_img, page_flags, new_bubbles):
+    """Shared by regenerate_single_page (on-demand CLI mode, TASK-21) and
+    apply_pending_manga_edits (in-loop live regen, TASK-23): writes the
+    regenerated page's images, bubbles_meta.json, and merges its quality
+    flags into the book-wide quality_flags.json. Returns the IoU
+    old-id -> new-id-or-None reconciliation mapping."""
+    page_stem = os.path.splitext(page_filename)[0]
+    cleaned_dir = os.path.join(book_dir, "cleaned")
+    translated_dir = os.path.join(book_dir, "translated")
+    os.makedirs(cleaned_dir, exist_ok=True)
+    os.makedirs(translated_dir, exist_ok=True)
+    cv2.imwrite(os.path.join(cleaned_dir, page_filename), cleaned_img)
+    cv2.imwrite(os.path.join(translated_dir, page_filename), final_img)
+
+    meta_path = os.path.join(book_dir, "bubbles_meta", f"{page_stem}.json")
+    old_bubbles = []
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                old_bubbles = json.load(f)
+        except Exception:
+            old_bubbles = []
+
+    write_bubbles_meta(book_dir, page_stem, new_bubbles)
+    id_mapping = match_bubbles_iou(old_bubbles, new_bubbles)
+
+    quality_flags_path = os.path.join(book_dir, "quality_flags.json")
+    all_flags = []
+    if os.path.exists(quality_flags_path):
+        try:
+            with open(quality_flags_path, "r", encoding="utf-8") as f:
+                all_flags = json.load(f)
+        except Exception:
+            all_flags = []
+    all_flags = [f for f in all_flags if f.get("page") != page_filename]
+    all_flags.extend(page_flags)
+    with open(quality_flags_path, "w", encoding="utf-8") as f:
+        json.dump(all_flags, f, ensure_ascii=False, indent=2)
+
+    return id_mapping, old_bubbles
+
+
+def apply_pending_manga_edits(book_dir, temp_in, glossary, api_url, lang, detector, mocr, font_path):
+    """TASK-23: called between pages in main()'s loop while this book is
+    still status=running. Applies any live manga bubble edits that target
+    a page already processed earlier in this run (or a prior run, on
+    resume), regenerating just that page in-process — reuses the already-
+    extracted temp_in source dir instead of regenerate_single_page's
+    on-demand full re-extraction, since we're already inside main()'s
+    loop with it available."""
+    slug = os.path.basename(book_dir)
+    pending = edit_store.list_edits(slug, mode="manga", status="pending")
+    if not pending:
+        return
+
+    pages_with_edits = {}
+    for edit in pending:
+        target_id = edit.get("target_id", "")
+        if "#" not in target_id:
+            continue
+        page_filename, _ = target_id.split("#", 1)
+        pages_with_edits.setdefault(page_filename, []).append(edit)
+
+    for page_filename, edits_for_page in pages_with_edits.items():
+        meta_path = os.path.join(book_dir, "bubbles_meta", f"{os.path.splitext(page_filename)[0]}.json")
+        if not os.path.exists(meta_path):
+            continue  # page not processed yet this run - nothing to regenerate against
+        page_path = os.path.join(temp_in, page_filename)
+        if not os.path.exists(page_path):
+            continue
+
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                old_bubbles = json.load(f)
+        except Exception:
+            old_bubbles = []
+
+        overrides = {}
+        for edit in edits_for_page:
+            _, bubble_id = edit["target_id"].split("#", 1)
+            bubble = next((b for b in old_bubbles if b.get("id") == bubble_id), None)
+            if bubble:
+                overrides[bubble["original_text"]] = edit["edited_value"]
+        if not overrides:
+            continue
+
+        img = cv2.imread(page_path)
+        if img is None:
+            continue
+
+        final_img, cleaned_img, page_flags, new_bubbles = process_page(
+            img, page_filename, glossary, api_url, lang, detector, mocr, font_path,
+            overrides=overrides
+        )
+        id_mapping, _ = _persist_regenerated_page(book_dir, page_filename, final_img, cleaned_img, page_flags, new_bubbles)
+
+        for edit in edits_for_page:
+            _, bubble_id = edit["target_id"].split("#", 1)
+            new_id = id_mapping.get(bubble_id)
+            status = "regenerated" if new_id else "orphaned"
+            edit_store.mark_status(slug, edit["id"], status, applied_at=datetime.now().isoformat())
+        log(f"[LiveEdit] Applied {len(overrides)} pending manga edit(s) to already-completed page '{page_filename}'.")
+
+
 def regenerate_single_page(args, glossary, detector, mocr):
     """TASK-21: re-runs the FULL A-E pipeline (process_page) on just one
     page, for a manual bubble-edit regen. Deliberately does NOT skip
@@ -703,43 +813,7 @@ def regenerate_single_page(args, glossary, detector, mocr):
         )
 
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
-        page_stem = os.path.splitext(page_filename)[0]
-
-        cleaned_dir = os.path.join(book_dir, "cleaned")
-        translated_dir = os.path.join(book_dir, "translated")
-        os.makedirs(cleaned_dir, exist_ok=True)
-        os.makedirs(translated_dir, exist_ok=True)
-        cv2.imwrite(os.path.join(cleaned_dir, page_filename), cleaned_img)
-        cv2.imwrite(os.path.join(translated_dir, page_filename), final_img)
-
-        # Load the OLD bubbles_meta.json snapshot BEFORE overwriting it,
-        # so pending edits referencing old bubble IDs can be reconciled.
-        meta_path = os.path.join(book_dir, "bubbles_meta", f"{page_stem}.json")
-        old_bubbles = []
-        if os.path.exists(meta_path):
-            try:
-                with open(meta_path, "r", encoding="utf-8") as f:
-                    old_bubbles = json.load(f)
-            except Exception:
-                old_bubbles = []
-
-        write_bubbles_meta(book_dir, page_stem, new_bubbles)
-        id_mapping = match_bubbles_iou(old_bubbles, new_bubbles)
-
-        # Update the book-wide quality_flags.json: replace only this
-        # page's entries, leave every other page's flags untouched.
-        quality_flags_path = os.path.join(book_dir, "quality_flags.json")
-        all_flags = []
-        if os.path.exists(quality_flags_path):
-            try:
-                with open(quality_flags_path, "r", encoding="utf-8") as f:
-                    all_flags = json.load(f)
-            except Exception:
-                all_flags = []
-        all_flags = [f for f in all_flags if f.get("page") != page_filename]
-        all_flags.extend(page_flags)
-        with open(quality_flags_path, "w", encoding="utf-8") as f:
-            json.dump(all_flags, f, ensure_ascii=False, indent=2)
+        id_mapping, _ = _persist_regenerated_page(book_dir, page_filename, final_img, cleaned_img, page_flags, new_bubbles)
 
         log(f"Regenerated page '{page_filename}': {len(new_bubbles)} bubble(s), {len(page_flags)} quality flag(s).")
         print(json.dumps({"status": "success", "bubble_id_mapping": id_mapping, "bubbles": new_bubbles}, ensure_ascii=False))
@@ -830,6 +904,8 @@ def main():
                     # Fallback to original image if not translated yet
                     shutil.copy2(page_path, os.path.join(temp_out, basename))
 
+        book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+
         for idx, page_path in enumerate(pages_to_process):
             log(f"Page {idx+1}/{len(pages_to_process)}: {os.path.basename(page_path)}")
             
@@ -889,6 +965,10 @@ def main():
                     book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
                     page_stem = os.path.splitext(basename)[0]
                     write_bubbles_meta(book_dir, page_stem, page_bubbles)
+
+                # TASK-23: page boundary — the natural point to check for
+                # live edits against already-completed pages before moving on.
+                apply_pending_manga_edits(book_dir, temp_in, glossary, args.api_url, args.lang, detector, mocr, font_path)
 
         # Stage E: write accumulated quality flags for this book, a future
         # input for a manual-review queue (not built in this pass).

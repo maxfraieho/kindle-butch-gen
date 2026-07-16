@@ -33,11 +33,20 @@ def generate_silence_wav(output_path, duration_ms, sample_rate):
 def apply_fade_out(input_wav, output_wav, fade_ms=15):
     """Applies a fade-out to the end of a WAV file via ffmpeg."""
     fade_sec = fade_ms / 1000.0
-    cmd = [
-        "ffmpeg", "-y", "-i", input_wav,
-        "-af", f"areverse,afade=t=in:d={fade_sec},areverse",
-        output_wav
-    ]
+    import shutil
+    if shutil.which("proot-distro"):
+        cmd = [
+            "proot-distro", "login", "ubuntu", "--",
+            "ffmpeg", "-y", "-i", os.path.abspath(input_wav),
+            "-af", f"areverse,afade=t=in:d={fade_sec},areverse",
+            os.path.abspath(output_wav)
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y", "-i", input_wav,
+            "-af", f"areverse,afade=t=in:d={fade_sec},areverse",
+            output_wav
+        ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def log(message):
@@ -421,6 +430,11 @@ def main():
                     log(f"Warning: Preprocessing (stressifier/NFD) failed: {e}. Proceeding with raw text.")
 
             # Prepare payload for tts_helper.py
+            # TASK-23: kbg_web/app.py's edit_regenerate_audio writes queued
+            # live-edit chunks here (same voice_slug) while this run is
+            # active - tts_helper.py's own loop picks them up per-chunk.
+            audio_priority_path = os.path.join(paths["audio_dir"], f"audio_priority_{voice_slug}.json")
+
             payload = {
                 "tts_engine": tts_engine,
                 "model_path": model_path,
@@ -431,7 +445,8 @@ def main():
                 "speed": speed,
                 "noise_scale": noise_scale,
                 "noise_w": noise_w,
-                "lang": target_lang
+                "lang": target_lang,
+                "audio_priority_path": os.path.abspath(audio_priority_path)
             }
             payload_json = json.dumps(payload, ensure_ascii=False)
 
@@ -464,21 +479,14 @@ def main():
             except Exception as e:
                 log(f"Warning: termux-wake-unlock failed: {e}")
 
-        # Update cache for successfully synthesized files
-        for chunk in unique_missing_chunks:
-            h = chunk["hash"]
-            t = chunk["text"]
-            wav_file = os.path.join(chunks_dir, f"{h}.wav")
-            if os.path.exists(wav_file):
-                cache[h] = t
-
-        # Save cache
-        try:
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(cache, f, ensure_ascii=False, indent=2)
-            log("Saved updated TTS cache.")
-        except Exception as e:
-            log(f"Warning: Failed to save TTS cache: {e}")
+        # NOTE (TASK-23): tts_helper.py itself writes cache_path
+        # incrementally after each chunk (both engines) - it's the
+        # authoritative writer, not just this process's local `cache` dict
+        # loaded before the subprocess ran. We deliberately do NOT
+        # re-save `cache` here anymore: this process's copy predates any
+        # chunks tts_helper.py spliced in from the live-edit priority
+        # queue while running, so overwriting cache_path with it would
+        # silently drop those entries right after tts_helper.py wrote them.
 
     # Verify all chunk files exist before proceeding
     missing_files = []
