@@ -37,12 +37,12 @@ Marker relies on PyTorch. Since CUDA is not available on Android Adreno hardware
 
 ## 3. Quick Deployment Steps
 
-The deployment script [`deploy_oneplus13.sh`](file:///data/data/com.termux/files/home/kindle-butch-gen/deploy_oneplus13.sh) automates the entire process. Here is how to run it:
+The deployment script [`deploy.sh`](file:///data/data/com.termux/files/home/kindle-butch-gen/deploy.sh) (formerly `deploy_oneplus13.sh`, evolved in TASK-32 into a self-sufficient one-curl installer for any device, with graceful CPU-only fallback on non-Adreno hardware) automates the entire process. Here is how to run it:
 
 1.  **Run the script in Termux**:
     ```bash
-    chmod +x deploy_oneplus13.sh
-    ./deploy_oneplus13.sh
+    chmod +x deploy.sh
+    ./deploy.sh
     ```
 2.  **Verify OpenCL Recognition**:
     Enter the GPU container:
