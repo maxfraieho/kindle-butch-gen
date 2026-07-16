@@ -99,6 +99,15 @@ def extract_manga_pages(input_path, temp_dir):
 # font size that overflows once the stroke is actually drawn.
 TEXT_STROKE_WIDTH = 2
 
+# TASK-30: get_bubble_box() returns a rectangle approximating what's
+# usually an oval speech bubble - a line wrapped/sized against the box's
+# full width can visually press against the bubble's curved edge if it
+# lands away from the box's vertical center, where the oval's real usable
+# width is narrower than the rectangle. Used to shrink the width fit_text
+# wraps/sizes against (never the box used for centering/rendering), as a
+# uniform safety margin.
+TEXT_WIDTH_SAFETY_MARGIN = 0.85
+
 
 def _hard_wrap_word(word, font, max_width):
     """Character-level split for a single word wider than max_width on its
@@ -698,7 +707,17 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
         h_box = y2 - y1
 
         # Stage D: floor/ceiling-clamped font size, hyphenated hard-wrap.
-        best_size, wrapped_lines = fit_text(translated_txt, font_path, w_box, h_box)
+        # TASK-30: get_bubble_box's box is a RECTANGLE approximating what's
+        # usually an oval speech bubble - the true usable width near the
+        # box's top/bottom is narrower than the rectangle's full width, so
+        # a line landing there can visually press against the bubble's
+        # curved edge even though it satisfies the (looser) rectangular
+        # width check post_render_check/fit_text use. Fit/wrap against a
+        # narrowed width as a uniform safety margin (still centered and
+        # rendered against the FULL box, so there's breathing room on both
+        # sides everywhere, not just at the true vertical center).
+        fit_w_box = max(1, int(w_box * TEXT_WIDTH_SAFETY_MARGIN))
+        best_size, wrapped_lines = fit_text(translated_txt, font_path, fit_w_box, h_box)
         draw_text_centered(draw, wrapped_lines, font_path, best_size, (x1, y1, x2, y2))
 
         # Stage E: flag anything that still looks wrong for later review.
