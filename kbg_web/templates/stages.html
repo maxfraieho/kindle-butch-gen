@@ -521,6 +521,18 @@
             return div.innerHTML;
         }
 
+        // TASK-34: real page filenames (from scanlator archive names, e.g.
+        // "...Journey's End...") routinely contain apostrophes. escapeHtml()
+        // only protects HTML markup - it does nothing for a value embedded
+        // inside a single-quoted JS string in an inline onclick="" attribute,
+        // since the '&#39;' it produces decodes right back to a literal '
+        // before the JS parser ever sees it. This escapes for that context
+        // specifically: backslash-escape backslashes and single quotes so
+        // the string stays one valid JS string literal after HTML parsing.
+        function jsAttrEscape(s) {
+            return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        }
+
         function wordDiffHtml(oldText, newText, showNew) {
             const oldWords = (oldText || '').split(/(\s+)/);
             const newWords = (newText || '').split(/(\s+)/);
@@ -905,7 +917,7 @@
                         <textarea id="bubble-edit-textarea" class="edit-textarea" style="width:100%; min-height:80px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(bubble.translated_text)}</textarea>
                         <div style="font-size:0.8rem; color:var(--text-secondary); margin:0.5rem 0;">📊 ${qfText}</div>
                         <div style="display:flex; align-items:center; gap:0.6rem;">
-                            <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveBubbleEdit('${slug}', '${tgtFileForPanel()}')">💾 Save</button>
+                            <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveBubbleEdit('${slug}', '${jsAttrEscape(tgtFileForPanel())}')">💾 Save</button>
                             <span id="bubble-edit-status" style="font-size:0.8rem; color:var(--text-secondary);"></span>
                         </div>
                     </div>
@@ -1066,7 +1078,7 @@
                             <div class="paragraph-card" style="margin-bottom:1rem;">
                                 <div class="card-meta">
                                     <span>📄 ${page} — ${pageEdits.length} правк${pageEdits.length === 1 ? 'а' : 'и'}</span>
-                                    <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="regeneratePageFromQueue('${page}', this)">🔄 Regenerate page</button>
+                                    <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="regeneratePageFromQueue('${jsAttrEscape(page)}', this)">🔄 Regenerate page</button>
                                 </div>
                                 ${pageEdits.map(e => `
                                     <div style="border-top:1px dashed var(--border-color); padding-top:0.6rem; margin-top:0.6rem;">
