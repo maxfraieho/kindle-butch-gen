@@ -676,6 +676,13 @@
             let activeState = "processed";
             let currentPageBubbles = [];
             let selectedBubbleId = null;
+            // TASK-36: manual geometry/font-size editing state - all in the
+            // selected bubble's OWN reference pixel space (bbox_ref_size),
+            // not CSS display pixels. null/cleared whenever no bubble is
+            // selected (see closeBubblePanel).
+            let editingBubbleBox = null;      // {x1, y1, x2, y2}
+            let editingBubbleRefSize = null;  // [w, h]
+            let editingFontSize = null;       // int px, or null = auto
 
             function renderMangaViewerTab() {
                 mangaTabContent.innerHTML = `
@@ -795,6 +802,10 @@
             // = borderline, none = clean.
             const bubbleFlagColor = (qf) => {
                 if (!qf || Object.keys(qf).length === 0) return null;
+                // TASK-36: box_overlap is a distinct blue so it's visually
+                // separable from the existing red/orange render-geometry
+                // flags - a bubble can carry both at once.
+                if (qf.box_overlap) return "#3b82f6";
                 if (qf.overflow_ratio > 1.0 || qf.hit_min_size) return "#ef4444";
                 if (qf.overflow_ratio >= 0.9) return "#f59e0b";
                 return null;
@@ -850,7 +861,10 @@
                     container.appendChild(div);
                 });
             }
-            window.addEventListener("resize", () => { if (document.getElementById("bubble-overlay-container")) renderBubbleOverlayDivs(); });
+            window.addEventListener("resize", () => {
+                if (document.getElementById("bubble-overlay-container")) renderBubbleOverlayDivs();
+                if (editingBubbleBox) renderResizeHandles();
+            });
 
             function selectBubble(bubbleId) {
                 selectedBubbleId = bubbleId;
@@ -895,9 +909,20 @@
                         const parts = [];
                         if (qf.overflow_ratio > 1.0) parts.push(`текст виходить за межі бульбашки на ${Math.round((qf.overflow_ratio - 1) * 100)}%`);
                         if (qf.hit_min_size) parts.push(`шрифт на мінімальному розмірі ${qf.chosen_size}px`);
+                        if (qf.box_overlap) parts.push(`⚠️ накладається на ${qf.overlapping_with.length} сусідн${qf.overlapping_with.length === 1 ? 'ю бульбашку' : 'і бульбашки'} (IoU ${qf.iou}) — розсуньте вручну нижче`);
                         qfText = parts.join("; ") || "Позначено автофіксом як межовий випадок.";
                     }
                 }
+
+                // TASK-36: local editing state for manual geometry/font-size
+                // override - a plain copy of the bubble's current box in its
+                // OWN reference pixel space (bubble.bbox_ref_size), not CSS
+                // display pixels. Drag handles and the numeric fields below
+                // both read/write this same object, then renderResizeHandles()
+                // converts it to CSS pixels for on-screen positioning.
+                editingBubbleBox = { x1, y1, x2, y2 };
+                editingBubbleRefSize = bubble.bbox_ref_size || [img.naturalWidth, img.naturalHeight];
+                editingFontSize = qf.chosen_size || null;
 
                 panel.style.display = "block";
                 panel.innerHTML = `
@@ -920,8 +945,32 @@
                             <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveBubbleEdit('${slug}', '${jsAttrEscape(tgtFileForPanel())}')">💾 Save</button>
                             <span id="bubble-edit-status" style="font-size:0.8rem; color:var(--text-secondary);"></span>
                         </div>
+
+                        <div class="stage-box" style="margin:1rem 0 0.6rem;">
+                            <div class="stage-title">📐 Геометрія та розмір шрифта (TASK-36)</div>
+                            <div style="font-size:0.78rem; color:var(--text-secondary); margin:0.3rem 0 0.6rem;">Перетягніть рамку на зображенні (кути/сторони = розмір, середина = переміщення) або введіть точні координати нижче.</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                                <label style="font-size:0.75rem; color:var(--text-secondary);">x1<input type="number" id="bbox-field-x1" value="${x1}" style="width:100%; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:4px; padding:0.35rem;"></label>
+                                <label style="font-size:0.75rem; color:var(--text-secondary);">y1<input type="number" id="bbox-field-y1" value="${y1}" style="width:100%; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:4px; padding:0.35rem;"></label>
+                                <label style="font-size:0.75rem; color:var(--text-secondary);">x2<input type="number" id="bbox-field-x2" value="${x2}" style="width:100%; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:4px; padding:0.35rem;"></label>
+                                <label style="font-size:0.75rem; color:var(--text-secondary);">y2<input type="number" id="bbox-field-y2" value="${y2}" style="width:100%; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:4px; padding:0.35rem;"></label>
+                            </div>
+                            <label style="font-size:0.75rem; color:var(--text-secondary); display:block; margin-top:0.5rem;">Розмір шрифта (px, порожньо = авто)
+                                <div style="display:flex; align-items:center; gap:0.4rem; margin-top:0.2rem;">
+                                    <button class="nav-btn" style="padding:0.3rem 0.6rem;" onclick="adjustFontSize(-2)">−</button>
+                                    <input type="number" id="bbox-field-font-size" value="${editingFontSize ?? ''}" placeholder="авто" style="width:80px; text-align:center; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:4px; padding:0.35rem;">
+                                    <button class="nav-btn" style="padding:0.3rem 0.6rem;" onclick="adjustFontSize(2)">+</button>
+                                </div>
+                            </label>
+                            <div style="display:flex; align-items:center; gap:0.6rem; margin-top:0.7rem;">
+                                <button class="nav-btn" style="padding:0.4rem 0.9rem; background:var(--primary); color:#fff;" onclick="saveBubbleGeometry('${slug}', '${jsAttrEscape(tgtFileForPanel())}')">💾 Зберегти позицію</button>
+                                <span id="bbox-edit-status" style="font-size:0.8rem; color:var(--text-secondary);"></span>
+                            </div>
+                        </div>
                     </div>
                 `;
+                wireGeometryNumericFields();
+                renderResizeHandles();
                 panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
             }
 
@@ -931,8 +980,199 @@
 
             window.closeBubblePanel = () => {
                 selectedBubbleId = null;
+                editingBubbleBox = null;
+                editingBubbleRefSize = null;
+                editingFontSize = null;
+                clearResizeHandles();
                 const panel = document.getElementById("manga-bubble-panel");
                 if (panel) { panel.style.display = "none"; panel.innerHTML = ""; }
+            };
+
+            // TASK-36: 8 resize handles (4 corners + 4 edge-midpoints) drawn
+            // over the selected bubble's box, plus a draggable body for
+            // moving the whole box. Handle names follow compass points -
+            // each one knows which edge(s) of editingBubbleBox it controls.
+            const RESIZE_HANDLES = [
+                { name: "nw", edges: ["x1", "y1"] }, { name: "n", edges: ["y1"] }, { name: "ne", edges: ["x2", "y1"] },
+                { name: "w",  edges: ["x1"] },                                     { name: "e",  edges: ["x2"] },
+                { name: "sw", edges: ["x1", "y2"] }, { name: "s", edges: ["y2"] }, { name: "se", edges: ["x2", "y2"] },
+            ];
+            // Mobile-critical: the visible frame is thin, but the actual
+            // pointer-catching target is this size (px) regardless -
+            // matches the task's own 32-40px minimum tap-target requirement.
+            const HANDLE_TAP_SIZE = 36;
+
+            function clearResizeHandles() {
+                const container = document.getElementById("bubble-overlay-container");
+                if (container) container.querySelectorAll(".bbox-edit-handle, .bbox-edit-body").forEach(el => el.remove());
+            }
+
+            function _geometryScale() {
+                const img = document.getElementById("manga-viewport-img");
+                if (!img || !editingBubbleRefSize) return null;
+                return {
+                    img,
+                    scaleX: img.clientWidth / editingBubbleRefSize[0],
+                    scaleY: img.clientHeight / editingBubbleRefSize[1],
+                };
+            }
+
+            function renderResizeHandles() {
+                clearResizeHandles();
+                const container = document.getElementById("bubble-overlay-container");
+                const scale = _geometryScale();
+                if (!container || !scale || !editingBubbleBox) return;
+                const { scaleX, scaleY } = scale;
+                const { x1, y1, x2, y2 } = editingBubbleBox;
+                const left = x1 * scaleX, top = y1 * scaleY;
+                const w = (x2 - x1) * scaleX, h = (y2 - y1) * scaleY;
+
+                const body = document.createElement("div");
+                body.className = "bbox-edit-body";
+                body.style.cssText = `position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; border:2px dashed #a78bfa; border-radius:4px; box-sizing:border-box; cursor:move; background:rgba(167,139,250,0.08); touch-action:none;`;
+                body.addEventListener("pointerdown", (e) => startGeometryDrag(e, "move"));
+                container.appendChild(body);
+
+                const points = {
+                    nw: [left, top], n: [left + w / 2, top], ne: [left + w, top],
+                    w:  [left, top + h / 2],                 e:  [left + w, top + h / 2],
+                    sw: [left, top + h], s: [left + w / 2, top + h], se: [left + w, top + h],
+                };
+                const cursors = { nw: "nwse-resize", n: "ns-resize", ne: "nesw-resize", w: "ew-resize", e: "ew-resize", sw: "nesw-resize", s: "ns-resize", se: "nwse-resize" };
+
+                RESIZE_HANDLES.forEach(({ name }) => {
+                    const [px, py] = points[name];
+                    const handle = document.createElement("div");
+                    handle.className = "bbox-edit-handle";
+                    handle.style.cssText = `position:absolute; left:${px - HANDLE_TAP_SIZE / 2}px; top:${py - HANDLE_TAP_SIZE / 2}px; width:${HANDLE_TAP_SIZE}px; height:${HANDLE_TAP_SIZE}px; cursor:${cursors[name]}; touch-action:none; display:flex; align-items:center; justify-content:center; z-index:5;`;
+                    const dot = document.createElement("div");
+                    dot.style.cssText = `width:12px; height:12px; border-radius:50%; background:#a78bfa; border:2px solid #fff; box-shadow:0 0 3px rgba(0,0,0,0.5); pointer-events:none;`;
+                    handle.appendChild(dot);
+                    handle.addEventListener("pointerdown", (e) => startGeometryDrag(e, name));
+                    container.appendChild(handle);
+                });
+            }
+
+            let _dragState = null;
+            function startGeometryDrag(e, mode) {
+                e.preventDefault();
+                e.stopPropagation();
+                const scale = _geometryScale();
+                if (!scale || !editingBubbleBox) return;
+                _dragState = {
+                    mode,
+                    scale,
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                    startBox: { ...editingBubbleBox },
+                };
+                e.target.setPointerCapture(e.pointerId);
+                document.addEventListener("pointermove", onGeometryDragMove);
+                document.addEventListener("pointerup", onGeometryDragEnd, { once: true });
+            }
+
+            function onGeometryDragMove(e) {
+                if (!_dragState || !editingBubbleBox) return;
+                const { mode, scale, startClientX, startClientY, startBox } = _dragState;
+                // CSS-pixel delta on screen -> reference-pixel delta, since
+                // editingBubbleBox lives in the bubble's own reference
+                // pixel space (bbox_ref_size), not display pixels.
+                const dxRef = (e.clientX - startClientX) / scale.scaleX;
+                const dyRef = (e.clientY - startClientY) / scale.scaleY;
+
+                if (mode === "move") {
+                    const w = startBox.x2 - startBox.x1, h = startBox.y2 - startBox.y1;
+                    editingBubbleBox = {
+                        x1: startBox.x1 + dxRef, y1: startBox.y1 + dyRef,
+                        x2: startBox.x1 + dxRef + w, y2: startBox.y1 + dyRef + h,
+                    };
+                } else {
+                    const handleDef = RESIZE_HANDLES.find(h => h.name === mode);
+                    const next = { ...startBox };
+                    if (handleDef.edges.includes("x1")) next.x1 = startBox.x1 + dxRef;
+                    if (handleDef.edges.includes("x2")) next.x2 = startBox.x2 + dxRef;
+                    if (handleDef.edges.includes("y1")) next.y1 = startBox.y1 + dyRef;
+                    if (handleDef.edges.includes("y2")) next.y2 = startBox.y2 + dyRef;
+                    // Never let a dragged edge invert past its opposite edge -
+                    // keep at least a few reference px of width/height.
+                    if (next.x2 - next.x1 < 8) { if (handleDef.edges.includes("x1")) next.x1 = next.x2 - 8; else next.x2 = next.x1 + 8; }
+                    if (next.y2 - next.y1 < 8) { if (handleDef.edges.includes("y1")) next.y1 = next.y2 - 8; else next.y2 = next.y1 + 8; }
+                    editingBubbleBox = next;
+                }
+                // Live preview only - reposition the rectangle indicator and
+                // handles, no text/image re-render (that's expensive and
+                // only happens server-side on an actual Regenerate).
+                renderResizeHandles();
+                syncGeometryNumericFields();
+            }
+
+            function onGeometryDragEnd() {
+                document.removeEventListener("pointermove", onGeometryDragMove);
+                _dragState = null;
+            }
+
+            function syncGeometryNumericFields() {
+                if (!editingBubbleBox) return;
+                const ids = ["x1", "y1", "x2", "y2"];
+                ids.forEach(k => {
+                    const el = document.getElementById(`bbox-field-${k}`);
+                    if (el) el.value = Math.round(editingBubbleBox[k]);
+                });
+            }
+
+            function wireGeometryNumericFields() {
+                ["x1", "y1", "x2", "y2"].forEach(k => {
+                    const el = document.getElementById(`bbox-field-${k}`);
+                    if (!el) return;
+                    el.addEventListener("change", () => {
+                        if (!editingBubbleBox) return;
+                        const v = parseFloat(el.value);
+                        if (!Number.isNaN(v)) editingBubbleBox = { ...editingBubbleBox, [k]: v };
+                        renderResizeHandles();
+                    });
+                });
+                const fontEl = document.getElementById("bbox-field-font-size");
+                if (fontEl) {
+                    fontEl.addEventListener("change", () => {
+                        const v = parseInt(fontEl.value, 10);
+                        editingFontSize = Number.isNaN(v) ? null : v;
+                    });
+                }
+            }
+
+            window.adjustFontSize = (delta) => {
+                const fontEl = document.getElementById("bbox-field-font-size");
+                if (!fontEl) return;
+                const current = parseInt(fontEl.value, 10) || editingFontSize || 20;
+                const next = Math.max(8, Math.min(200, current + delta));
+                fontEl.value = next;
+                editingFontSize = next;
+            };
+
+            window.saveBubbleGeometry = async (bookSlug, pageFilename) => {
+                const statusEl = document.getElementById("bbox-edit-status");
+                if (!editingBubbleBox || !editingBubbleRefSize) return;
+                const { x1, y1, x2, y2 } = editingBubbleBox;
+                const body = {
+                    bubble_id: selectedBubbleId,
+                    bbox: [Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2)],
+                    ref_size: editingBubbleRefSize,
+                };
+                if (editingFontSize) body.font_size = editingFontSize;
+                statusEl.textContent = "Saving...";
+                try {
+                    const res = await fetch(`/api/edit/manga-bbox/${bookSlug}/${pageFilename}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body)
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.message);
+                    statusEl.textContent = "Saved as pending edit.";
+                    refreshRegenerateButton();
+                } catch (err) {
+                    statusEl.textContent = "Error: " + err.message;
+                }
             };
 
             window.saveBubbleEdit = async (bookSlug, pageFilename) => {
