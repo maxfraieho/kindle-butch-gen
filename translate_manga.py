@@ -336,8 +336,8 @@ def robust_inpaint(img, mask_refined, blk_list, radius=9):
 
     return inpainted
 
-def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
-    """Stage C: derive the typeset box from the connected mask region(s)
+def _get_bubble_core_box(blk, mask_refined, img_shape):
+    """Stage C (core): the UNPADDED box from the connected mask region(s)
     the detector/inpaint actually covered for this block, instead of the
     OCR-tight blk.xyxy - the tight bbox is why typeset text overflows
     (translated text needs the bubble's real interior, not just the
@@ -351,14 +351,14 @@ def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
     lines, landing on background or an unrelated nearby component instead.
     Union the bounding rects of every component that actually overlaps
     the original OCR bbox instead - correctly reconstructs the full
-    multi-line extent."""
+    multi-line extent.
+
+    No padding is applied here (see _apply_padding_neighbor_safe) - kept
+    separate so a page's full set of core boxes can be computed before
+    any bubble's padding decision, which is what makes neighbor-aware
+    padding (TASK-36) possible without an ordering dependency."""
     h_img, w_img = img_shape[:2]
     x1, y1, x2, y2 = blk.xyxy
-
-    def _padded_bbox_fallback():
-        bw, bh = x2 - x1, y2 - y1
-        pad_x, pad_y = int(bw * padding_ratio), int(bh * padding_ratio)
-        return (int(max(0, x1 - pad_x)), int(max(0, y1 - pad_y)), int(min(w_img, x2 + pad_x)), int(min(h_img, y2 + pad_y)))
 
     # Small search margin - just enough to recover component edges a
     # too-tight OCR bbox might have clipped, not a scan for "anything
@@ -369,11 +369,11 @@ def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
     sx2, sy2 = min(w_img, x2 + search_pad), min(h_img, y2 + search_pad)
     region = mask_refined[sy1:sy2, sx1:sx2]
     if region.size == 0 or not region.any():
-        return _padded_bbox_fallback()
+        return (int(x1), int(y1), int(x2), int(y2))
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats((region > 0).astype(np.uint8), connectivity=8)
     if num_labels <= 1:
-        return _padded_bbox_fallback()
+        return (int(x1), int(y1), int(x2), int(y2))
 
     orig_x1, orig_y1 = x1 - sx1, y1 - sy1
     orig_x2, orig_y2 = x2 - sx1, y2 - sy1
@@ -397,15 +397,87 @@ def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15):
         )
 
     if union is None:
-        return _padded_bbox_fallback()
+        return (int(x1), int(y1), int(x2), int(y2))
 
-    bx1, by1, bx2, by2 = sx1 + union[0], sy1 + union[1], sx1 + union[2], sy1 + union[3]
-    pad_x, pad_y = int((bx2 - bx1) * padding_ratio), int((by2 - by1) * padding_ratio)
-    # bx1..by2 can be numpy.int32 (from cv2.connectedComponentsWithStats's
+    # union[...] can be numpy.int32 (from cv2.connectedComponentsWithStats's
     # `stats` array) rather than plain Python int - cast explicitly so
     # this box is safe to json.dump() (bubbles_meta.json needs it to be),
     # not just safe to pass to cv2/PIL calls (which don't care).
-    return (int(max(0, bx1 - pad_x)), int(max(0, by1 - pad_y)), int(min(w_img, bx2 + pad_x)), int(min(h_img, by2 + pad_y)))
+    bx1, by1, bx2, by2 = sx1 + union[0], sy1 + union[1], sx1 + union[2], sy1 + union[3]
+    return (int(bx1), int(by1), int(bx2), int(by2))
+
+
+def _apply_padding_neighbor_safe(core_box, img_shape, padding_ratio=0.15, other_core_boxes=None, min_gap=3):
+    """Stage C (padding): pads core_box by padding_ratio in each direction
+    (same formula the original single-function get_bubble_box always
+    used), clamped to image bounds and, if other_core_boxes is given,
+    ALSO clamped so the padded edge never crosses closer than min_gap px
+    to another bubble's own core (unpadded) box on the same page.
+
+    TASK-36: get_bubble_box previously padded every bubble independently
+    with zero awareness of neighbors, which is why closely-spaced bubbles'
+    padded boxes routinely overlapped - confirmed via a book-wide IoU scan
+    of frieren before this fix: 105 overlapping pairs across 187 pages
+    (161 distinct bubbles affected), not just the 2 cases spotted by eye.
+    Clamping against neighbors' CORE boxes (not their own already-padded
+    boxes) avoids a chicken-and-egg ordering dependency - every bubble's
+    core box on a page is already known before any padding decision, so
+    no bubble's padding needs another bubble's padding to be computed
+    first."""
+    h_img, w_img = img_shape[:2]
+    x1, y1, x2, y2 = core_box
+    pad_x, pad_y = int((x2 - x1) * padding_ratio), int((y2 - y1) * padding_ratio)
+    px1, py1 = max(0, x1 - pad_x), max(0, y1 - pad_y)
+    px2, py2 = min(w_img, x2 + pad_x), min(h_img, y2 + pad_y)
+
+    if other_core_boxes:
+        for (ox1, oy1, ox2, oy2) in other_core_boxes:
+            # Clamp to the MIDPOINT between the two cores (minus half the
+            # safety gap), not to "min_gap from the neighbor's raw edge" -
+            # the latter lets each box independently claim up to min_gap
+            # of the SAME shared space from its own side, which can still
+            # overlap when the two cores are close together (caught by a
+            # unit test: two 10px-apart cores each padding independently
+            # toward "min_gap from the other's edge" left a 4px overlap
+            # in the middle, since both sides used nearly the whole gap).
+            # Splitting at the midpoint guarantees each side stays
+            # strictly on its own half, no coordination between the two
+            # independent calls required.
+            if oy2 > y1 and oy1 < y2:  # vertical ranges overlap -> a left/right neighbor
+                if ox2 <= x1:  # neighbor is to the left
+                    px1 = max(px1, int((x1 + ox2) / 2 + min_gap / 2))
+                if ox1 >= x2:  # neighbor is to the right
+                    px2 = min(px2, int((x2 + ox1) / 2 - min_gap / 2))
+            if ox2 > x1 and ox1 < x2:  # horizontal ranges overlap -> a top/bottom neighbor
+                if oy2 <= y1:  # neighbor is above
+                    py1 = max(py1, int((y1 + oy2) / 2 + min_gap / 2))
+                if oy1 >= y2:  # neighbor is below
+                    py2 = min(py2, int((y2 + oy1) / 2 - min_gap / 2))
+
+    # Never let clamping invert the box (px1 >= px2) - if neighbors are
+    # too close for any padding at all, fall back to the unpadded core
+    # box on that axis rather than a degenerate/negative-size box.
+    if px1 >= px2:
+        px1, px2 = x1, x2
+    if py1 >= py2:
+        py1, py2 = y1, y2
+
+    return (int(px1), int(py1), int(px2), int(py2))
+
+
+def get_bubble_box(blk, mask_refined, img_shape, padding_ratio=0.15, other_core_boxes=None):
+    """Stage C: derive the typeset box from the connected mask region(s)
+    the detector/inpaint actually covered for this block (see
+    _get_bubble_core_box), padded outward by padding_ratio.
+
+    TASK-36: now neighbor-aware when other_core_boxes is supplied (the
+    core, unpadded boxes of every other bubble already located on this
+    page) - padding no longer overlaps a neighbor's territory. Backward
+    compatible: omitting other_core_boxes reproduces the original
+    independent-padding behavior exactly (e.g. any caller that hasn't
+    been updated to pass neighbor context is unaffected)."""
+    core_box = _get_bubble_core_box(blk, mask_refined, img_shape)
+    return _apply_padding_neighbor_safe(core_box, img_shape, padding_ratio, other_core_boxes)
 
 def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines, box, font_path, min_size):
     """Stage E: after typeset, flag anything that still looks wrong so it
@@ -439,6 +511,62 @@ def post_render_check(flags, page_name, block_index, chosen_size, wrapped_lines,
             "hit_min_size": hit_floor,
             "reason": "overflow" if overflow_ratio > 1.05 else "min_size_floor"
         })
+
+def _iou(box_a, box_b):
+    """Intersection-over-union of two [x1,y1,x2,y2] boxes. 0.0 if they
+    don't intersect at all (also handles degenerate zero-area boxes)."""
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+BOX_OVERLAP_IOU_THRESHOLD = 0.02  # TASK-36: below this is boundary-rounding noise, not a real visible overlap
+
+
+def compute_box_overlap_flags(bubbles, page_name, iou_threshold=BOX_OVERLAP_IOU_THRESHOLD):
+    """TASK-36: pairwise IoU across every bubble on one page - flags any
+    pair whose padded typeset boxes genuinely overlap (get_bubble_box's
+    padding is neighbor-aware now, see _apply_padding_neighbor_safe, but
+    this still catches any residual multi-way conflict the pairwise
+    clamp doesn't fully resolve, and is also the only way to surface
+    overlaps in pages processed before this fix existed - see the
+    --backfill-box-overlap-flags CLI mode).
+
+    Returns a dict {bubble_id: {"box_overlap": True, "overlapping_with":
+    [other_id, ...], "iou": max_iou_with_any_neighbor}} for every
+    affected bubble - a bubble not in the returned dict has no overlap.
+    Confirmed via a full book-wide scan of frieren before this fix
+    existed: 105 overlapping pairs across 187 pages, 161 distinct
+    bubbles affected - not a rare edge case, a systemic padding bug."""
+    result = {}
+    n = len(bubbles)
+    for i in range(n):
+        a = bubbles[i]
+        if "bbox" not in a or "id" not in a:
+            continue
+        for j in range(i + 1, n):
+            b = bubbles[j]
+            if "bbox" not in b or "id" not in b:
+                continue
+            score = _iou(a["bbox"], b["bbox"])
+            if score <= iou_threshold:
+                continue
+            for this_b, other_b, this_id, other_id in ((a, b, a["id"], b["id"]), (b, a, b["id"], a["id"])):
+                entry = result.setdefault(this_id, {"box_overlap": True, "overlapping_with": [], "iou": 0.0})
+                if other_id not in entry["overlapping_with"]:
+                    entry["overlapping_with"].append(other_id)
+                entry["iou"] = round(max(entry["iou"], score), 4)
+    return result
+
 
 def assign_bubble_ids(page_stem, blocks):
     """TASK-21: stable bubble IDs for manual editing. Ranks blocks by
@@ -619,7 +747,7 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
         result.setdefault(txt, txt)
     return result
 
-def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, font_path, overrides=None):
+def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, font_path, overrides=None, bbox_overrides=None, font_size_overrides=None):
     """TASK-21: runs the Stage A-E pipeline (detect -> dedupe -> OCR ->
     translate -> inpaint -> typeset -> post-check) on a single
     already-loaded page image. Pure image processing, no file I/O - both
@@ -632,6 +760,27 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
     overrides: optional {original_ocr_text: edited_translation} dict, see
     translate_batch_llm - lets a human edit survive a page regeneration
     verbatim instead of being re-translated by the LLM.
+
+    bbox_overrides: optional {original_ocr_text: [x1, y1, x2, y2]} dict
+    (TASK-36) - keyed the same way as `overrides` (by the block's OCR'd
+    source text, not a positional bubble_id, since block order/ids are
+    not guaranteed stable across a full re-detection) - for a matching
+    block, this box is used VERBATIM instead of get_bubble_box(), and
+    still participates as a neighbor for every other block's own
+    padding clamp, so a manually-placed box is respected by its
+    neighbors too, not just applied and then immediately encroached on.
+
+    font_size_overrides: optional {original_ocr_text: int} dict (TASK-36)
+    - same original_ocr_text keying as overrides/bbox_overrides. For a
+      matching block, this size is used verbatim instead of fit_text()'s
+      own binary search - lets a human force a smaller size when the
+      auto-picked size still overflows the (possibly also manually
+      resized) box, or a larger one when auto-fit chose smaller than
+      necessary. Independent of bbox_overrides - either can be set
+      without the other, since a human might only want to fix one.
+      post_render_check still runs against a manual size exactly as it
+      does for an auto-fit one, so a manual size that's still too big
+      is flagged, not silently hidden.
 
     Returns (final_img_bgr, cleaned_img_bgr, page_quality_flags,
     page_bubbles_meta). If no text bubbles are found/recognized,
@@ -694,6 +843,22 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
 
     page_stem = os.path.splitext(page_basename)[0]
     bubble_ids = assign_bubble_ids(page_stem, [blk for blk, _ in block_crops])
+    bbox_overrides = bbox_overrides or {}
+    font_size_overrides = font_size_overrides or {}
+
+    # TASK-36: compute every block's CORE (unpadded) box up front, in its
+    # own pass, before any block's padding is decided - this is what lets
+    # padding be neighbor-aware without an ordering dependency (bubble A's
+    # padding needs to know about bubble B's core box regardless of which
+    # one is processed first). A manually-overridden bubble contributes
+    # its override box here too, so its neighbors' padding respects it.
+    core_boxes = []
+    for blk, orig_txt in block_crops:
+        if orig_txt in bbox_overrides:
+            ox1, oy1, ox2, oy2 = bbox_overrides[orig_txt]
+            core_boxes.append((int(ox1), int(oy1), int(ox2), int(oy2)))
+        else:
+            core_boxes.append(_get_bubble_core_box(blk, mask_refined, img.shape))
 
     for block_index, (blk, orig_txt) in enumerate(block_crops):
         translated_txt = translations.get(orig_txt, orig_txt)
@@ -701,8 +866,14 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
             continue
 
         # Stage C: use the actual cleaned/masked region for this block
-        # (padded) as the typeset box, instead of the OCR-tight blk.xyxy.
-        x1, y1, x2, y2 = get_bubble_box(blk, mask_refined, img.shape)
+        # (padded) as the typeset box, instead of the OCR-tight blk.xyxy -
+        # unless a human manually placed this exact box (TASK-36), in
+        # which case it's used verbatim, no padding applied on top of it.
+        if orig_txt in bbox_overrides:
+            x1, y1, x2, y2 = core_boxes[block_index]
+        else:
+            other_core_boxes = core_boxes[:block_index] + core_boxes[block_index + 1:]
+            x1, y1, x2, y2 = _apply_padding_neighbor_safe(core_boxes[block_index], img.shape, other_core_boxes=other_core_boxes)
         w_box = x2 - x1
         h_box = y2 - y1
 
@@ -717,7 +888,15 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
         # rendered against the FULL box, so there's breathing room on both
         # sides everywhere, not just at the true vertical center).
         fit_w_box = max(1, int(w_box * TEXT_WIDTH_SAFETY_MARGIN))
-        best_size, wrapped_lines = fit_text(translated_txt, font_path, fit_w_box, h_box)
+        if orig_txt in font_size_overrides:
+            best_size = int(font_size_overrides[orig_txt])
+            try:
+                _font = ImageFont.truetype(font_path, best_size)
+            except Exception:
+                _font = ImageFont.load_default()
+            wrapped_lines = wrap_text(translated_txt, _font, fit_w_box)
+        else:
+            best_size, wrapped_lines = fit_text(translated_txt, font_path, fit_w_box, h_box)
         draw_text_centered(draw, wrapped_lines, font_path, best_size, (x1, y1, x2, y2))
 
         # Stage E: flag anything that still looks wrong for later review.
@@ -740,6 +919,27 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
             "translated_text": translated_txt,
             "quality_flags": block_flags[0] if block_flags else {}
         })
+
+    # Stage E (continued, TASK-36): overlap detection needs every bubble's
+    # FINAL box already known, so it runs once after the loop rather than
+    # per-block inside it. Merges into each bubble's own quality_flags
+    # (what the manual-edit side panel reads) as well as the book-wide
+    # page_quality_flags list (what the Auto-flagged list/quality_flags.json
+    # reads) - a bubble can carry both a render-geometry flag (overflow/
+    # min_size) and a box_overlap flag at the same time, they're additive.
+    overlap_by_id = compute_box_overlap_flags(page_bubbles_meta, page_basename)
+    for bubble in page_bubbles_meta:
+        overlap = overlap_by_id.get(bubble["id"])
+        if overlap:
+            bubble["quality_flags"] = {**bubble["quality_flags"], **overlap}
+            page_quality_flags.append({
+                "page": page_basename,
+                "bubble_id": bubble["id"],
+                "reason": "box_overlap",
+                "box": bubble["bbox"],
+                "overlapping_with": overlap["overlapping_with"],
+                "iou": overlap["iou"],
+            })
 
     final_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     return final_img, inpainted, page_quality_flags, page_bubbles_meta
@@ -822,21 +1022,34 @@ def apply_pending_manga_edits(book_dir, temp_in, glossary, api_url, lang, detect
             old_bubbles = []
 
         overrides = {}
+        raw_bbox_overrides = {}
         for edit in edits_for_page:
             _, bubble_id = edit["target_id"].split("#", 1)
             bubble = next((b for b in old_bubbles if b.get("id") == bubble_id), None)
-            if bubble:
-                overrides[bubble["original_text"]] = edit["edited_value"]
-        if not overrides:
+            if not bubble:
+                continue
+            orig_text = bubble["original_text"]
+            if edit.get("field") == "translated_text":
+                overrides[orig_text] = edit["edited_value"]
+            elif edit.get("field") == "manual_bbox_override":
+                # TASK-36: same reference-scaling deferral as
+                # regenerate_single_page - kept unscaled here, scaled
+                # below once img.shape is known.
+                ev = edit.get("edited_value") or {}
+                entry = raw_bbox_overrides.setdefault(orig_text, {})
+                entry.update(ev)
+        if not overrides and not raw_bbox_overrides:
             continue
 
         img = cv2.imread(page_path)
         if img is None:
             continue
 
+        bbox_overrides, font_size_overrides = _scale_bbox_overrides(raw_bbox_overrides, img.shape)
+
         final_img, cleaned_img, page_flags, new_bubbles = process_page(
             img, page_filename, glossary, api_url, lang, detector, mocr, font_path,
-            overrides=overrides
+            overrides=overrides, bbox_overrides=bbox_overrides, font_size_overrides=font_size_overrides
         )
         id_mapping, _ = _persist_regenerated_page(book_dir, page_filename, final_img, cleaned_img, page_flags, new_bubbles)
 
@@ -845,7 +1058,42 @@ def apply_pending_manga_edits(book_dir, temp_in, glossary, api_url, lang, detect
             new_id = id_mapping.get(bubble_id)
             status = "regenerated" if new_id else "orphaned"
             edit_store.mark_status(slug, edit["id"], status, applied_at=datetime.now().isoformat())
-        log(f"[LiveEdit] Applied {len(overrides)} pending manga edit(s) to already-completed page '{page_filename}'.")
+        log(f"[LiveEdit] Applied {len(overrides)} text edit(s) and {len(raw_bbox_overrides)} geometry/font edit(s) to already-completed page '{page_filename}'.")
+
+
+def _scale_bbox_overrides(raw_bbox_overrides, actual_img_shape):
+    """TASK-36: raw_bbox_overrides is {original_text: {"bbox": [...],
+    "ref_size": [w,h], "font_size": int}} (any subset of fields present)
+    as captured by the client against whatever image dimensions were on
+    screen at edit time. Scales bbox/font_size to actual_img_shape (the
+    real dimensions of the image this regen is about to process) - same
+    reference-scaling approach TASK-27 established for the read-only
+    crop preview, so a box/size picked against a downscaled preview
+    still lands correctly on the actual (possibly larger) working image.
+    Returns (bbox_overrides, font_size_overrides), each keyed exactly as
+    process_page() expects (by original_ocr_text)."""
+    h_actual, w_actual = actual_img_shape[:2]
+    bbox_overrides = {}
+    font_size_overrides = {}
+    for orig_text, entry in (raw_bbox_overrides or {}).items():
+        ref_size = entry.get("ref_size")
+        rw, rh = (ref_size if ref_size else (w_actual, h_actual))
+        sx = w_actual / rw if rw else 1.0
+        sy = h_actual / rh if rh else 1.0
+        if "bbox" in entry:
+            x1, y1, x2, y2 = entry["bbox"]
+            bbox_overrides[orig_text] = [
+                int(max(0, min(w_actual, x1 * sx))),
+                int(max(0, min(h_actual, y1 * sy))),
+                int(max(0, min(w_actual, x2 * sx))),
+                int(max(0, min(h_actual, y2 * sy))),
+            ]
+        if "font_size" in entry:
+            # Font size scales with the same horizontal ratio as bbox -
+            # a size picked while looking at a downscaled preview should
+            # come out proportionally the same in the actual image.
+            font_size_overrides[orig_text] = max(8, int(entry["font_size"] * sx))
+    return bbox_overrides, font_size_overrides
 
 
 def regenerate_single_page(args, glossary, detector, mocr):
@@ -875,6 +1123,14 @@ def regenerate_single_page(args, glossary, detector, mocr):
         except Exception as e:
             log(f"Warning: Failed to load overrides JSON: {e}")
 
+    raw_bbox_overrides = {}
+    if getattr(args, "bbox_overrides_json", None) and os.path.exists(args.bbox_overrides_json):
+        try:
+            with open(args.bbox_overrides_json, "r", encoding="utf-8") as f:
+                raw_bbox_overrides = json.load(f)
+        except Exception as e:
+            log(f"Warning: Failed to load bbox-overrides JSON: {e}")
+
     regen_temp_in = tempfile.mkdtemp()
     try:
         extract_manga_pages(args.input, regen_temp_in)
@@ -890,13 +1146,17 @@ def regenerate_single_page(args, glossary, detector, mocr):
             print(json.dumps({"status": "error", "message": "failed to read page image"}))
             sys.exit(1)
 
+        # TASK-36: scale manual bbox/font-size overrides against THIS
+        # image's actual dimensions - only knowable now, after loading it.
+        bbox_overrides, font_size_overrides = _scale_bbox_overrides(raw_bbox_overrides, img.shape)
+
         font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
         if not os.path.exists(font_path):
             font_path = None
 
         final_img, cleaned_img, page_flags, new_bubbles = process_page(
             img, page_filename, glossary, args.api_url, args.lang, detector, mocr, font_path,
-            overrides=overrides
+            overrides=overrides, bbox_overrides=bbox_overrides, font_size_overrides=font_size_overrides
         )
 
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
@@ -925,6 +1185,99 @@ def _resolve_manga_source(book_dir, slug):
         if os.path.exists(candidate):
             return candidate
     return ""
+
+
+def backfill_box_overlap_flags(slug):
+    """TASK-36: retroactively computes box_overlap flags for a book's
+    ALREADY-EXISTING bubbles_meta/*.json (no re-detection, no OCR, no
+    model loading needed - the boxes are already on disk). Merges
+    box_overlap/overlapping_with/iou into each affected bubble's own
+    quality_flags dict (idempotent - also CLEARS a stale box_overlap key
+    from a bubble that no longer overlaps anything, e.g. after a manual
+    fix), and replaces only the box_overlap-reason entries in
+    quality_flags.json, preserving any other reason (overflow/min_size)
+    already recorded there for the same page."""
+    repo_dir_local = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
+    paths = resolve_book_paths(repo_dir_local, slug)
+    book_dir = paths["book_dir"]
+    meta_dir = os.path.join(book_dir, "bubbles_meta")
+    if not os.path.isdir(meta_dir):
+        log(f"Error: no bubbles_meta/ directory for '{slug}' - nothing to scan.")
+        sys.exit(1)
+
+    quality_flags_path = os.path.join(book_dir, "quality_flags.json")
+    all_flags = []
+    if os.path.exists(quality_flags_path):
+        try:
+            with open(quality_flags_path, "r", encoding="utf-8") as f:
+                all_flags = json.load(f)
+        except Exception:
+            all_flags = []
+    all_flags = [f for f in all_flags if f.get("reason") != "box_overlap"]
+
+    pages_scanned = 0
+    pages_with_overlap = 0
+    bubbles_affected = 0
+    pairs_found = 0
+
+    for fname in sorted(os.listdir(meta_dir)):
+        if not fname.endswith(".json"):
+            continue
+        meta_path = os.path.join(meta_dir, fname)
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                bubbles = json.load(f)
+        except Exception as e:
+            log(f"Warning: failed to read '{fname}': {e}")
+            continue
+        pages_scanned += 1
+        page_name = os.path.splitext(fname)[0]
+        overlap_by_id = compute_box_overlap_flags(bubbles, page_name)
+
+        changed = False
+        for bubble in bubbles:
+            qf = bubble.get("quality_flags") or {}
+            had_overlap = qf.get("box_overlap", False)
+            overlap = overlap_by_id.get(bubble.get("id"))
+            if overlap:
+                new_qf = {k: v for k, v in qf.items() if k not in ("box_overlap", "overlapping_with", "iou")}
+                new_qf.update(overlap)
+                if new_qf != qf:
+                    bubble["quality_flags"] = new_qf
+                    changed = True
+            elif had_overlap:
+                # No longer overlapping (e.g. fixed manually since the
+                # last scan) - clear the stale flag rather than leaving
+                # it lying, so a re-run of this backfill is idempotent.
+                bubble["quality_flags"] = {k: v for k, v in qf.items() if k not in ("box_overlap", "overlapping_with", "iou")}
+                changed = True
+
+        if changed:
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(bubbles, f, ensure_ascii=False, indent=2)
+
+        if overlap_by_id:
+            pages_with_overlap += 1
+            bubbles_affected += len(overlap_by_id)
+            pairs_found += sum(len(v["overlapping_with"]) for v in overlap_by_id.values()) // 2
+            for bubble in bubbles:
+                overlap = overlap_by_id.get(bubble.get("id"))
+                if overlap:
+                    all_flags.append({
+                        "page": page_name,
+                        "bubble_id": bubble["id"],
+                        "reason": "box_overlap",
+                        "box": bubble.get("bbox"),
+                        "overlapping_with": overlap["overlapping_with"],
+                        "iou": overlap["iou"],
+                    })
+
+    with open(quality_flags_path, "w", encoding="utf-8") as f:
+        json.dump(all_flags, f, ensure_ascii=False, indent=2)
+
+    log(f"box_overlap backfill for '{slug}': {pages_scanned} pages scanned, "
+        f"{pages_with_overlap} pages with overlap, {pairs_found} overlapping pairs, "
+        f"{bubbles_affected} bubbles flagged.")
 
 
 def backfill_bubbles_meta(slug, lang, detector, mocr):
@@ -1026,8 +1379,14 @@ def backfill_bubbles_meta(slug, lang, detector, mocr):
             bubble_ids = assign_bubble_ids(page_stem, blk_list)
             entries = []
 
+            # TASK-36: same neighbor-aware padding as process_page() - see
+            # that function's comment for why core boxes are computed in
+            # their own pass before any padding decision.
+            core_boxes = [_get_bubble_core_box(blk, mask_refined, src_img.shape) for blk in blk_list]
+
             for idx, blk in enumerate(blk_list):
-                bx1, by1, bx2, by2 = get_bubble_box(blk, mask_refined, src_img.shape)
+                other_core_boxes = core_boxes[:idx] + core_boxes[idx + 1:]
+                bx1, by1, bx2, by2 = _apply_padding_neighbor_safe(core_boxes[idx], src_img.shape, other_core_boxes=other_core_boxes)
 
                 # original_text: OCR the SOURCE crop at the OCR-tight
                 # padded box - identical to process_page's own source-OCR step.
@@ -1108,9 +1467,18 @@ def main():
     parser.add_argument("--max-height", type=int, default=1920, help="Maximum height of pages (0 to disable)")
     parser.add_argument("--regenerate-page", help="TASK-21: re-run the full A-E pipeline on just this one page filename (manual bubble edit regen), instead of the whole book")
     parser.add_argument("--overrides-json", help="TASK-21: path to a JSON {original_ocr_text: edited_translation} map, used only with --regenerate-page")
+    parser.add_argument("--bbox-overrides-json", help="TASK-36: path to a JSON {original_ocr_text: {bbox, ref_size, font_size}} map (any subset of fields), used only with --regenerate-page")
     parser.add_argument("--backfill-bubbles-meta", action="store_true", help="TASK-25: read-only backfill of bubbles_meta/ for a book translated before TASK-20/21 existed - never touches cleaned/translated PNGs or re-translates")
-    parser.add_argument("--slug", help="Book slug - required with --backfill-bubbles-meta")
+    parser.add_argument("--backfill-box-overlap-flags", action="store_true", help="TASK-36: retroactively compute box_overlap quality flags for a book's existing bubbles_meta/ - no model loading, no re-detection, just reads/writes JSON")
+    parser.add_argument("--slug", help="Book slug - required with --backfill-bubbles-meta / --backfill-box-overlap-flags")
     args = parser.parse_args()
+
+    if args.backfill_box_overlap_flags:
+        if not args.slug:
+            log("Error: --backfill-box-overlap-flags requires --slug.")
+            sys.exit(1)
+        backfill_box_overlap_flags(args.slug)
+        return
 
     if args.backfill_bubbles_meta:
         if not args.slug:
