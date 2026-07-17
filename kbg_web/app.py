@@ -61,7 +61,7 @@ users_data = {}
 env_password = os.environ.get("KBG_WEB_PASSWORD")
 
 if env_password:
-    users_data = {"vokov": generate_password_hash(env_password)}
+    users_data = {"admin": generate_password_hash(env_password)}
 elif os.path.exists(credentials_file):
     try:
         with open(credentials_file, "r") as f:
@@ -73,10 +73,10 @@ if not users_data:
     generated_password = secrets.token_urlsafe(16)
     print(f"\n==================================================")
     print(f"WARNING: No credentials found and KBG_WEB_PASSWORD not set.")
-    print(f"Generated temporary password for user 'vokov':")
+    print(f"Generated temporary password for user 'admin':")
     print(f"Password: {generated_password}")
     print(f"==================================================\n")
-    users_data = {"vokov": generate_password_hash(generated_password)}
+    users_data = {"admin": generate_password_hash(generated_password)}
     try:
         with open(credentials_file, "w") as f:
             json.dump(users_data, f)

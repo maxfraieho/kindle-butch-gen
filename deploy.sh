@@ -788,7 +788,7 @@ echo -e "\n${GREEN}=============================================================
 echo -e " kindle-butch-gen is deployed!"
 echo -e ""
 echo -e " ${GREEN}🔑 Веб-інтерфейс: http://localhost:5000${NC}"
-echo -e "    Логін:  ${GREEN}vokov${NC}"
+echo -e "    Логін:  ${GREEN}admin${NC}"
 echo -e "    Пароль: ${GREEN}${WEB_PASSWORD}${NC}"
 echo -e "    (збережено в ~/.bashrc; щоб змінити - відредагуйте рядок"
 echo -e "    export KBG_WEB_PASSWORD='...' і перезапустіть Termux)"
