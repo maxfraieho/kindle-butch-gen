@@ -585,6 +585,30 @@ EOF
 fi
 
 # -------------------------------------------------------------
+# STEP 5c (TASK-60): deterministic, clearly-printed web password.
+# Previously kbg_web/app.py silently auto-generated the password on
+# Flask's OWN first start - a separate process in a LATER shell session
+# (autostart) - and printed it only into ~/kbg-flask.log, never into
+# this script's own output. A non-specialist finishing the one-curl
+# install had no clear way to find it (Q, 2026-07-17: "треба в самому
+# кінці щоб був, чітко"). deploy.sh now owns generation, exports it via
+# KBG_WEB_PASSWORD in ~/.bashrc (already the env var app.py prioritizes
+# over its own auto-generated file - see kbg_web/app.py:61), and prints
+# it in the final banner. Idempotent: a re-run reads the ALREADY-SET
+# password back out instead of silently rotating it - important since
+# tonight's own testing needed several re-runs of this exact script.
+# -------------------------------------------------------------
+BASHRC_FILE="$HOME/.bashrc"
+if grep -q "^export KBG_WEB_PASSWORD=" "$BASHRC_FILE" 2>/dev/null; then
+    WEB_PASSWORD=$(grep "^export KBG_WEB_PASSWORD=" "$BASHRC_FILE" | tail -1 | sed -E "s/^export KBG_WEB_PASSWORD=['\"]?//; s/['\"]?\$//")
+    log "Веб-пароль уже налаштований (не змінюємо)."
+else
+    WEB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(12))")
+    printf '\nexport KBG_WEB_PASSWORD='"'"'%s'"'"'\n' "$WEB_PASSWORD" >> "$BASHRC_FILE"
+    success "Згенеровано пароль веб-інтерфейсу."
+fi
+
+# -------------------------------------------------------------
 # STEP 6: Check and Download Required Models (Interactive & Verified)
 # -------------------------------------------------------------
 log "Checking required models for the translation and TTS pipeline..."
@@ -762,6 +786,12 @@ fi
 log "Deployment complete!"
 echo -e "\n${GREEN}===================================================================${NC}"
 echo -e " kindle-butch-gen is deployed!"
+echo -e ""
+echo -e " ${GREEN}🔑 Веб-інтерфейс: http://localhost:5000${NC}"
+echo -e "    Логін:  ${GREEN}vokov${NC}"
+echo -e "    Пароль: ${GREEN}${WEB_PASSWORD}${NC}"
+echo -e "    (збережено в ~/.bashrc; щоб змінити - відредагуйте рядок"
+echo -e "    export KBG_WEB_PASSWORD='...' і перезапустіть Termux)"
 if [ "$ADRENO_DETECTED" = "true" ]; then
     echo -e " To enter the GPU-enabled Ubuntu environment, run:"
     echo -e "   👉 ${LAUNCHER_PATH}"
