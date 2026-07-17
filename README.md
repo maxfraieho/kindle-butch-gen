@@ -2,7 +2,8 @@
 
 > **Документація українською: [docs/uk/](docs/uk/README.md)** — встановлення,
 > користування, бот і підтримка. Сайт: https://vydra.appwrite.network ·
-> Бот: [@GetVydraBot](https://t.me/GetVydraBot)
+> Бот: [@GetVydraBot](https://t.me/GetVydraBot) ·
+> **Правові застереження: [docs/uk/legal.md](docs/uk/legal.md)**
 
 
 A tool suite to automate EPUB/Markdown translation and generate high-quality Ukrainian audiobooks using premium neural TTS models.
