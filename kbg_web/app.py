@@ -1120,6 +1120,11 @@ def set_output_root():
 def get_settings():
     return jsonify(load_global_settings())
 
+@app.route("/manual")
+def user_manual():
+    """Ukrainian user manual with live-UI screenshots (TASK-56)."""
+    return render_template("manual.html")
+
 @app.route("/api/support/profile")
 def support_profile():
     """Support-banner status for the dashboard card (TASK-51).
