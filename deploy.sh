@@ -301,7 +301,9 @@ else
     mkdir -p build && cd build
     cmake .. $HOST_CMAKE_GPU_FLAGS -DLLAMA_CURL=OFF &
     wait $! || error "llama.cpp cmake configure failed"
-    make -j"$(nproc)" llama-server llama-cli &
+    # llama-mtmd-cli included BY DEFAULT (Q, 2026-07-17): premium vision
+    # features then only need the model pull - no rebuild on the user side.
+    make -j"$(nproc)" llama-server llama-cli llama-mtmd-cli &
     wait $! || error "llama.cpp build failed"
     cd "$HOME"
     [ -x "$HOME/llama.cpp/build/bin/llama-server" ] || error "llama-server binary missing after build"
