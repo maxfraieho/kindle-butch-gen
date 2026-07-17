@@ -165,7 +165,10 @@ DEBIAN_FRONTEND=noninteractive pkg upgrade -y -o Dpkg::Options::="--force-confne
 dpkg --configure -a 2>/dev/null || true
 pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip
 pip install --upgrade pip --break-system-packages || true
-pip install Flask flask-httpauth requests ukrainian_word_stress ipa-uk tqdm marisa-trie blinker --break-system-packages
+# ipa-uk intentionally absent: the package was REMOVED from PyPI (404,
+# found by the first outside install on OnePlus 15) - a vendored copy
+# ships in common/vendor/ipa_uk and bin/tts_helper.py falls back to it.
+pip install Flask flask-httpauth requests ukrainian_word_stress tqdm marisa-trie blinker --break-system-packages
 success "Termux host packages installed."
 
 # -------------------------------------------------------------

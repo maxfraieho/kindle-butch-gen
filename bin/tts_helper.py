@@ -286,7 +286,15 @@ def run_supertonic3(payload):
 def run_styletts2(payload):
     import onnxruntime
     import numpy as np
-    from ipa_uk import ipa
+    try:
+        from ipa_uk import ipa
+    except ImportError:
+        # ipa-uk vanished from PyPI (404, found by the first outside
+        # install) - vendored copy shipped in the repo instead.
+        import sys as _sys, os as _os
+        _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), "common", "vendor"))
+        from ipa_uk import ipa
 
     output_dir = payload.get("output_dir")
     chunks = payload.get("chunks", [])
