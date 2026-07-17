@@ -168,7 +168,11 @@ pip install --upgrade pip --break-system-packages || true
 # ipa-uk intentionally absent: the package was REMOVED from PyPI (404,
 # found by the first outside install on OnePlus 15) - a vendored copy
 # ships in common/vendor/ipa_uk and bin/tts_helper.py falls back to it.
-pip install Flask flask-httpauth requests ukrainian_word_stress tqdm marisa-trie blinker --break-system-packages
+# ukrainian_word_stress removed from the HOST line (3rd finding of the
+# OnePlus 15 install): nothing host-side imports it (it runs in the
+# container, installed there as stress-uk), yet it drags stanza -> numpy
+# -> source builds that cannot succeed on bionic (ninja/spawn.h death).
+pip install Flask flask-httpauth requests tqdm marisa-trie blinker --break-system-packages
 success "Termux host packages installed."
 
 # -------------------------------------------------------------
