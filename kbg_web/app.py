@@ -1198,6 +1198,37 @@ def characters_settings_api(slug):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return jsonify({"status": "success", "enable_cast_registry": enable})
 
+@app.route("/api/characters/<slug>/scan", methods=["POST"])
+def characters_scan_api(slug):
+    """Launch the NER auto-draft pre-pass (TASK-54) detached; drafts land
+    in characters.json as auto_drafted. Premium-gated like the rest."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error",
+                            "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    book_dir = os.path.join(repo_dir, "books", slug)
+    model = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
+    if not os.path.exists(model):
+        return jsonify({"status": "error", "model_missing": True,
+                        "message": "Модель аналізу (~3.3GB) ще не завантажена. "
+                                   "Завантаження стартує з деплой-флоу преміуму."}), 409
+    log_path = os.path.join(book_dir, "edits", "ner_scan.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "w") as lf:
+        subprocess.Popen(
+            ["python3", os.path.join(repo_dir, "bin", "cast_ner_prepass.py"),
+             "--book-dir", book_dir],
+            stdout=lf, stderr=subprocess.STDOUT,
+            cwd=repo_dir, start_new_session=True)
+    return jsonify({"status": "started",
+                    "message": "Сканування персонажів запущено (кілька хвилин); "
+                               "оновіть список згодом."})
+
 @app.route("/manual")
 def user_manual():
     """Ukrainian user manual with live-UI screenshots (TASK-56)."""
