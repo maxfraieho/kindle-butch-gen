@@ -1,4 +1,9 @@
-# Kindle Butch Gen (Ukrainization & Audiobook Generation)
+# 🦦 Vydra (kindle-butch-gen)
+
+> **Документація українською: [docs/uk/](docs/uk/README.md)** — встановлення,
+> користування, бот і підтримка. Сайт: https://vydra.appwrite.network ·
+> Бот: [@GetVydraBot](https://t.me/GetVydraBot)
+
 
 A tool suite to automate EPUB/Markdown translation and generate high-quality Ukrainian audiobooks using premium neural TTS models.
 
