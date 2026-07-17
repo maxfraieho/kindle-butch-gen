@@ -13,15 +13,17 @@
         h1 { font-size: 1.8rem; margin: 0.5rem 0 0.2rem;
              background: linear-gradient(135deg, #4fd1c5, #2b7a78 55%, #f0b429);
              -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        h2 { font-size: 1.25rem; margin: 2.2rem 0 0.6rem; color: #b9a9f5;
+        h2 { font-size: 1.25rem; margin: 2.4rem 0 0.6rem; color: #b9a9f5;
              border-bottom: 1px solid #2a2a3d; padding-bottom: 0.3rem; }
         h3 { font-size: 1.05rem; margin: 1.4rem 0 0.4rem; color: #d9d9ea; }
         p, li { margin-bottom: 0.55rem; }
-        ul { padding-left: 1.3rem; }
+        ul, ol { padding-left: 1.3rem; }
         a { color: #8ab4ff; }
         code { background: #1c1c2a; padding: 0.1em 0.4em; border-radius: 5px; font-size: 0.92em; }
-        .shot { width: 100%; border-radius: 12px; border: 1px solid #2a2a3d;
-                margin: 0.8rem 0 0.4rem; box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+        .shot { width: 100%; max-width: 420px; display: block; margin: 0.8rem auto 0.3rem;
+                border-radius: 12px; border: 1px solid #2a2a3d;
+                box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+        .shot.wide { max-width: 100%; }
         .cap { font-size: 0.85rem; color: #8888a0; text-align: center; margin-bottom: 1rem; }
         .topbar { display: flex; align-items: center; gap: 0.8rem; }
         .topbar img { width: 52px; height: 52px; border-radius: 50%;
@@ -29,6 +31,9 @@
         .back { display: inline-block; margin-top: 0.4rem; font-size: 0.9rem; }
         .tip { background: #16202a; border-left: 3px solid #4fd1c5; padding: 0.6rem 0.9rem;
                border-radius: 0 8px 8px 0; margin: 0.8rem 0; font-size: 0.93rem; }
+        .toc { background: #14141f; border: 1px solid #2a2a3d; border-radius: 10px;
+               padding: 0.8rem 1.1rem; margin-top: 1rem; }
+        .toc a { display: block; padding: 0.15rem 0; }
     </style>
 </head>
 <body>
@@ -40,65 +45,155 @@
         </div>
     </div>
 
-    <h2>1. Головний екран</h2>
-    <img class="shot" src="/static/manual/dashboard.jpg" alt="Головний екран Vydra">
-    <p class="cap">Головний екран: картка підтримки, кнопки дій і список книг із прогресом стадій</p>
-    <ul>
-        <li><b>➕ Add Book</b> — додати книгу: EPUB/PDF (текст) або теку/архів зображень (манґа).</li>
-        <li><b>🤖 Models Manager</b> — стан сервера перекладу і його перезапуск.</li>
-        <li><b>🔄 Update</b> — оновлення Vydra однією кнопкою: сервіс сам стягне свіжий код і перезапуститься.</li>
-        <li><b>⚙ Save Location</b> — тека для готових файлів (потрібен дозвіл <code>termux-setup-storage</code>).</li>
-        <li><b>🦦 Примітки підтримки</b> — стан банера підтримки; керування — в
-            <a href="https://t.me/GetVydraBot">Telegram-боті</a> або локальним перемикачем.</li>
-    </ul>
-    <h3>Картка книги</h3>
-    <p>Смуга прогресу і чипи стадій (<code>OCR → Trans → Stress → TTS</code> для тексту;
-       OCR → очищення → typeset для манґи), кнопки <b>Run / Stop / Re-run / Delete</b> і журнал
-       виконання просто в картці.</p>
-    <div class="tip">Генерацію можна безпечно переривати — повторний Run продовжує з місця зупинки.
-    Якщо Termux впав посеред конверсії, після перезапуску вона відновиться автоматично.</div>
+    <nav class="toc">
+        <a href="#add">1. Додавання книги</a>
+        <a href="#card">2. Картка книги: стадії та керування</a>
+        <a href="#models">3. Models Manager — сервер перекладу</a>
+        <a href="#text">4. Текстові книги: редагування перекладу, наголосів і аудіо</a>
+        <a href="#manga">5. Манґа: перегляд і редагування бульбашок</a>
+        <a href="#downloads">6. Готові файли</a>
+        <a href="#support">7. Бот, підтримка, преміум</a>
+        <a href="#trouble">8. Якщо щось пішло не так</a>
+    </nav>
 
-    <h2>2. Перегляд якості та редагування</h2>
-    <img class="shot" src="/static/manual/visualizer.jpg" alt="Quality Visualizer із перекладеною сторінкою манґи">
-    <p class="cap">Quality Visualizer: перекладена сторінка манґи, перемикач Original | Cleaned | Translated, навігація і стрибок на сторінку</p>
-    <ul>
-        <li>Вкладка <b>Viewer</b> — посторінкове порівняння: оригінал, очищені бульбашки, перекладений typeset.</li>
-        <li>Вкладка <b>Pending Edits</b> — ваші правки в черзі з diff-переглядом до/після.</li>
-        <li><b>Auto-flagged</b> — сторінки, які система позначила сама: 🔴 проблема, 🟡 увага, 🟢 ок — з причиною кожного прапорця.</li>
-    </ul>
-    <h3>Редагування манґи</h3>
-    <ul>
-        <li>Клік по бульбашці → редактор: виправте <b>текст</b> перекладу — сторінка перегенерується у фоні з пріоритетом.</li>
-        <li><b>Геометрія:</b> тягніть бульбашку за тіло (перемістити) або за кутові маркери (розмір); перекриття сусідніх бульбашок перевіряється автоматично.</li>
-        <li>Затверджені правки <b>переживають</b> подальші регенерації сторінки — автоматика їх не перезапише.</li>
-    </ul>
-    <div class="tip">Усе це можна робити, поки основна генерація ще триває — черга сама дає пріоритет вашим правкам.</div>
+    <h2 id="add">1. Додавання книги</h2>
+    <img class="shot" src="/static/manual/addbook.jpg" alt="Форма додавання книги">
+    <p class="cap">➕ Add Book: файл або шлях, метадані, мови, перемикач манґи</p>
+    <ol>
+        <li><b>Файл</b>: завантажте PDF / EPUB / TXT / MD — або вкажіть шлях до файлу,
+            що вже лежить на телефоні.</li>
+        <li><b>Slug</b> — коротке технічне ім'я (латиниця, без пробілів), <b>Title</b> та
+            <b>Authors</b> — для EPUB метадані підтягнуться автоматично.</li>
+        <li><b>Source Language</b> — мова оригіналу (для EPUB є автовизначення),
+            <b>Target Language</b> — мова перекладу й озвучення (українська).</li>
+        <li><b>Is Manga / Comic</b> — увімкніть для манґи/коміксів: замість текстового
+            пайплайна запуститься розпізнавання і typeset зображень (джерело — тека
+            або архів зображень, CBZ/ZIP/PDF).</li>
+    </ol>
 
-    <h2>3. Готові файли</h2>
-    <img class="shot" src="/static/manual/downloads.jpg" alt="Downloads Archive">
-    <p class="cap">Downloads Archive: всі згенеровані EPUB / AZW3 / CBZ / аудіо в одному місці</p>
-    <p>Файли також доступні кнопками завантаження на картці книги та в теці з
-       <b>⚙ Save Location</b> — звідти їх зручно кидати на Kindle чи в читалку.</p>
+    <h2 id="card">2. Картка книги: стадії та керування</h2>
+    <img class="shot" src="/static/manual/dashboard2.jpg" alt="Розгорнуті картки текстової книги і манґи">
+    <p class="cap">Зверху — текстова книга (стадії OCR→Trans→Stress→TTS), знизу — манґа з вибором роздільності цільового пристрою</p>
+    <h3>Чекбокси стадій — що саме виконувати</h3>
+    <ul>
+        <li><b>Текстова книга:</b> <code>Clean</code> (очищення тексту) → <code>Translate</code>
+            → <code>Build Ebook</code> (EPUB+AZW3) → <code>Generate Audio</code> (аудіокнига).
+            Можна вимкнути зайве — напр., лише переклад без аудіо.</li>
+        <li><b>Манґа:</b> <code>Clean Pages</code> (очищення бульбашок) → <code>Translate</code>
+            → <code>Build Kindle AZW3</code>. Нижче — <b>Target Device / Screen Resolution</b>:
+            роздільність під ваш рідер (Safe Default 1280×1920 підходить більшості).</li>
+        <li><b>⚙️ TTS Settings</b> (розгортається): голос/швидкість озвучення і прослуховування
+            зразка перед запуском повної генерації.</li>
+    </ul>
+    <h3>Кнопки</h3>
+    <ul>
+        <li><b style="color:#48bb78">Run Conversion</b> — запуск обраних стадій;
+            <b style="color:#ed8936">Re-run</b> — повторний прогін (уже готові
+            сторінки/чанки пропускаються); <b>Stop</b> з'являється під час роботи.</li>
+        <li><b>Console Logs</b> — живий журнал генерації просто в картці;
+            <b>Visual Preview</b> — перехід у переглядач якості (розділи 4–5).</li>
+        <li><b style="color:#f56565">Delete</b> — видалення книги (питає підтвердження).</li>
+        <li>Нижче — <b>чипи готових файлів</b> із кнопками завантаження й видалення.</li>
+    </ul>
+    <div class="tip">Генерацію можна безпечно переривати: повторний Run продовжує з місця
+    зупинки. Якщо Termux впав посеред конверсії — після перезапуску вона відновиться сама.</div>
 
-    <h2>4. Бот, підтримка, преміум</h2>
+    <h2 id="models">3. Models Manager — сервер перекладу</h2>
+    <img class="shot" src="/static/manual/models.jpg" alt="Models and Services Manager">
+    <p class="cap">Стан llama-сервера (порт 8081), завантажена модель, Start/Stop</p>
+    <p>Тут видно, чи запущений сервер перекладу і яка GGUF-модель завантажена.
+       <b>Start/Stop Server</b> — ручне керування (звичайно не потрібне: сервер
+       стартує автоматично). Випадачка <b>Translation Model</b> дозволяє підключити
+       іншу GGUF-модель з <code>~/models/</code> — Save Configuration і перезапуск.</p>
+
+    <h2 id="text">4. Текстові книги: редагування перекладу, наголосів і аудіо</h2>
+    <p>Кнопка <b>Visual Preview</b> на картці текстової книги відкриває редактор
+       з двома вкладками.</p>
+    <h3>Вкладка «Paragraphs &amp; Audio» — робота з кожним фрагментом</h3>
+    <img class="shot" src="/static/manual/paragraphs.jpg" alt="Пофрагментне редагування з формою Edit">
+    <p class="cap">Кожен фрагмент: оригінал | переклад з наголосами (+), плеєр сегмента, форма Edit із двома полями</p>
+    <ul>
+        <li>Два стовпчики: <b>ORIGINAL</b> і <b>TRANSLATED &amp; ACCENTS</b> — переклад
+            із проставленими наголосами (знак <code>+</code> після наголошеного складу
+            керує вимовою TTS).</li>
+        <li><b>🎧 Listen Segment Preview</b> — прослухати озвучення саме цього фрагмента.</li>
+        <li>Статуси: <span style="color:#48bb78">Audio Synthesized</span> /
+            <span style="color:#f56565">No Audio</span>.</li>
+        <li><b>✏️ Edit</b> відкриває два поля: <b>Translated text</b> (виправити переклад)
+            і <b>Stress marks</b> (виправити наголоси) → <b>Save</b> — фрагмент стане в
+            чергу пере-озвучення з пріоритетом, решта книги не чіпається.</li>
+        <li><b>Фільтри</b>: Show All | With Audio Only | Without Audio Only |
+            <b>Pending Edits</b> (ваші правки в черзі та їх статус).</li>
+        <li><b>Пагінація</b> внизу/вгорі: сторінки по ~30 фрагментів, стрибок на номер — поле <code>#</code> + Go.</li>
+    </ul>
+    <h3>Вкладка «Full Page Viewer» — читання по розділах</h3>
+    <img class="shot" src="/static/manual/fullpage.jpg" alt="Full Page Viewer">
+    <p class="cap">Розділ цілком: вибір файла-розділу, перемикач Original | Translated, навігація між розділами</p>
+    <p>Зручно вичитувати переклад у контексті: обираєте розділ (випадачка
+       Select Page/File), перемикаєте Original ↔ Translated, гортаєте
+       «Попередній/Наступний розділ».</p>
+    <div class="tip">Усі правки можна вносити, поки основна генерація ще триває —
+    черга сама дає пріоритет вашим виправленням (вони озвучуються першими).</div>
+
+    <h2 id="manga">5. Манґа: перегляд і редагування бульбашок</h2>
+    <img class="shot" src="/static/manual/visualizer.jpg" alt="Quality Visualizer манґи">
+    <p class="cap">Перекладена сторінка манґи: перемикач Original | Cleaned | Translated, навігація, стрибок на сторінку</p>
+    <ul>
+        <li><b>Viewer</b> — посторінкове порівняння: оригінал → очищені бульбашки →
+            перекладений typeset. Статус сторінки (PROCESSED) поруч із номером.</li>
+        <li><b>Pending Edits</b> — правки в черзі з різницею до/після.</li>
+        <li><b>Auto-flagged</b> — сторінки, позначені системою: 🔴 проблема, 🟡 увага,
+            🟢 ок — з причиною (перекриття рамок, низька впевненість розпізнавання тощо).</li>
+    </ul>
+    <h3>Редактор бульбашки</h3>
+    <ul>
+        <li>Клік по бульбашці → правка <b>тексту</b> перекладу; сторінка перегенерується
+            у фоні з пріоритетом.</li>
+        <li><b>Геометрія:</b> тягніть бульбашку за тіло (перемістити) чи за кутові маркери
+            (розмір); перекриття з сусідніми бульбашками перевіряється автоматично.</li>
+        <li>Затверджені правки <b>переживають</b> подальші регенерації — автоматика їх
+            не перезаписує.</li>
+    </ul>
+
+    <h2 id="downloads">6. Готові файли</h2>
+    <img class="shot" src="/static/manual/downloads2.jpg" alt="Downloads Archive">
+    <p class="cap">Downloads Archive: пошук, опис кожного файла і цільові пристрої</p>
+    <ul>
+        <li>Всі згенеровані файли по книгах: <b>EPUB</b> (Kobo/PocketBook/Apple
+            Books/Android), <b>AZW3</b> (Amazon Kindle), <b>CBZ</b> (комікс-рідери,
+            повна роздільність), <b>MP3</b> (аудіокнига, будь-який плеєр).</li>
+        <li>Пошук за назвою/форматом/описом; видалення непотрібного — 🗑 поруч.</li>
+        <li>Ті самі файли доступні чипами на картці книги та в теці
+            <b>⚙ Save Location</b> — звідти зручно кидати на рідер.</li>
+    </ul>
+
+    <h2 id="support">7. Бот, підтримка, преміум</h2>
     <ul>
         <li><a href="https://t.me/GetVydraBot">@GetVydraBot</a>: <code>/start</code> — реєстрація,
-            <code>/install</code> — встановлення на новий пристрій, <code>/referral</code> — запрошення
-            (+пріоритет черги обом), <code>/no_support_banner</code> — вимкнути примітки підтримки
-            одним кроком, <code>/premium</code> — преміум-функції.</li>
-        <li>Примітка підтримки в книгах чітко розділяє <b>🇺🇦 офіційний фонд</b> (Повернись живим,
-            публічна звітність) і <b>☕ підтримку розробника</b> — і вимикається назавжди однією командою.</li>
-        <li>Преміум (<b>Cast Registry</b> — правильний граматичний рід персонажів; <b>Vision-QA</b> —
-            додаткова візуальна перевірка манґи) відкривається після донату. Базова генерація —
-            безкоштовна назавжди.</li>
+            <code>/install</code> — встановлення на новий пристрій, <code>/referral</code> —
+            запрошення (+пріоритет черги обом), <code>/no_support_banner</code> — вимкнути
+            примітки підтримки одним кроком, <code>/premium</code> — преміум-функції.</li>
+        <li>Примітка підтримки в книгах чітко розділяє <b>🇺🇦 офіційний фонд</b>
+            (Повернись живим, публічна звітність) і <b>☕ підтримку розробника</b> —
+            вимикається назавжди однією командою або перемикачем на головній.</li>
+        <li>Преміум (<b>Cast Registry</b> — правильний граматичний рід персонажів;
+            <b>Vision-QA</b> — додаткова візуальна перевірка манґи) відкривається після
+            донату. Базова генерація — безкоштовна назавжди.</li>
     </ul>
 
-    <h2>5. Якщо щось пішло не так</h2>
+    <h2 id="trouble">8. Якщо щось пішло не так</h2>
     <ul>
         <li>Сервіс не відповідає → відкрийте Termux (автостарт підніме все сам).</li>
-        <li>"Сховище Android недоступне" → виконайте <code>termux-setup-storage</code>.</li>
-        <li>Довгі операції → тримайте екран увімкненим: Android вбиває важкі фонові процеси.</li>
-        <li>Повна документація: <a href="https://github.com/maxfraieho/kindle-butch-gen/tree/master/docs/uk">docs/uk на GitHub</a>.</li>
+        <li>«Сховище Android недоступне» у виборі теки → виконайте
+            <code>termux-setup-storage</code> і дайте дозвіл.</li>
+        <li>Переклад не йде → Models Manager: сервер має бути
+            <span style="color:#48bb78">Running</span>; якщо ні — Start Server.</li>
+        <li>Довгі операції → тримайте екран увімкненим: Android вбиває важкі фонові
+            процеси.</li>
+        <li>Оновлення Vydra → кнопка <b>🔄 Update</b> на головній (під час активної
+            генерації оновлення чемно зачекає).</li>
+        <li>Повна документація:
+            <a href="https://github.com/maxfraieho/kindle-butch-gen/tree/master/docs/uk">docs/uk на GitHub</a>.</li>
     </ul>
 </body>
 </html>
