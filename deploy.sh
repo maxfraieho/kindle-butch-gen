@@ -77,6 +77,15 @@ termux-wake-lock 2>/dev/null || true
 release_deploy_wake_lock() {
     log "Releasing termux-wake-lock..."
     termux-wake-unlock 2>/dev/null || true
+    # P1.1 SIGTERM-test finding: TERMing this script released the wake-lock
+    # but ORPHANED the whole container-side child tree (launcher -> proot ->
+    # apt/dpkg kept running, holding the container's dpkg lock and breaking
+    # an immediate resume re-run) - the deploy-level twin of TASK-40. Kill
+    # our own process group on the way out; trap is reset first so the
+    # group-TERM reaching ourselves can't recurse. Harmless on a normal
+    # successful exit (children are already reaped by then).
+    trap - EXIT INT TERM
+    kill -TERM -- -$$ 2>/dev/null || true
 }
 trap release_deploy_wake_lock EXIT INT TERM
 

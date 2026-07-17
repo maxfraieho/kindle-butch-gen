@@ -140,11 +140,22 @@ def render_interstitial_png(cfg, out_path, width=1280, height=1920):
     draw = ImageDraw.Draw(img)
 
     def _font(size):
+        # The production container's Pillow is built WITHOUT FreeType
+        # (importing PIL._imagingft fails), so truetype() can raise even
+        # when the font file exists - verified live. Fall back to the
+        # bitmap default font (sized when Pillow >= 10.1 supports it);
+        # an ugly banner beats a crashed build every time.
         for p in ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                   "/data/data/com.termux/files/usr/share/fonts/TTF/DejaVuSans.ttf"):
             if os.path.exists(p):
-                return ImageFont.truetype(p, size)
-        return ImageFont.load_default()
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    break
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:
+            return ImageFont.load_default()
 
     big, med, small = _font(56), _font(40), _font(30)
     track_a_name = cfg.get("track_a_name", "Повернись живим")
