@@ -5,8 +5,9 @@ import json
 import subprocess
 import shutil
 import signal
-from datetime import datetime
-from flask import Flask, jsonify, request, render_template_string, render_template, send_file
+from datetime import datetime, timedelta
+from flask import (Flask, jsonify, request, render_template_string, render_template,
+                   send_file, session, redirect, url_for)
 
 # Resolve repository root
 repo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -32,6 +33,25 @@ TTS_ENGINES = {
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
+
+# TASK-62: persistent secret key (survives Flask restarts) - a key that
+# changes every restart would silently log everyone out constantly,
+# which is exactly the "keeps asking again" complaint this feature
+# exists to fix. Generated once, reused forever after.
+_secret_key_path = os.path.join(os.path.dirname(__file__), ".flask_secret_key")
+try:
+    with open(_secret_key_path, "r") as f:
+        app.secret_key = f.read().strip()
+    if not app.secret_key:
+        raise ValueError("empty")
+except (FileNotFoundError, ValueError):
+    app.secret_key = os.urandom(32).hex()
+    try:
+        with open(_secret_key_path, "w") as f:
+            f.write(app.secret_key)
+    except OSError:
+        pass  # session just won't survive a restart this one time
+app.permanent_session_lifetime = timedelta(days=365)
 
 # Translation server (llama-server on :8081) lifecycle tracking.
 # PID-file based instead of pkill-by-pattern to avoid matching an unrelated
@@ -96,10 +116,74 @@ def verify_password(username, password):
         return check_password_hash(users_data.get(username), password)
     return False
 
+LOGIN_PAGE = """<!DOCTYPE html><html lang="uk"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vydra 🦦 — Вхід</title><link rel="icon" type="image/png" href="/static/vydra-sm.png">
+<style>
+body{font-family:system-ui,sans-serif;background:#0d0d14;color:#e6e6f0;display:flex;
+  min-height:100vh;align-items:center;justify-content:center;margin:0;padding:1rem;}
+.box{background:#14141f;border:1px solid #2a2a3d;border-radius:14px;padding:2rem;
+  width:100%;max-width:320px;text-align:center;}
+img{width:64px;height:64px;border-radius:50%;border:2px solid rgba(79,209,197,.4);margin-bottom:.5rem;}
+h1{font-size:1.4rem;margin:0 0 1.2rem;
+  background:linear-gradient(135deg,#4fd1c5,#2b7a78 55%,#f0b429);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+input{width:100%;box-sizing:border-box;padding:.7rem;margin-bottom:.7rem;border-radius:8px;
+  border:1px solid #33334a;background:#1a1a28;color:#eee;font-size:1rem;}
+button{width:100%;padding:.7rem;border:none;border-radius:8px;background:#8b5cf6;
+  color:#fff;font-weight:600;font-size:1rem;cursor:pointer;}
+.err{color:#f56565;font-size:.88rem;margin-bottom:.7rem;min-height:1.1em;}
+</style></head><body><div class="box">
+<img src="/static/vydra-sm.png" alt="Vydra"><h1>Vydra</h1>
+<form method="post"><div class="err">{{ error or '' }}</div>
+<input name="username" placeholder="Логін" autocomplete="username" required autofocus>
+<input name="password" type="password" placeholder="Пароль" autocomplete="current-password" required>
+<button type="submit">Увійти</button></form></div></body></html>"""
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if verify_password(username, password):
+            session.clear()
+            session["user"] = username
+            session.permanent = True
+            return redirect(request.args.get("next") or url_for("index"))
+        return render_template_string(LOGIN_PAGE, error="Невірний логін або пароль"), 401
+    return render_template_string(LOGIN_PAGE, error=None)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# TASK-62: session-cookie auth replaces bare HTTP Basic Auth as the
+# primary mechanism - mobile Chrome in particular does NOT reliably
+# persist Basic Auth credentials across page reloads (confirmed live:
+# "пароль не зберігається, доводиться постійно вводити"), while a
+# signed session cookie with a 365-day lifetime behaves like every other
+# website's "stay logged in". Basic Auth is kept as a fallback so curl/
+# scripts (and this session's own SSH-based testing) keep working
+# unchanged - a valid Basic Auth header also upgrades the browser to a
+# persistent session automatically, so it only has to happen once.
 @app.before_request
-@auth.login_required
 def require_login():
-    pass
+    if request.endpoint in ("login", "static"):
+        return
+    if session.get("user") in users_data:
+        return
+    auth_header = request.authorization
+    if auth_header and verify_password(auth_header.username, auth_header.password):
+        session["user"] = auth_header.username
+        session.permanent = True
+        return
+    if request.path.startswith("/api/"):
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    return redirect(url_for("login", next=request.path))
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
@@ -1383,7 +1467,6 @@ def self_update():
     return jsonify({"status": "updating", "behind": behind, "version": current})
 
 @app.route("/api/models")
-@auth.login_required
 def get_models_info():
     import socket
     import glob
@@ -1424,7 +1507,6 @@ def get_models_info():
     })
 
 @app.route("/api/models/configure", methods=["POST"])
-@auth.login_required
 def configure_models():
     data = request.get_json() or {}
     translation_model = data.get("translation_model")
@@ -1482,7 +1564,6 @@ def _stop_llama_server():
             pass
 
 @app.route("/api/models/start", methods=["POST"])
-@auth.login_required
 def start_translation_server_api():
     import time
 
@@ -1529,7 +1610,6 @@ def start_translation_server_api():
             pass
 
 @app.route("/api/models/stop", methods=["POST"])
-@auth.login_required
 def stop_translation_server_api():
     _stop_llama_server()
     return jsonify({"status": "success", "message": "Translation server stopped"})
@@ -1539,7 +1619,6 @@ def stop_translation_server_api():
 # -------------------------------------------------------------
 
 @app.route("/view/<slug>")
-@auth.login_required
 def view_book_stages(slug):
     if not validate_slug(slug):
         return "Invalid slug format", 400
@@ -1547,7 +1626,6 @@ def view_book_stages(slug):
     return render_template("stages.html", slug=slug)
 
 @app.route("/api/preview/audio/<slug>/<chunk_hash>")
-@auth.login_required
 def preview_audio(slug, chunk_hash):
     if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
         return "Invalid parameters", 400
@@ -1559,7 +1637,6 @@ def preview_audio(slug, chunk_hash):
     return "Audio not found", 404
 
 @app.route("/api/preview/manga/<slug>")
-@auth.login_required
 def preview_manga(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -1650,7 +1727,6 @@ def preview_manga(slug):
     })
 
 @app.route("/api/preview/manga-file/<slug>/<folder>/<filename>")
-@auth.login_required
 def serve_manga_preview_file(slug, folder, filename):
     if not validate_slug(slug) or folder not in ["source", "translated", "cleaned"]:
         return "Invalid parameters", 400
@@ -1668,7 +1744,6 @@ def serve_manga_preview_file(slug, folder, filename):
     return "Not found", 404
 
 @app.route("/api/preview/manga-bubbles/<slug>/<page_filename>")
-@auth.login_required
 def preview_manga_bubbles(slug, page_filename):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -1686,7 +1761,6 @@ def preview_manga_bubbles(slug, page_filename):
     return jsonify({"status": "success", "page": page_filename, "bubbles": bubbles})
 
 @app.route("/api/preview/manga-quality-flags/<slug>")
-@auth.login_required
 def preview_manga_quality_flags(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -1702,7 +1776,6 @@ def preview_manga_quality_flags(slug):
     return jsonify({"status": "success", "flags": flags})
 
 @app.route("/api/preview/book/<slug>")
-@auth.login_required
 def preview_book_stages(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -1856,7 +1929,6 @@ def _tts_voice_slug_and_model(paths, repo_dir):
 # -------------------------------------------------------------
 
 @app.route("/api/edit/text/<slug>/<chunk_hash>", methods=["PUT"])
-@auth.login_required
 def edit_text(slug, chunk_hash):
     if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
         return jsonify({"status": "error", "message": "Invalid parameters"}), 400
@@ -1876,7 +1948,6 @@ def edit_text(slug, chunk_hash):
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/stress/<slug>/<chunk_hash>", methods=["PUT"])
-@auth.login_required
 def edit_stress(slug, chunk_hash):
     if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
         return jsonify({"status": "error", "message": "Invalid parameters"}), 400
@@ -1892,7 +1963,6 @@ def edit_stress(slug, chunk_hash):
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/queue/<slug>")
-@auth.login_required
 def edit_queue(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
@@ -1901,7 +1971,6 @@ def edit_queue(slug):
     return jsonify(edit_store.list_edits(slug, mode=mode, status=status))
 
 @app.route("/api/edit/regenerate-audio/<slug>/<chunk_hash>", methods=["POST"])
-@auth.login_required
 def edit_regenerate_audio(slug, chunk_hash):
     if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
         return jsonify({"status": "error", "message": "Invalid parameters"}), 400
@@ -1996,7 +2065,6 @@ def edit_regenerate_audio(slug, chunk_hash):
     return jsonify({"status": "success", "new_hash": new_hash})
 
 @app.route("/api/edit/approve/<slug>/<edit_id>", methods=["POST"])
-@auth.login_required
 def edit_approve(slug, edit_id):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
@@ -2096,7 +2164,6 @@ def edit_approve(slug, edit_id):
     return jsonify({"status": "success"})
 
 @app.route("/api/edit/discard/<slug>/<edit_id>", methods=["POST"])
-@auth.login_required
 def edit_discard(slug, edit_id):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
@@ -2107,7 +2174,6 @@ def edit_discard(slug, edit_id):
     return jsonify({"status": "success"})
 
 @app.route("/api/edit/manga-text/<slug>/<page_filename>", methods=["PUT"])
-@auth.login_required
 def edit_manga_text(slug, page_filename):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
@@ -2141,7 +2207,6 @@ def edit_manga_text(slug, page_filename):
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/manga-bbox/<slug>/<page_filename>", methods=["PUT"])
-@auth.login_required
 def edit_manga_bbox(slug, page_filename):
     # TASK-36: manual geometry/font-size override, independent of and
     # separate-Save-button from edit_manga_text above - a human can fix
@@ -2208,7 +2273,6 @@ def edit_manga_bbox(slug, page_filename):
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/regenerate-manga-page/<slug>/<page_filename>", methods=["POST"])
-@auth.login_required
 def edit_regenerate_manga_page(slug, page_filename):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
@@ -2422,7 +2486,6 @@ def find_book_epub(book_dir, slug):
     return None
 
 @app.route("/api/preview/book-chapters/<slug>")
-@auth.login_required
 def preview_book_chapters(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -2474,7 +2537,6 @@ def preview_book_chapters(slug):
         return jsonify({"status": "error", "message": f"Failed to read EPUB chapters: {e}"}), 500
 
 @app.route("/api/preview/book-page/<slug>/<path:href>")
-@auth.login_required
 def preview_book_page(slug, href):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -2673,12 +2735,10 @@ def preview_book_page(slug, href):
         return jsonify({"status": "error", "message": f"Error loading book page: {e}"}), 500
 
 @app.route("/downloads")
-@auth.login_required
 def downloads_page():
     return render_template("downloads.html")
 
 @app.route("/api/downloads")
-@auth.login_required
 def api_all_downloads():
     import os
     import json
