@@ -1,4 +1,4 @@
-"""KBG support-system Telegram bot — Appwrite Function (TASK-49).
+"""Vydra (🦦) support-system Telegram bot — Appwrite Function (TASK-49).
 
 HTTP-triggered by a Telegram webhook. Commands:
   /start [ref_code]  — register, generate personal referral code; with a
@@ -118,7 +118,8 @@ def main(context):
         bonus = ("\n🎁 Ви прийшли за запрошенням — вам і другу нараховано "
                  "пріоритет у черзі генерації.") if referred_by else ""
         _tg_send(token, chat_id,
-                 "Вітаємо в KBG — безкоштовному перекладачі книг і манґи 🇺🇦\n"
+                 "🦦 Вітаємо у Vydra — книги, аудіокниги та манґа українською,\n"
+                 "все локально, на вашому пристрої. Без хмари і збору даних.\n"
                  f"Ваш реферальний код: <code>{code}</code>{bonus}\n\n"
                  "Команди:\n"
                  "/referral — ваш код і скільки людей приєдналось\n"
