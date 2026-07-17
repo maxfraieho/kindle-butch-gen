@@ -772,7 +772,31 @@ def _normalize_sentence_case(text, glossary):
     return normalized
 
 
-def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None):
+# TASK-54 Cast Registry: loaded once per run (config + entitlement check
+# hit the network at most once, never per page). None = feature inactive.
+_CAST_CACHE = {"initialized": False, "chars": None}
+
+
+def init_cast_registry(book_dir):
+    if _CAST_CACHE["initialized"]:
+        return
+    _CAST_CACHE["initialized"] = True
+    try:
+        from common.cast_registry import registry_enabled, load_characters
+        if registry_enabled(book_dir):
+            chars = [c for c in load_characters(book_dir)
+                     if c.get("status") == "verified"]
+            if chars:
+                _CAST_CACHE["chars"] = chars
+                log(f"Cast Registry active: {len(chars)} verified character(s).")
+            else:
+                log("Cast Registry enabled but no verified characters yet - safe mode (no injection).")
+    except Exception as ex:
+        log(f"Cast Registry init skipped: {ex}")
+
+
+def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None,
+                        cast_characters=None):
     if not texts:
         return {}
 
@@ -793,15 +817,27 @@ def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None):
         for src_word, tgt_word in glossary.items():
             glossary_rules += f"- {src_word} -> {tgt_word}\n"
 
+    # TASK-54 Cast Registry: verified characters' grammar rules for THIS
+    # batch's source text. Empty string when the feature is off/ungated or
+    # nothing matches - the prompt is then byte-identical to pre-feature.
+    cast_rules = ""
+    if cast_characters:
+        try:
+            from common.cast_registry import cast_rules_block
+            cast_rules = cast_rules_block(cast_characters, "\n".join(remaining))
+            if cast_rules:
+                cast_rules += "\n"
+        except Exception:
+            cast_rules = ""
+
     prompt_list = "\n".join([f"{i+1}. {txt}" for i, txt in enumerate(remaining)])
-    
+
     system_prompt = f"""You are a professional manga translator. Translate the following numbered list of texts from {source_lang.upper()} to Ukrainian.
 Preserve context, sound effects (if present), informal spoken registers, character personalities, and sentence fragments.
 Do NOT translate characters names if they are part of the glossary.
 The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting entirely. Output your translation in normal Ukrainian sentence case: capitalize only the first letter of each sentence and proper nouns, everything else lowercase. Never output an entire line in capital letters unless it is a genuine sound effect (onomatopoeia) or the character is explicitly shouting/emphasizing that specific word.
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
-{glossary_rules}
-"""
+{glossary_rules}{cast_rules}"""
 
     try:
         response = requests.post(
@@ -986,7 +1022,7 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
     if not page_ocr_texts:
         return img, img, page_quality_flags, page_bubbles_meta
 
-    translations = translate_batch_llm(page_ocr_texts, lang, glossary, api_url, overrides=overrides)
+    translations = translate_batch_llm(page_ocr_texts, lang, glossary, api_url, overrides=overrides, cast_characters=_CAST_CACHE["chars"])
 
     # Stage B: larger radius + per-block flat-fill fallback for cases the
     # wider TELEA radius alone still leaves a "ghost" of the original
@@ -1288,6 +1324,7 @@ def _scale_bbox_overrides(raw_bbox_overrides, actual_img_shape):
 
 
 def regenerate_single_page(args, glossary, detector, mocr):
+    init_cast_registry(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
     """TASK-21: re-runs the FULL A-E pipeline (process_page) on just one
     page, for a manual bubble-edit regen. Deliberately does NOT skip
     straight to typeset on the existing cleaned image - re-running
@@ -1351,6 +1388,7 @@ def regenerate_single_page(args, glossary, detector, mocr):
         )
 
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+        init_cast_registry(book_dir)
         id_mapping, _ = _persist_regenerated_page(book_dir, page_filename, final_img, cleaned_img, page_flags, new_bubbles)
 
         log(f"Regenerated page '{page_filename}': {len(new_bubbles)} bubble(s), {len(page_flags)} quality flag(s).")

@@ -1120,6 +1120,84 @@ def set_output_root():
 def get_settings():
     return jsonify(load_global_settings())
 
+@app.route("/api/characters/<slug>", methods=["GET"])
+def get_characters_api(slug):
+    """Cast Registry (TASK-54): character list + feature state."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    book_dir = os.path.join(repo_dir, "books", slug)
+    from common.cast_registry import load_characters, GENDER_TEMPLATES
+    try:
+        with open(os.path.join(book_dir, "config.json"), "r", encoding="utf-8") as f:
+            enabled_flag = bool((json.load(f) or {}).get("enable_cast_registry"))
+    except Exception:
+        enabled_flag = False
+    try:
+        from common.support_profile import is_entitled
+        entitled = is_entitled("cast_registry")
+    except Exception:
+        entitled = False
+    return jsonify({
+        "characters": load_characters(book_dir),
+        "enabled": enabled_flag,
+        "entitled": entitled,
+        "gender_templates": GENDER_TEMPLATES,
+    })
+
+@app.route("/api/characters/<slug>", methods=["PUT"])
+def put_characters_api(slug):
+    """Save the character list (verification, gender edits, POV flags).
+    Editing requires the premium entitlement - the registry is a paid
+    feature; without it the endpoint refuses rather than silently
+    accepting rules that the pipeline would then ignore."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error",
+                            "message": "Cast Registry — преміум-функція. Активуйте через @GetVydraBot (/premium)."}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    data = request.get_json() or {}
+    chars = data.get("characters")
+    if not isinstance(chars, list):
+        return jsonify({"status": "error", "message": "characters must be a list"}), 400
+    from common.cast_registry import save_characters, VALID_GENDERS
+    for ch in chars:
+        if ch.get("gender") and ch["gender"] not in VALID_GENDERS:
+            return jsonify({"status": "error",
+                            "message": f"invalid gender: {ch['gender']}"}), 400
+    book_dir = os.path.join(repo_dir, "books", slug)
+    save_characters(book_dir, chars)
+    return jsonify({"status": "success", "count": len(chars)})
+
+@app.route("/api/characters/<slug>/settings", methods=["POST"])
+def characters_settings_api(slug):
+    """Per-book enable_cast_registry toggle (premium-gated on enable)."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    data = request.get_json() or {}
+    enable = bool(data.get("enable_cast_registry"))
+    if enable:
+        try:
+            from common.support_profile import is_entitled
+            if not is_entitled("cast_registry"):
+                return jsonify({"status": "error",
+                                "message": "Преміум-функція: активуйте через @GetVydraBot (/premium)."}), 403
+        except Exception:
+            return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    cfg_path = os.path.join(repo_dir, "books", slug, "config.json")
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "Book config not found"}), 404
+    cfg["enable_cast_registry"] = enable
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"status": "success", "enable_cast_registry": enable})
+
 @app.route("/manual")
 def user_manual():
     """Ukrainian user manual with live-UI screenshots (TASK-56)."""
