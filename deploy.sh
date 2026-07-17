@@ -775,11 +775,6 @@ else
     echo -e " To run the translation server (CPU-only), run:"
     echo -e "   👉 llama-server -m <model_path> -c 2048 --port 8081"
 fi
-echo -e ""
-echo -e " TASK-32: this device isn't automatically tracked by GitNexus code"
-echo -e " search (which runs on the LAN dev server, not this device). If it"
-echo -e " should be, run this on the dev server (192.168.3.184):"
-echo -e "   👉 docker exec gitnexus-server node /app/gitnexus/dist/cli/index.js analyze /projects/kindle-butch-gen"
 if [ "$AUTOSTART" = "true" ]; then
     echo -e ""
     echo -e " TASK-43: autostart is configured for ~/.bashrc (fires when you"
