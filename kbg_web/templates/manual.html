@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vydra 🦦 — Посібник</title>
+    <link rel="icon" type="image/png" href="/static/vydra-sm.png">
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; margin: 0; }
+        body { font-family: system-ui, sans-serif; background: #0d0d14; color: #e6e6f0;
+               line-height: 1.65; max-width: 46rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+        h1 { font-size: 1.8rem; margin: 0.5rem 0 0.2rem;
+             background: linear-gradient(135deg, #4fd1c5, #2b7a78 55%, #f0b429);
+             -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 1.25rem; margin: 2.2rem 0 0.6rem; color: #b9a9f5;
+             border-bottom: 1px solid #2a2a3d; padding-bottom: 0.3rem; }
+        h3 { font-size: 1.05rem; margin: 1.4rem 0 0.4rem; color: #d9d9ea; }
+        p, li { margin-bottom: 0.55rem; }
+        ul { padding-left: 1.3rem; }
+        a { color: #8ab4ff; }
+        code { background: #1c1c2a; padding: 0.1em 0.4em; border-radius: 5px; font-size: 0.92em; }
+        .shot { width: 100%; border-radius: 12px; border: 1px solid #2a2a3d;
+                margin: 0.8rem 0 0.4rem; box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+        .cap { font-size: 0.85rem; color: #8888a0; text-align: center; margin-bottom: 1rem; }
+        .topbar { display: flex; align-items: center; gap: 0.8rem; }
+        .topbar img { width: 52px; height: 52px; border-radius: 50%;
+                      border: 2px solid rgba(79,209,197,0.4); }
+        .back { display: inline-block; margin-top: 0.4rem; font-size: 0.9rem; }
+        .tip { background: #16202a; border-left: 3px solid #4fd1c5; padding: 0.6rem 0.9rem;
+               border-radius: 0 8px 8px 0; margin: 0.8rem 0; font-size: 0.93rem; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <img src="/static/vydra-sm.png" alt="Vydra">
+        <div>
+            <h1>Посібник користувача</h1>
+            <a class="back" href="/">← на головну</a>
+        </div>
+    </div>
+
+    <h2>1. Головний екран</h2>
+    <img class="shot" src="/static/manual/dashboard.jpg" alt="Головний екран Vydra">
+    <p class="cap">Головний екран: картка підтримки, кнопки дій і список книг із прогресом стадій</p>
+    <ul>
+        <li><b>➕ Add Book</b> — додати книгу: EPUB/PDF (текст) або теку/архів зображень (манґа).</li>
+        <li><b>🤖 Models Manager</b> — стан сервера перекладу і його перезапуск.</li>
+        <li><b>🔄 Update</b> — оновлення Vydra однією кнопкою: сервіс сам стягне свіжий код і перезапуститься.</li>
+        <li><b>⚙ Save Location</b> — тека для готових файлів (потрібен дозвіл <code>termux-setup-storage</code>).</li>
+        <li><b>🦦 Примітки підтримки</b> — стан банера підтримки; керування — в
+            <a href="https://t.me/GetVydraBot">Telegram-боті</a> або локальним перемикачем.</li>
+    </ul>
+    <h3>Картка книги</h3>
+    <p>Смуга прогресу і чипи стадій (<code>OCR → Trans → Stress → TTS</code> для тексту;
+       OCR → очищення → typeset для манґи), кнопки <b>Run / Stop / Re-run / Delete</b> і журнал
+       виконання просто в картці.</p>
+    <div class="tip">Генерацію можна безпечно переривати — повторний Run продовжує з місця зупинки.
+    Якщо Termux впав посеред конверсії, після перезапуску вона відновиться автоматично.</div>
+
+    <h2>2. Перегляд якості та редагування</h2>
+    <img class="shot" src="/static/manual/visualizer.jpg" alt="Quality Visualizer із перекладеною сторінкою манґи">
+    <p class="cap">Quality Visualizer: перекладена сторінка манґи, перемикач Original | Cleaned | Translated, навігація і стрибок на сторінку</p>
+    <ul>
+        <li>Вкладка <b>Viewer</b> — посторінкове порівняння: оригінал, очищені бульбашки, перекладений typeset.</li>
+        <li>Вкладка <b>Pending Edits</b> — ваші правки в черзі з diff-переглядом до/після.</li>
+        <li><b>Auto-flagged</b> — сторінки, які система позначила сама: 🔴 проблема, 🟡 увага, 🟢 ок — з причиною кожного прапорця.</li>
+    </ul>
+    <h3>Редагування манґи</h3>
+    <ul>
+        <li>Клік по бульбашці → редактор: виправте <b>текст</b> перекладу — сторінка перегенерується у фоні з пріоритетом.</li>
+        <li><b>Геометрія:</b> тягніть бульбашку за тіло (перемістити) або за кутові маркери (розмір); перекриття сусідніх бульбашок перевіряється автоматично.</li>
+        <li>Затверджені правки <b>переживають</b> подальші регенерації сторінки — автоматика їх не перезапише.</li>
+    </ul>
+    <div class="tip">Усе це можна робити, поки основна генерація ще триває — черга сама дає пріоритет вашим правкам.</div>
+
+    <h2>3. Готові файли</h2>
+    <img class="shot" src="/static/manual/downloads.jpg" alt="Downloads Archive">
+    <p class="cap">Downloads Archive: всі згенеровані EPUB / AZW3 / CBZ / аудіо в одному місці</p>
+    <p>Файли також доступні кнопками завантаження на картці книги та в теці з
+       <b>⚙ Save Location</b> — звідти їх зручно кидати на Kindle чи в читалку.</p>
+
+    <h2>4. Бот, підтримка, преміум</h2>
+    <ul>
+        <li><a href="https://t.me/GetVydraBot">@GetVydraBot</a>: <code>/start</code> — реєстрація,
+            <code>/install</code> — встановлення на новий пристрій, <code>/referral</code> — запрошення
+            (+пріоритет черги обом), <code>/no_support_banner</code> — вимкнути примітки підтримки
+            одним кроком, <code>/premium</code> — преміум-функції.</li>
+        <li>Примітка підтримки в книгах чітко розділяє <b>🇺🇦 офіційний фонд</b> (Повернись живим,
+            публічна звітність) і <b>☕ підтримку розробника</b> — і вимикається назавжди однією командою.</li>
+        <li>Преміум (<b>Cast Registry</b> — правильний граматичний рід персонажів; <b>Vision-QA</b> —
+            додаткова візуальна перевірка манґи) відкривається після донату. Базова генерація —
+            безкоштовна назавжди.</li>
+    </ul>
+
+    <h2>5. Якщо щось пішло не так</h2>
+    <ul>
+        <li>Сервіс не відповідає → відкрийте Termux (автостарт підніме все сам).</li>
+        <li>"Сховище Android недоступне" → виконайте <code>termux-setup-storage</code>.</li>
+        <li>Довгі операції → тримайте екран увімкненим: Android вбиває важкі фонові процеси.</li>
+        <li>Повна документація: <a href="https://github.com/maxfraieho/kindle-butch-gen/tree/master/docs/uk">docs/uk на GitHub</a>.</li>
+    </ul>
+</body>
+</html>
