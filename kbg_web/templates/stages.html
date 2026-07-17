@@ -655,6 +655,7 @@
                 <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
                     <button class="tab-btn active" id="manga-tab-viewer" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📖 Viewer</button>
                     <button class="tab-btn" id="manga-tab-pending" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📝 Pending Edits</button>
+                    <button class="tab-btn" id="manga-tab-cast" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">🧬 Cast & Context</button>
                 </div>
                 <div id="manga-tab-content"></div>
             `;
@@ -672,6 +673,15 @@
                 btnPending.style.color = "var(--primary)"; btnPending.style.borderBottomColor = "var(--primary)";
                 btnViewer.style.color = "var(--text-secondary)"; btnViewer.style.borderBottomColor = "transparent";
                 renderMangaPendingEditsTab();
+                const bc = document.getElementById("manga-tab-cast");
+                bc.style.color = "var(--text-secondary)"; bc.style.borderBottomColor = "transparent";
+            });
+            const btnCast = document.getElementById("manga-tab-cast");
+            btnCast.addEventListener("click", () => {
+                btnCast.style.color = "var(--primary)"; btnCast.style.borderBottomColor = "var(--primary)";
+                btnViewer.style.color = "var(--text-secondary)"; btnViewer.style.borderBottomColor = "transparent";
+                btnPending.style.color = "var(--text-secondary)"; btnPending.style.borderBottomColor = "transparent";
+                renderCastTab(mangaTabContent);
             });
 
             let activeState = "processed";
@@ -2067,6 +2077,103 @@
         }
 
         fetchBookData();
+    
+        // ── TASK-54: Cast & Context tab ────────────────────────────────
+        async function renderCastTab(container) {
+            container.innerHTML = '<p style="color:var(--text-secondary); padding:1rem;">Завантаження реєстру персонажів…</p>';
+            const r = await fetch(`/api/characters/${slug}`);
+            const d = await r.json();
+            const chars = d.characters || [];
+            let head = '';
+            if (!d.entitled) {
+                head = `<div style="border:1px solid #f0b429; border-radius:10px; padding:0.8rem 1rem; margin-bottom:1rem;">
+                    🔒 <b>Cast Registry — преміум-функція.</b> Активуйте через
+                    <a href="https://t.me/GetVydraBot" target="_blank">@GetVydraBot</a> (/premium).</div>`;
+            } else {
+                head = `<div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem;">
+                    <label style="display:flex; align-items:center; gap:0.4rem;">
+                        <input type="checkbox" id="cast-enable" ${d.enabled ? 'checked' : ''}>
+                        Застосовувати правила персонажів у перекладі цієї книги
+                    </label>
+                    <button class="nav-btn" id="cast-scan">🔎 Сканувати персонажів (NER)</button>
+                    <button class="nav-btn" id="cast-add">➕ Додати вручну</button>
+                    <span id="cast-msg" style="color:var(--text-secondary);"></span>
+                </div>`;
+            }
+            const rows = chars.map((c, i) => `
+                <tr data-i="${i}" style="border-bottom:1px solid var(--border-color);">
+                    <td style="padding:0.4rem;"><input value="${(c.name_source||[]).join(', ')}" data-f="name_source" style="width:98%"></td>
+                    <td><input value="${c.name_target||''}" data-f="name_target" style="width:95%"></td>
+                    <td><select data-f="gender">
+                        ${['feminine','masculine','neutral'].map(g => `<option value="${g}" ${c.gender===g?'selected':''}>${g}</option>`).join('')}
+                    </select></td>
+                    <td style="text-align:center;"><input type="checkbox" data-f="is_pov_narrator" ${c.is_pov_narrator?'checked':''}></td>
+                    <td><span style="color:${c.status==='verified'?'#48bb78':(c.status==='auto_drafted'?'#f0b429':'#a0aec0')}">${c.status}</span></td>
+                    <td>${c.status==='verified'
+                        ? `<button class="nav-btn" data-act="unverify">↩</button>`
+                        : `<button class="nav-btn" data-act="approve" ${d.entitled?'':'disabled'}>✅ Approve</button>`}
+                        <button class="nav-btn" data-act="del">🗑</button></td>
+                </tr>`).join('');
+            container.innerHTML = head + `
+                <p style="color:var(--text-secondary); font-size:0.88rem; margin-bottom:0.6rem;">
+                   Правила застосовуються в перекладі <b>тільки</b> для персонажів зі статусом
+                   <b>verified</b> (граматичний рід, займенники). Gender <b>neutral</b> —
+                   для спойлер-чутливої неоднозначності.</p>
+                <div style="overflow-x:auto;"><table style="width:100%; font-size:0.9rem; border-collapse:collapse;">
+                    <tr style="color:var(--text-secondary); text-align:left;">
+                        <th style="padding:0.4rem;">Імена в оригіналі (через кому)</th><th>Українською</th>
+                        <th>Рід</th><th>POV</th><th>Статус</th><th></th></tr>
+                    ${rows || '<tr><td colspan="6" style="padding:1rem; color:var(--text-secondary);">Поки порожньо — запустіть сканування або додайте вручну.</td></tr>'}
+                </table></div>`;
+
+            const collect = () => Array.from(container.querySelectorAll('tr[data-i]')).map((tr, idx) => {
+                const c = Object.assign({}, chars[idx]);
+                tr.querySelectorAll('[data-f]').forEach(el => {
+                    const f = el.dataset.f;
+                    if (f === 'name_source') c[f] = el.value.split(',').map(x => x.trim()).filter(Boolean);
+                    else if (el.type === 'checkbox') c[f] = el.checked;
+                    else c[f] = el.value;
+                });
+                return c;
+            });
+            const save = async (list, msg) => {
+                const res = await fetch(`/api/characters/${slug}`, {method:'PUT',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({characters:list})});
+                const j = await res.json();
+                if (res.ok) { renderCastTab(container); }
+                else alert(j.message || 'Помилка збереження');
+            };
+            container.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('click', () => {
+                const list = collect();
+                const idx = +btn.closest('tr').dataset.i;
+                if (btn.dataset.act === 'approve') list[idx].status = 'verified';
+                if (btn.dataset.act === 'unverify') list[idx].status = 'unverified';
+                if (btn.dataset.act === 'del') list.splice(idx, 1);
+                save(list);
+            }));
+            const en = document.getElementById('cast-enable');
+            if (en) en.addEventListener('change', async () => {
+                const res = await fetch(`/api/characters/${slug}/settings`, {method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({enable_cast_registry: en.checked})});
+                if (!res.ok) { const j = await res.json(); alert(j.message); en.checked = !en.checked; }
+            });
+            const sc = document.getElementById('cast-scan');
+            if (sc) sc.addEventListener('click', async () => {
+                const res = await fetch(`/api/characters/${slug}/scan`, {method:'POST'});
+                const j = await res.json();
+                document.getElementById('cast-msg').textContent = j.message || res.status;
+            });
+            const ad = document.getElementById('cast-add');
+            if (ad) ad.addEventListener('click', () => {
+                chars.push({id:'char_manual_'+Date.now(), name_source:[], name_target:'',
+                            gender:'neutral', grammar_rules:'', speech_style:'',
+                            is_pov_narrator:false, status:'unverified'});
+                save(chars);
+            });
+        }
+
     </script>
 </body>
 </html>
