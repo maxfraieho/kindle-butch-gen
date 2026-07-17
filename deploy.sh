@@ -674,6 +674,27 @@ else
     esac
 fi
 
+# 3. Check/Download StyleTTS2 Ukrainian voice (optional second TTS engine)
+# Gap found 2026-07-17: audio_stage.py/tts_helper.py reference
+# models/styletts2/{model.onnx,style.npy} but nothing provisioned them on a
+# fresh device (the originals were converted locally once). Published as a
+# GitHub release asset of this repo; same size-verified resumable download
+# as the other models. Optional: a failure here must not sink the deploy -
+# supertonic remains the default engine.
+ST2_DIR="$HOME/kindle-butch-gen/models/styletts2"
+ST2_BASE="https://github.com/maxfraieho/kindle-butch-gen/releases/download/models-styletts2-uk-v1"
+if [ -f "$ST2_DIR/model.onnx" ] && [ -f "$ST2_DIR/style.npy" ]; then
+    success "StyleTTS2 Ukrainian voice already present at $ST2_DIR."
+else
+    log "Downloading StyleTTS2 Ukrainian voice (~313MB, optional second TTS engine)..."
+    if check_and_download "StyleTTS2 model.onnx" "$ST2_DIR/model.onnx" "$ST2_BASE/model.onnx" 327779582 \
+       && check_and_download "StyleTTS2 style.npy" "$ST2_DIR/style.npy" "$ST2_BASE/style.npy" 1152; then
+        success "StyleTTS2 Ukrainian voice installed."
+    else
+        log "StyleTTS2 voice not installed - engine 'styletts2' will be unavailable (supertonic default works)."
+    fi
+fi
+
 log "Deployment complete!"
 echo -e "\n${GREEN}===================================================================${NC}"
 echo -e " kindle-butch-gen is deployed!"
