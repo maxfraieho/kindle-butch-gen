@@ -47,10 +47,11 @@
 * **Verification Method:** Manually verified in browser on mobile device by user. Fixed EPUB asset routing (images/CSS) and dynamic <base> tag injection (including SVG namespace cleanup) to support previewing compiled PDF-to-EPUB books.
 * **Type:** `delegate`
 
-## [ ] TASK-7: [SECURITY] Remove Hardcoded Auth Credentials (IN_PROGRESS - NEEDS MANUAL ACTION)
+## [x] TASK-7: [SECURITY] Remove Hardcoded Auth Credentials
 * **Problem:** У `app.py` хардкодиться пароль "0523" для користувача "vokov", якщо файл `web_credentials.json` відсутній або пошкоджений.
 * **Solution:** Замість фолбеку на хардкод пароль, зчитувати значення з ENV-змінної (наприклад, `KBG_WEB_PASSWORD`), або, якщо файл відсутній, генерувати випадковий пароль, виводити його в консоль при запуску Flask і записувати у файл.
 * **Verification Method:** The fallback to insecure hardcoded password "0523" has been eliminated in code. However, since 'web_credentials.json' already exists on the dev server with the hash of "0523", the old password remains active. Real-world mitigation requires either setting the `KBG_WEB_PASSWORD` env variable or deleting the old json file to let it generate a secure token on start.
+* **Closed 2026-07-17 (manual action completed, verified live):** user-chosen password exported as `KBG_WEB_PASSWORD` in the phone's `~/.bashrc` (before the autostart block so every Flask start inherits it), stale `web_credentials.json` (hash of "0523") deleted and confirmed not regenerated (env takes precedence per app.py:61-64), Flask restarted. Verified BOTH locally and through the public domain `kindle.exodus.pp.ua`: old password → 401, new password → 200.
 * **Type:** `direct`
 
 ## [x] TASK-8: OLED Adaptive Contrast Visual Theme
