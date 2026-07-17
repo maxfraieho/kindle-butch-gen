@@ -641,3 +641,11 @@ Recommended design constraint to keep this contained: add a **new, additive, pag
 * Shipped: common/cast_registry.py (verified-only rules, Latin word-boundary / CJK substring matching, POV, neutral templates), injection into translate_batch_llm (impact: LOW, single call site, optional param - byte-identical prompts when off), gated API (GET/PUT/settings/scan), NER pre-pass via local Gemma 3 4B (bin/cast_ner_prepass.py), Cast & Context tab in the visualizer, llama-mtmd-cli built by default in deploy.sh AND already built on the device.
 * Found+fixed en route: entitlement fail-closed inside proot (HOME split hid the key; absolute Termux-home fallback `39e63c5`) - the registry now activates in-container ("Cast Registry active: 1 verified character(s)" in the real pipeline log); TASK-57 above.
 * Still open from the spec: invalidation cascade on verified-change (spec §5), text-book-path injection, vision-QA feature itself, neutral-gender regression test.
+
+## TASK-54 — LIVE GENDER TEST PASSED (2026-07-17 evening, real pipeline, real spec example)
+* The exact failure class from the spec's own motivation, on real frieren data (page c124 p132), regenerated through the actual pipeline with the registry active ("Cast Registry active: 1 verified character(s)" in the run log), zero tracebacks:
+  - "WHAT DID FRIEREN DO?": "що зробив фрірен?" → **"що зробила фрірен?"** (feminine past verb - the headline case, fixed)
+  - "I'M ONLY HERE FOR FRIEREN.": "заради фрірена" (masculine-declined) → "через фрірен" (no wrong masculine declension)
+* Road to the pass surfaced and fixed two real infrastructure bugs (entitlement HOME-split `39e63c5`, production Pillow incident TASK-57) - both would have bitten future premium users.
+* **Cosmetic nit recorded:** the name renders lowercase mid-sentence ("фрірен" not "Фрірен") - the sentence-case normalizer treats it like a common word; candidate: add name_target to the glossary-casing pass. Minor, not blocking.
+* **Spec remainder still open:** invalidation cascade on verified-change (§5), text-book path injection, vision-QA feature, neutral-gender regression test.
