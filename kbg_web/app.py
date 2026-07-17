@@ -58,10 +58,16 @@ import secrets
 credentials_file = os.path.join(repo_dir, "web_credentials.json")
 users_data = {}
 
+# KBG_WEB_USER lets an existing install keep a custom username (e.g. a
+# pre-rebrand 'vokov') across a code update instead of silently flipping
+# to the new default on next restart - deploy.sh writes 'admin' for
+# fresh installs; an already-configured device is left alone unless the
+# user explicitly changes it via /api/change-password.
+env_username = (os.environ.get("KBG_WEB_USER") or "admin").strip() or "admin"
 env_password = os.environ.get("KBG_WEB_PASSWORD")
 
 if env_password:
-    users_data = {"admin": generate_password_hash(env_password)}
+    users_data = {env_username: generate_password_hash(env_password)}
 elif os.path.exists(credentials_file):
     try:
         with open(credentials_file, "r") as f:
@@ -73,10 +79,10 @@ if not users_data:
     generated_password = secrets.token_urlsafe(16)
     print(f"\n==================================================")
     print(f"WARNING: No credentials found and KBG_WEB_PASSWORD not set.")
-    print(f"Generated temporary password for user 'admin':")
+    print(f"Generated temporary password for user '{env_username}':")
     print(f"Password: {generated_password}")
     print(f"==================================================\n")
-    users_data = {"admin": generate_password_hash(generated_password)}
+    users_data = {env_username: generate_password_hash(generated_password)}
     try:
         with open(credentials_file, "w") as f:
             json.dump(users_data, f)
@@ -1228,6 +1234,53 @@ def characters_scan_api(slug):
     return jsonify({"status": "started",
                     "message": "Сканування персонажів запущено (кілька хвилин); "
                                "оновіть список згодом."})
+
+@app.route("/api/change-password", methods=["POST"])
+def change_password_api():
+    """In-UI password change (TASK-61) - the only way to change it before
+    this was hand-editing ~/.bashrc, exactly the friction a non-specialist
+    user can't clear alone (real incident: Q forgot the printed password
+    within the same session). Updates the running process's auth
+    immediately (no restart needed) AND persists via KBG_WEB_PASSWORD in
+    ~/.bashrc for future restarts - the same mechanism deploy.sh itself
+    uses, kept as the single source of truth."""
+    data = request.get_json() or {}
+    new_password = (data.get("new_password") or "").strip()
+    if len(new_password) < 6:
+        return jsonify({"status": "error", "message": "Пароль має бути щонайменше 6 символів"}), 400
+    if "'" in new_password or "\n" in new_password:
+        return jsonify({"status": "error", "message": "Пароль не може містити апостроф чи перенос рядка"}), 400
+
+    username = next(iter(users_data), env_username)
+    users_data[username] = generate_password_hash(new_password)
+
+    bashrc_path = os.path.expanduser("~/.bashrc")
+    new_line = f"export KBG_WEB_PASSWORD='{new_password}'\n"
+    try:
+        try:
+            with open(bashrc_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            lines = []
+        replaced = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith("export KBG_WEB_PASSWORD="):
+                lines[i] = new_line
+                replaced = True
+                break
+        if not replaced:
+            lines.append("\n" + new_line)
+        with open(bashrc_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except OSError as e:
+        return jsonify({
+            "status": "partial",
+            "message": f"Пароль змінено для поточного сеансу, але не вдалося зберегти "
+                       f"назавжди ({e}) - після перезапуску діятиме старий.",
+        }), 200
+
+    return jsonify({"status": "success",
+                    "message": f"Пароль змінено. Логін лишається «{username}»."})
 
 @app.route("/manual")
 def user_manual():

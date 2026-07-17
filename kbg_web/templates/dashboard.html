@@ -963,6 +963,9 @@
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
                             <span>⚙</span> Save Location
                         </button>
+                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openPasswordModal()">
+                            <span>🔑</span> Change Password
+                        </button>
                     </div>
                 </div>
                 <div class="save-location-info">
@@ -1020,12 +1023,14 @@
                 });
                 const res = await response.json();
                 if (response.ok) {
-                    if (res.detected_slug) {
-                        document.getElementById('slug').value = res.detected_slug;
-                    }
                     if (res.detected_title) {
                         document.getElementById('title').value = res.detected_title;
                     }
+                    // File metadata (e.g. EPUB) can carry its own slug -
+                    // prefer it; otherwise derive from whatever title we
+                    // ended up with (detected or not).
+                    document.getElementById('slug').value = res.detected_slug
+                        || slugify(document.getElementById('title').value);
                     if (res.detected_authors) {
                         document.getElementById('authors').value = res.detected_authors;
                     }
@@ -1045,81 +1050,78 @@
 
         document.getElementById('addBookForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            const slug = document.getElementById('slug').value.trim();
             const title = document.getElementById('title').value.trim();
+            let baseSlug = document.getElementById('slug').value.trim() || slugify(title);
             const authors = document.getElementById('authors').value.trim();
             const lang = document.getElementById('lang').value;
             const source_lang = document.getElementById('source_lang').value;
             const fileInput = document.getElementById('file_upload');
             const pdf_path = document.getElementById('pdf_path').value.trim();
             const is_manga = document.getElementById('is_manga').checked;
-            
+            const isUpload = fileInput.files.length > 0;
+
+            if (!isUpload && !pdf_path) {
+                showUploadStatus('Please upload a file or specify a local PDF path.', 'error');
+                return;
+            }
+
             const submitBtn = document.getElementById('addBookSubmit');
             submitBtn.disabled = true;
             submitBtn.innerText = 'Adding Book...';
+            showUploadStatus(isUpload
+                ? 'Uploading book file and extracting content (this may take a few seconds)...'
+                : 'Adding local book on system...', 'info');
 
-            if (fileInput.files.length > 0) {
-                showUploadStatus('Uploading book file and extracting content (this may take a few seconds)...', 'info');
-                
-                const formData = new FormData();
-                formData.append('slug', slug);
-                formData.append('title', title);
-                formData.append('authors', authors);
-                formData.append('lang', lang);
-                formData.append('source_lang', source_lang);
-                formData.append('file', fileInput.files[0]);
-                formData.append('is_manga', is_manga ? 'true' : 'false');
-
-                try {
-                    const response = await fetch('/api/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const res = await response.json();
-                    if (response.ok) {
-                        showUploadStatus('Book uploaded and added successfully!', 'success');
-                        document.getElementById('addBookForm').reset();
-                        fetchBooks();
-                        setTimeout(closeAddBookModal, 1000);
-                    } else {
-                        showUploadStatus('Error: ' + res.message, 'error');
-                    }
-                } catch (err) {
-                    showUploadStatus('Upload failed: ' + err.message, 'error');
-                } finally {
-                    submitBtn.disabled = false;
-                    submitBtn.innerText = 'Add Book';
+            async function attempt(currentSlug) {
+                if (isUpload) {
+                    const formData = new FormData();
+                    formData.append('slug', currentSlug);
+                    formData.append('title', title);
+                    formData.append('authors', authors);
+                    formData.append('lang', lang);
+                    formData.append('source_lang', source_lang);
+                    formData.append('file', fileInput.files[0]);
+                    formData.append('is_manga', is_manga ? 'true' : 'false');
+                    const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                    return { response, res: await response.json() };
                 }
-            } else {
-                if (!pdf_path) {
-                    showUploadStatus('Please upload a file or specify a local PDF path.', 'error');
-                    submitBtn.disabled = false;
-                    submitBtn.innerText = 'Add Book';
-                    return;
-                }
-                showUploadStatus('Adding local book on system...', 'info');
-                try {
-                    const response = await fetch('/api/add', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ slug, pdf_path, title, authors, lang, source_lang, is_manga })
-                    });
-                    const res = await response.json();
-                    if (response.ok) {
-                        showUploadStatus('Book added successfully!', 'success');
-                        document.getElementById('addBookForm').reset();
-                        fetchBooks();
-                        setTimeout(closeAddBookModal, 1000);
-                    } else {
-                        showUploadStatus('Error: ' + res.message, 'error');
-                    }
-                } catch (err) {
-                    showUploadStatus('Request failed: ' + err.message, 'error');
-                } finally {
-                    submitBtn.disabled = false;
-                    submitBtn.innerText = 'Add Book';
-                }
+                const response = await fetch('/api/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ slug: currentSlug, pdf_path, title, authors, lang, source_lang, is_manga })
+                });
+                return { response, res: await response.json() };
             }
+
+            // Slug is now invisible to the user, so a collision (e.g. two
+            // books that transliterate to the same title) must resolve
+            // itself instead of surfacing a "slug already exists" error
+            // about a field they never saw.
+            let currentSlug = baseSlug;
+            for (let i = 0; i < 6; i++) {
+                let result;
+                try {
+                    result = await attempt(currentSlug);
+                } catch (err) {
+                    showUploadStatus((isUpload ? 'Upload' : 'Request') + ' failed: ' + err.message, 'error');
+                    break;
+                }
+                if (result.response.ok) {
+                    showUploadStatus('Book added successfully!', 'success');
+                    document.getElementById('addBookForm').reset();
+                    fetchBooks();
+                    setTimeout(closeAddBookModal, 1000);
+                    break;
+                }
+                if (result.response.status === 409 && i < 5) {
+                    currentSlug = baseSlug + '-' + (i + 2);
+                    continue;
+                }
+                showUploadStatus('Error: ' + result.res.message, 'error');
+                break;
+            }
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Add Book';
         });
 
         function handleVoiceChange(slug, voiceValue) {
@@ -2117,6 +2119,62 @@
             }
         }
 
+        // Slug is an internal filesystem id; asking non-technical users to
+        // type "lowercase a-z0-9_-" produced confusion (real feedback:
+        // son didn't understand what it meant). Auto-derive it from the
+        // title instead - transliterate Cyrillic, strip everything else
+        // to a clean latin slug - and drop the field from the visible
+        // form entirely (kept as a hidden input for the existing
+        // submit/backend code, which is untouched).
+        const CYRILLIC_TRANSLIT = {
+            а:'a',б:'b',в:'v',г:'h',ґ:'g',д:'d',е:'e',є:'ie',ж:'zh',з:'z',и:'y',
+            і:'i',ї:'i',й:'i',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',
+            т:'t',у:'u',ф:'f',х:'kh',ц:'ts',ч:'ch',ш:'sh',щ:'shch',ь:'',ю:'iu',
+            я:'ia',ы:'y',э:'e',ъ:'',
+        };
+        function slugify(text) {
+            const translit = (text || '').toLowerCase().split('').map(
+                ch => CYRILLIC_TRANSLIT[ch] !== undefined ? CYRILLIC_TRANSLIT[ch] : ch
+            ).join('');
+            let slug = translit.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+            return slug || ('book-' + Date.now().toString(36));
+        }
+
+        function openPasswordModal() {
+            document.getElementById('passwordModal').classList.add('active');
+            document.getElementById('passwordStatus').className = 'upload-status';
+            document.getElementById('passwordStatus').innerText = '';
+            document.getElementById('newPassword1').value = '';
+            document.getElementById('newPassword2').value = '';
+        }
+        function closePasswordModal() {
+            document.getElementById('passwordModal').classList.remove('active');
+        }
+        async function submitPasswordChange() {
+            const p1 = document.getElementById('newPassword1').value;
+            const p2 = document.getElementById('newPassword2').value;
+            const statusEl = document.getElementById('passwordStatus');
+            if (p1 !== p2) {
+                statusEl.className = 'upload-status error';
+                statusEl.innerText = 'Passwords do not match.';
+                return;
+            }
+            try {
+                const res = await fetch('/api/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_password: p1 }),
+                });
+                const d = await res.json();
+                statusEl.className = 'upload-status ' + (res.ok ? 'success' : 'error');
+                statusEl.innerText = d.message;
+                if (res.ok) setTimeout(closePasswordModal, 1500);
+            } catch (err) {
+                statusEl.className = 'upload-status error';
+                statusEl.innerText = 'Request failed: ' + err.message;
+            }
+        }
+
         function updateSourcePathPlaceholder(isMangaChecked) {
             const label = document.getElementById("pdfPathLabel");
             const input = document.getElementById("pdf_path");
@@ -2201,6 +2259,35 @@
         </div>
     </div>
 
+    <!-- Change Password Modal (TASK-61) -->
+    <div id="passwordModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔑 Change Password</h3>
+                <button class="modal-close" onclick="closePasswordModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="passwordStatus" class="upload-status"></div>
+                <div class="form-group">
+                    <label for="newPassword1">New password (min 6 characters)</label>
+                    <input type="password" id="newPassword1" class="form-control" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="newPassword2">Confirm new password</label>
+                    <input type="password" id="newPassword2" class="form-control" autocomplete="new-password"
+                           onkeydown="if(event.key === 'Enter') submitPasswordChange()">
+                </div>
+                <p style="margin: 0; font-size: 0.8rem; color: var(--text-secondary);">
+                    Login name stays the same. Takes effect immediately - no restart needed.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-outline" onclick="closePasswordModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitPasswordChange()" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer;">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Models Manager Modal -->
     <div id="modelsModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 650px;">
@@ -2264,13 +2351,10 @@
                         <label for="pdf_path" id="pdfPathLabel">Or Enter Source PDF Path (on system)</label>
                         <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
                     </div>
-                    <div class="form-group">
-                        <label for="slug">Book Slug (lowercase, a-z0-9_-)</label>
-                        <input type="text" id="slug" class="form-control" placeholder="e.g. clean-code" required pattern="^[a-z0-9_-]+$" autocomplete="off">
-                    </div>
+                    <input type="hidden" id="slug" required pattern="^[a-z0-9_-]+$">
                     <div class="form-group">
                         <label for="title">Title</label>
-                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off">
+                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off" oninput="document.getElementById('slug').value = slugify(this.value)">
                     </div>
                     <div class="form-group">
                         <label for="authors">Authors</label>
