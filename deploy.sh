@@ -163,7 +163,15 @@ pkg update -y
 # enough - no manual cleanup needed).
 DEBIAN_FRONTEND=noninteractive pkg upgrade -y -o Dpkg::Options::="--force-confnew" || true
 dpkg --configure -a 2>/dev/null || true
-pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip
+# libandroid-spawn: provides spawn.h + posix_spawn support - Termux's
+# curated libc link-time stub excludes it even on devices whose real
+# system bionic has it (confirmed API 36 does). Without this package,
+# ANY llama.cpp target that includes vendor/sheredom/subprocess.h
+# (llama-mtmd-cli) fails to even compile. Verified end-to-end on a real
+# device: header present -> full build succeeds, zero extra link flags
+# needed. Missed this on the first pass (assumed a bare platform gap
+# without checking Termux's own package repo - Q caught it).
+pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip libandroid-spawn
 pip install --upgrade pip --break-system-packages || true
 # ipa-uk intentionally absent: the package was REMOVED from PyPI (404,
 # found by the first outside install on OnePlus 15) - a vendored copy
