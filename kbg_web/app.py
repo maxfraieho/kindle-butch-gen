@@ -1146,8 +1146,14 @@ def support_profile():
         cfg_enabled = load_support_config() is not None
     except Exception:
         cfg_enabled = False
+    try:
+        from common.support_profile import get_entitlements
+        entitlements = get_entitlements()
+    except Exception:
+        entitlements = []
     return jsonify({
         "config_enabled": cfg_enabled,
+        "entitlements": entitlements,
         "local_disabled": local_disabled,
         "remote_disabled": bool(remote.get("banner_disabled")),
         "priority_tier": int(remote.get("priority_tier") or 0),

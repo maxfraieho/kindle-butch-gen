@@ -123,6 +123,27 @@ def _fetch_entitlements_remote():
         return None
 
 
+def get_entitlements():
+    """List of active entitlements - live, or fresh (<7d) grace cache on
+    failure, else empty. Display-oriented twin of is_entitled()."""
+    ents = _fetch_entitlements_remote()
+    if ents is not None:
+        try:
+            with open(_ENTITLEMENT_CACHE, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "entitlements": ents}, f)
+        except OSError:
+            pass
+        return ents
+    try:
+        with open(_ENTITLEMENT_CACHE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        if time.time() - float(cached.get("ts", 0)) <= _GRACE_SECONDS:
+            return cached.get("entitlements") or []
+    except Exception:
+        pass
+    return []
+
+
 def is_entitled(feature):
     """True iff the profile has `feature` - live, or from a fresh (<7d)
     grace cache when the live read fails. Everything else is False."""
