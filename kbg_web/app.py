@@ -1067,14 +1067,28 @@ def save_global_settings(settings):
 
 @app.route("/api/browse-fs")
 def browse_fs():
-    path = request.args.get("path", "/storage/emulated/0")
-    path = os.path.abspath(path)
-    # Allowed root zones
+    """TASK-52 hardening: the 'Failed to load directories' report could not
+    be reproduced (both roots list fine when storage permission is granted
+    and Flask is up), so instead of a guess-fix this endpoint now (a) can
+    never return a non-JSON 500 - every OSError becomes a JSON error with
+    the REAL message, (b) falls back from the sdcard root to the Termux
+    home when Android storage isn't accessible (e.g. Flask autostarted
+    via Termux:Boot before storage mounted, or termux-setup-storage never
+    run), with a hint the UI shows verbatim."""
     ALLOWED_ROOTS = ["/storage/emulated/0", "/data/data/com.termux/files/home"]
+    requested = request.args.get("path")
+    path = os.path.abspath(requested or "/storage/emulated/0")
     if not any(path.startswith(root) for root in ALLOWED_ROOTS):
         return jsonify({"error": "Path outside allowed roots"}), 403
+
+    hint = None
+    if requested is None and not os.path.isdir(path):
+        # Default root unavailable - fall back instead of failing.
+        path = "/data/data/com.termux/files/home"
+        hint = ("Сховище Android недоступне (виконайте termux-setup-storage "
+                "або перевідкрийте Termux) — показано домашню теку Termux.")
     if not os.path.isdir(path):
-        return jsonify({"error": "Not a directory"}), 400
+        return jsonify({"error": f"Not a directory: {path}"}), 400
     try:
         entries = []
         for item in sorted(os.listdir(path)):
@@ -1082,9 +1096,10 @@ def browse_fs():
             if os.path.isdir(full) and not item.startswith('.'):
                 entries.append({"name": item, "path": full})
         parent = os.path.dirname(path) if path not in ALLOWED_ROOTS else None
-        return jsonify({"current": path, "parent": parent, "dirs": entries})
-    except PermissionError:
-        return jsonify({"error": "Permission denied"}), 403
+        return jsonify({"current": path, "parent": parent, "dirs": entries,
+                        "hint": hint})
+    except OSError as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 403
 
 @app.route("/api/settings/output-root", methods=["POST"])
 def set_output_root():
