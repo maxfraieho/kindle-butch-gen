@@ -2816,5 +2816,5 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Run in Flask debug mode")
     args = parser.parse_args()
     
-    app.run(host="0.0.0.0", port=args.port, debug=args.debug)
+    app.run(host="0.0.0.0", port=args.port, debug=args.debug, threaded=True)
 

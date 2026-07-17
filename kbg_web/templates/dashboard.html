@@ -1308,9 +1308,17 @@
                 });
 
                 const response = await fetch('/api/books');
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
                 const books = await response.json();
                 const container = document.getElementById('booksList');
-                
+
+                if (!Array.isArray(books)) {
+                    throw new Error('Unexpected response: ' + JSON.stringify(books));
+                }
+
                 if (books.length === 0) {
                     container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">No books configured yet.</p>';
                     return;
@@ -1618,6 +1626,10 @@
                 isFirstLoad = false;
             } catch (err) {
                 console.error('Failed to fetch books:', err);
+                const container = document.getElementById('booksList');
+                if (container && container.innerHTML.includes('Loading books')) {
+                    container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">Не вдалося завантажити список книг. Сервер зайнятий або недоступний, повторюємо спробу...</p>';
+                }
             }
         }
 
@@ -1869,11 +1881,22 @@
         async function initSettings() {
             try {
                 const res = await fetch("/api/settings");
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
                 const settings = await res.json();
+                if (!settings || !settings.output_root) {
+                    throw new Error('Unexpected response: ' + JSON.stringify(settings));
+                }
                 document.getElementById("currentSaveLocation").textContent = settings.output_root;
                 activeFsPath = settings.output_root;
             } catch (err) {
                 console.error("Failed to load settings:", err);
+                const el = document.getElementById("currentSaveLocation");
+                if (el && el.textContent.includes('Loading')) {
+                    el.textContent = 'Помилка завантаження';
+                }
             }
         }
 
