@@ -29,16 +29,32 @@ DB_ID = "kbg-support"
 COLL_ID = "users"
 
 
-def _tg_send(token, chat_id, text):
+def _tg_send(token, chat_id, text, keyboard=None):
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+               "disable_web_page_preview": True}
+    if keyboard:
+        payload["reply_markup"] = {"inline_keyboard": keyboard}
     try:
         requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
-                  "disable_web_page_preview": True},
-            timeout=10,
+            json=payload, timeout=10,
         )
     except requests.RequestException:
         pass  # Telegram hiccup must not fail the webhook (it would retry forever)
+
+
+# Main inline menu shown after /start and /menu. Donation/payment entries
+# are deliberate STUBS for now (Q, 2026-07-17) - a payment/donate service
+# will be integrated later; Track A is a real URL already (official fund).
+def _main_keyboard():
+    return [
+        [{"text": "📲 Встановити Vydra", "callback_data": "install"}],
+        [{"text": "👥 Реферальний код", "callback_data": "referral"},
+         {"text": "🔕 Вимкнути банер", "callback_data": "nobanner"}],
+        [{"text": "🇺🇦 Донат фонду (офіційно)", "url": "https://savelife.in.ua/donate/"}],
+        [{"text": "☕ Підтримати розробника", "callback_data": "donate_dev"},
+         {"text": "💳 Преміум / оплата", "callback_data": "premium"}],
+    ]
 
 
 def _get_user(db, tg_id):
@@ -65,12 +81,30 @@ def main(context):
     except (json.JSONDecodeError, TypeError):
         return res.json({"ok": True})  # not for us; ack so Telegram stops retrying
 
-    msg = update.get("message") or update.get("edited_message") or {}
-    chat_id = (msg.get("chat") or {}).get("id")
-    tg_id = (msg.get("from") or {}).get("id")
-    text = (msg.get("text") or "").strip()
-    if not chat_id or not tg_id or not text.startswith("/"):
-        return res.json({"ok": True})
+    cb = update.get("callback_query")
+    if cb:
+        # Ack immediately so the button stops spinning, then treat the
+        # callback as its command twin.
+        try:
+            requests.post(f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+                          json={"callback_query_id": cb["id"]}, timeout=10)
+        except requests.RequestException:
+            pass
+        data = cb.get("data") or ""
+        chat_id = ((cb.get("message") or {}).get("chat") or {}).get("id")
+        tg_id = (cb.get("from") or {}).get("id")
+        text = {"install": "/install", "referral": "/referral",
+                "nobanner": "/no_support_banner", "donate_dev": "/donate_dev",
+                "premium": "/premium"}.get(data, "")
+        if not chat_id or not tg_id or not text:
+            return res.json({"ok": True})
+    else:
+        msg = update.get("message") or update.get("edited_message") or {}
+        chat_id = (msg.get("chat") or {}).get("id")
+        tg_id = (msg.get("from") or {}).get("id")
+        text = (msg.get("text") or "").strip()
+        if not chat_id or not tg_id or not text.startswith("/"):
+            return res.json({"ok": True})
 
     client = (Client()
               .set_endpoint(os.environ.get("APPWRITE_FUNCTION_API_ENDPOINT",
@@ -89,8 +123,8 @@ def main(context):
             _tg_send(token, chat_id,
                      "Ви вже зареєстровані ✅\n"
                      f"Ваш реферальний код: <code>{user['referral_code']}</code>\n"
-                     "Команди: /referral — ваш код і запрошені; "
-                     "/no_support_banner — вимкнути примітки підтримки в книгах.")
+                     "Оберіть дію кнопками нижче 👇",
+                     keyboard=_main_keyboard())
             return res.json({"ok": True})
 
         code = secrets.token_hex(4)
@@ -121,9 +155,8 @@ def main(context):
                  "🦦 Вітаємо у Vydra — книги, аудіокниги та манґа українською,\n"
                  "все локально, на вашому пристрої. Без хмари і збору даних.\n"
                  f"Ваш реферальний код: <code>{code}</code>{bonus}\n\n"
-                 "Команди:\n"
-                 "/referral — ваш код і скільки людей приєдналось\n"
-                 "/no_support_banner — вимкнути примітки підтримки в книгах")
+                 "Оберіть дію кнопками нижче 👇",
+                 keyboard=_main_keyboard())
         return res.json({"ok": True})
 
     if cmd == "/referral":
@@ -179,6 +212,29 @@ def main(context):
                  "консолі). Питання — пишіть сюди.")
         return res.json({"ok": True})
 
-    _tg_send(token, chat_id,
-             "Команди: /start, /install, /referral, /no_support_banner")
+    if cmd == "/menu":
+        _tg_send(token, chat_id, "🦦 Меню Vydra:", keyboard=_main_keyboard())
+        return res.json({"ok": True})
+
+    if cmd == "/donate_dev":
+        # STUB: personal donation channel (monobank jar / BMC) not connected
+        # yet - integration planned; keep the Track A/B separation wording.
+        _tg_send(token, chat_id,
+                 "☕ <b>Підтримка розробника</b>\n\n"
+                 "Цей канал ще підключається (банка/сервіс оплати буде "
+                 "додано незабаром). Це окремий трек — НЕ воєнний збір.\n\n"
+                 "🇺🇦 Допомогти захисникам можна вже зараз — офіційний фонд "
+                 "з публічною звітністю:\nhttps://savelife.in.ua/donate/")
+        return res.json({"ok": True})
+
+    if cmd == "/premium":
+        # STUB: paid tier / payments not designed yet.
+        _tg_send(token, chat_id,
+                 "💳 <b>Преміум / оплата</b>\n\n"
+                 "У розробці. Планується: пріоритетна черга генерації та "
+                 "додаткові ліміти. Наразі все безкоштовно, а пріоритет "
+                 "можна отримати за рефералів — /referral 😉")
+        return res.json({"ok": True})
+
+    _tg_send(token, chat_id, "🦦 Меню Vydra:", keyboard=_main_keyboard())
     return res.json({"ok": True})
