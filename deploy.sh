@@ -326,10 +326,24 @@ else
     mkdir -p build && cd build
     cmake .. $HOST_CMAKE_GPU_FLAGS -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF &
     wait $! || error "llama.cpp cmake configure failed"
-    # llama-mtmd-cli included BY DEFAULT (Q, 2026-07-17): premium vision
-    # features then only need the model pull - no rebuild on the user side.
-    make -j"$(nproc)" llama-server llama-cli llama-mtmd-cli &
+    make -j"$(nproc)" llama-server llama-cli &
     wait $! || error "llama.cpp build failed"
+
+    # llama-mtmd-cli (premium Vision-QA support): BEST-EFFORT, not fatal.
+    # Found on the OnePlus 15 fresh install: vendor/sheredom/subprocess.h
+    # (pulled in by mtmd-helper.cpp) does an unconditional `#include
+    # <spawn.h>` with no __ANDROID__ guard in upstream llama.cpp - Termux's
+    # bionic libc does not ship spawn.h at all (a real platform gap, not a
+    # missing package). Blocking every install over a not-yet-shipped
+    # feature (TASK-54's Vision-QA isn't built yet) would be wrong -
+    # llama-server/llama-cli above are the hard requirement and already
+    # verified. Real fix (build mtmd inside the glibc Ubuntu container,
+    # which already gets the same GPU vendor-lib bind mounts) is tracked
+    # as follow-up work, not attempted here under a live user's install.
+    log "Building llama-mtmd-cli (optional, for future premium vision features)..."
+    make -j"$(nproc)" llama-mtmd-cli > /tmp/mtmd-build.log 2>&1 &
+    wait $! && success "llama-mtmd-cli built." \
+        || log "llama-mtmd-cli skipped (Termux bionic lacks spawn.h - known gap, tracked separately). Core translation/manga features are unaffected."
     cd "$HOME"
     [ -x "$HOME/llama.cpp/build/bin/llama-server" ] || error "llama-server binary missing after build"
     success "Termux-side llama.cpp built ($HOST_CMAKE_GPU_FLAGS)."
