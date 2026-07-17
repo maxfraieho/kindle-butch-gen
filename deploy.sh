@@ -113,12 +113,29 @@ fi
 # STEP 2: Configure Ubuntu PRoot Container with GPU Bind Mounts
 # -------------------------------------------------------------
 log "Setting up Ubuntu PRoot container..."
-# TASK-32 hardware-test fix: the previous check piped `grep -q` into a
-# second grep - `grep -q` produces no stdout, so the second grep ALWAYS
-# exited 1 and the script ALWAYS attempted `proot-distro install ubuntu`,
-# which hard-fails (via set -e) on any device where ubuntu is already
-# installed. Check the canonical installed-rootfs directory instead.
-if [ ! -d "$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu" ]; then
+# TASK-32 hardware-test fix (second iteration, verified on the real
+# device this time): the original check piped `grep -q` into a second
+# grep - `grep -q` produces no stdout, so the second grep ALWAYS exited 1
+# and the script ALWAYS attempted `proot-distro install ubuntu`, which
+# hard-fails (via set -e) on any device where ubuntu is already
+# installed. The first fix checked $PREFIX/var/lib/proot-distro/
+# installed-rootfs/ubuntu - which is the layout older proot-distro
+# versions use, but the production OnePlus 13 runs a version that keeps
+# containers in .../containers/ubuntu and prints a different `list`
+# format entirely. Check BOTH known directory layouts, with a functional
+# login probe as the version-proof tiebreaker. (Deliberately NOT parsing
+# `proot-distro list`: the old format lists every AVAILABLE distro with
+# "Alias: ubuntu" lines, so a name grep false-positives on a fresh
+# device and would skip a genuinely-needed install.)
+PROOT_VAR="$PREFIX/var/lib/proot-distro"
+if [ -d "$PROOT_VAR/installed-rootfs/ubuntu" ] \
+   || [ -d "$PROOT_VAR/containers/ubuntu" ] \
+   || proot-distro login ubuntu -- /bin/true >/dev/null 2>&1; then
+    UBUNTU_INSTALLED=true
+else
+    UBUNTU_INSTALLED=false
+fi
+if [ "$UBUNTU_INSTALLED" = "false" ]; then
     log "Installing Ubuntu container via proot-distro..."
     proot-distro install ubuntu
 else
