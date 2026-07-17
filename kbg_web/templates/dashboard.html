@@ -84,13 +84,21 @@
             text-align: center;
         }
 
+        /* TASK-52 brand accent: the teal->gold of the Vydra art lives ONLY
+           here in the header/logo zone; the functional purple palette of
+           the rest of the UI is deliberately untouched. */
         header h1 {
             font-size: 2.5rem;
             font-weight: 700;
             margin: 0 0 0.5rem 0;
-            background: linear-gradient(135deg, #a78bfa, #8b5cf6, #3b82f6);
+            background: linear-gradient(135deg, #4fd1c5, #2b7a78 55%, #f0b429);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+        header .brand-logo {
+            width: 72px; height: 72px; border-radius: 50%;
+            box-shadow: 0 4px 16px rgba(79, 209, 197, 0.35);
+            border: 2px solid rgba(79, 209, 197, 0.4);
         }
 
         header p {
@@ -900,7 +908,7 @@
     <div class="container">
         <header>
             <div style="display:flex; align-items:center; justify-content:center; gap:0.9rem; margin-bottom:0.4rem;">
-                <img src="/static/vydra-sm.png" alt="Vydra" style="width:72px; height:72px; border-radius:50%; box-shadow:0 4px 14px rgba(43,108,176,0.35);">
+                <img src="/static/vydra-sm.png" alt="Vydra" class="brand-logo">
                 <h1 style="margin:0;">Vydra</h1>
             </div>
             <p style="margin-bottom: 1.5rem;">Книги, аудіокниги та манґа українською — локально, на вашому пристрої</p>
@@ -1890,6 +1898,9 @@
                 
                 // List folders
                 listEl.innerHTML = "";
+                if (data.hint) {
+                    listEl.innerHTML = `<p style="padding: 0.6rem 1rem; color: var(--text-secondary); font-size: 0.85rem;">${data.hint}</p>`;
+                }
                 if (data.dirs.length === 0) {
                     listEl.innerHTML = `<p style="padding: 1.5rem; color: var(--text-secondary); text-align: center;">No subfolders found</p>`;
                     return;
@@ -1912,7 +1923,9 @@
                     listEl.appendChild(div);
                 });
             } catch (err) {
-                listEl.innerHTML = `<p style="padding: 1rem; color: var(--danger); text-align: center;">Failed to load directories</p>`;
+                // TASK-52: surface the REAL failure instead of a generic
+                // message - next occurrence self-explains.
+                listEl.innerHTML = `<p style="padding: 1rem; color: var(--danger); text-align: center;">Failed to load directories: ${err.message || err}</p>`;
             }
         }
 
