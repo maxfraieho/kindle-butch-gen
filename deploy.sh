@@ -316,8 +316,15 @@ else
         git clone --depth 1 https://github.com/ggerganov/llama.cpp.git "$HOME/llama.cpp"
     fi
     cd "$HOME/llama.cpp"
+    # 4th finding of the first outside install (OnePlus 15 / Snapdragon 8
+    # Elite 2): -mcpu=native code paths for the newest ARMv9 cores ICE the
+    # Termux clang on ggml-cpu/arch/arm/repack.cpp. GGML_NATIVE=OFF builds
+    # the portable armv8-a baseline - fine, because heavy lifting runs on
+    # the GPU via OpenCL (-ngl 99) anyway. Build dir is wiped first so a
+    # previously failed configure cache can never poison the retry.
+    rm -rf build
     mkdir -p build && cd build
-    cmake .. $HOST_CMAKE_GPU_FLAGS -DLLAMA_CURL=OFF &
+    cmake .. $HOST_CMAKE_GPU_FLAGS -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF &
     wait $! || error "llama.cpp cmake configure failed"
     # llama-mtmd-cli included BY DEFAULT (Q, 2026-07-17): premium vision
     # features then only need the model pull - no rebuild on the user side.
