@@ -268,7 +268,22 @@ def main():
         # 3. Merge batch markdown files and copy images
         log("Merging batch results...", log_path)
         merged_md_content = []
-        
+
+        # Support banners (docs/plans/support-system-plan.md, Phase 1):
+        # inserted BETWEEN batches - batch boundaries are page-range
+        # boundaries, the closest natural pause available at merge time.
+        # Every guard is a safe no-op: no config / disabled / opt-out /
+        # heavy-scene tail all mean the merged file is byte-identical to
+        # the pre-feature behavior.
+        from common.support_banner import (
+            load_support_config, user_opted_out, is_heavy_scene,
+            SupportInserter, render_md_block,
+        )
+        support_cfg = load_support_config()
+        if support_cfg and user_opted_out():
+            support_cfg = None
+        support_ins = SupportInserter(slug, support_cfg) if support_cfg else None
+
         for start, end in page_ranges:
             batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
             marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
@@ -288,8 +303,25 @@ def main():
                         
             # Read content
             with open(md_file, "r", encoding="utf-8") as f:
-                merged_md_content.append(f.read())
-                
+                batch_text = f.read()
+
+            if support_ins:
+                # Counter first, decision after: the banner lands at the
+                # boundary AFTER ~50-70 accumulated pages, right before
+                # this batch's text - i.e. at the previous batch's end.
+                if support_ins.due() and merged_md_content \
+                        and not is_heavy_scene(merged_md_content[-1]):
+                    merged_md_content.append(render_md_block(support_cfg))
+                    support_ins.mark_inserted()
+                    log(f"Support banner inserted before pages {start}-{end} "
+                        f"(#{support_ins.inserted_count}).", log_path)
+                support_ins.advance(end - start + 1)
+
+            merged_md_content.append(batch_text)
+
+        if support_ins:
+            log(f"Support banners: {support_ins.inserted_count} inserted.", log_path)
+
         with open(final_merged_md_path, "w", encoding="utf-8") as f:
             f.write("\n\n".join(merged_md_content))
             

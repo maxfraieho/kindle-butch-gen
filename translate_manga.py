@@ -1862,6 +1862,61 @@ def main():
                     except Exception as ex:
                         log(f"Warning: Failed to downscale image {f}: {ex}")
 
+        # Support interstitial pages (docs/plans/support-system-plan.md,
+        # Phase 1): dropped into temp_out with names that sort right after
+        # the last page of a closing chapter ('<page>.png' < '<page>_zz_...'
+        # because '.' < '_'), so CBZ/AZW3 readers show them at the chapter
+        # boundary. Chapter = the 'c<NNN>' marker in scanlation filenames;
+        # books without that marker simply never hit a boundary and get no
+        # insertions (safe default). All the usual guards apply (config,
+        # opt-out); tone heuristic uses the closing page's bubbles_meta
+        # text when available, best-effort.
+        if args.output.lower().endswith('.cbz'):
+            try:
+                from common.support_banner import (
+                    load_support_config, user_opted_out, is_heavy_scene,
+                    SupportInserter, render_interstitial_png,
+                )
+                support_cfg = load_support_config()
+                if support_cfg and not user_opted_out():
+                    slug = os.path.basename(book_dir)
+                    ins = SupportInserter(slug, support_cfg)
+                    meta_dir = os.path.join(book_dir, "bubbles_meta")
+                    chapter_re = re.compile(r"\bc(\d+)\b")
+
+                    def _page_text(fname):
+                        meta = os.path.join(
+                            meta_dir, os.path.splitext(fname)[0] + ".json")
+                        try:
+                            with open(meta, "r", encoding="utf-8") as mf:
+                                blocks = json.load(mf)
+                            return " ".join(b.get("translation", b.get("text", ""))
+                                            for b in blocks if isinstance(b, dict))
+                        except Exception:
+                            return ""
+
+                    files = sorted(f for f in os.listdir(temp_out)
+                                   if f.lower().endswith((".png", ".jpg", ".jpeg")))
+                    prev_ch, prev_file = None, None
+                    for fname in files:
+                        m = chapter_re.search(fname)
+                        ch = m.group(1) if m else None
+                        if (prev_ch is not None and ch is not None
+                                and ch != prev_ch and ins.due()
+                                and not is_heavy_scene(_page_text(prev_file))):
+                            out_name = os.path.splitext(prev_file)[0] + "_zz_support.png"
+                            render_interstitial_png(
+                                support_cfg, os.path.join(temp_out, out_name))
+                            ins.mark_inserted()
+                            log(f"Support interstitial inserted after chapter "
+                                f"c{prev_ch} ({out_name}).")
+                        ins.advance(1)
+                        prev_ch, prev_file = ch, fname
+                    log(f"Support interstitials: {ins.inserted_count} inserted.")
+            except Exception as ex:
+                # The banner must never be able to break a finished book.
+                log(f"Warning: support interstitial step skipped: {ex}")
+
         # Packaging processed pages
         if args.output.lower().endswith('.cbz'):
             log(f"Packaging pages into CBZ archive: {args.output}")
