@@ -38,7 +38,17 @@ fi
 # full mechanism. No-ops silently if nothing was interrupted. Confirmed
 # working live in production: a genuine Termux crash mid-conversion, on
 # restart the interrupted book resumed automatically with no manual steps.
+# Guarded against an ALREADY-RUNNING conversion (TASK-46 audit finding):
+# this script fires on every new Termux shell session, so without the
+# pgrep check, opening a shell while a conversion was genuinely active
+# would launch a SECOND copy of the same pipeline racing the first over
+# the same output files. The state file's presence alone only means
+# "Flask never observed completion" - not "nothing is running".
 if [ -f "$KBG_HOME/.active_conversion.json" ]; then
-    echo "Autostart: Detected an interrupted conversion, resuming..."
-    nohup python3 "$KBG_HOME/bin/resume_active_conversion.py" > "$HOME/kbg-autoresume.log" 2>&1 &
+    if pgrep -f "translate_manga.py|run_conversion_batches.py|translate_epub.py" >/dev/null; then
+        echo "Autostart: conversion state file present but a conversion is already running - not resuming a duplicate."
+    else
+        echo "Autostart: Detected an interrupted conversion, resuming..."
+        nohup python3 "$KBG_HOME/bin/resume_active_conversion.py" > "$HOME/kbg-autoresume.log" 2>&1 &
+    fi
 fi

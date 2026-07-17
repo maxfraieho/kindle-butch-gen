@@ -1105,6 +1105,52 @@ def set_output_root():
 def get_settings():
     return jsonify(load_global_settings())
 
+@app.route("/api/update", methods=["POST"])
+def self_update():
+    """One-button service update (TASK-46).
+
+    Checks the public GitHub remote for new commits; if there are any,
+    spawns bin/self-update.sh DETACHED (it has to kill and restart this
+    very Flask process, so it can't be our child in the normal sense)
+    and tells the client the service is about to restart. Refuses to
+    update while a conversion is running - killing Flask mid-run would
+    orphan the conversion from the dashboard and the state-file
+    lifecycle (TASK-41/45).
+    """
+    if any(p.poll() is None for p in active_processes.values()):
+        return jsonify({
+            "status": "busy",
+            "message": "A conversion is currently running. Wait for it to finish, then update."
+        }), 409
+
+    try:
+        subprocess.run(["git", "fetch", "origin"], cwd=repo_dir,
+                       capture_output=True, text=True, timeout=90, check=True)
+        behind = int(subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..origin/master"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=15, check=True
+        ).stdout.strip())
+        current = subprocess.run(
+            ["git", "log", "-1", "--format=%h %s"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=15, check=True
+        ).stdout.strip()
+    except subprocess.CalledProcessError as e:
+        return jsonify({"status": "error",
+                        "message": f"git failed: {(e.stderr or e.stdout or '').strip()}"}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error",
+                        "message": "git fetch timed out - check network connectivity."}), 504
+
+    if behind == 0:
+        return jsonify({"status": "up_to_date", "version": current})
+
+    subprocess.Popen(
+        ["bash", os.path.join(repo_dir, "bin", "self-update.sh")],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=repo_dir, start_new_session=True,
+    )
+    return jsonify({"status": "updating", "behind": behind, "version": current})
+
 @app.route("/api/models")
 @auth.login_required
 def get_models_info():

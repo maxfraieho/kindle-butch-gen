@@ -922,6 +922,9 @@
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openModelsSelector()">
                             <span>🤖</span> Models Manager
                         </button>
+                        <button class="btn-outline" id="selfUpdateBtn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="runSelfUpdate()">
+                            <span>🔄</span> Update
+                        </button>
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
                             <span>⚙</span> Save Location
                         </button>
@@ -1121,6 +1124,41 @@
         }
 
         let isFirstLoad = true;
+
+        // TASK-46: one-button service update for non-specialists. POST
+        // /api/update checks the remote; "updating" means the server is
+        // about to restart itself, so we poll until it's back and reload.
+        async function runSelfUpdate() {
+            const btn = document.getElementById('selfUpdateBtn');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Checking…';
+            try {
+                const r = await fetch('/api/update', { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'up_to_date') {
+                    btn.innerHTML = '✅ Up to date';
+                    setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
+                } else if (d.status === 'busy') {
+                    alert(d.message);
+                    btn.innerHTML = orig; btn.disabled = false;
+                } else if (d.status === 'updating') {
+                    btn.innerHTML = '🔄 Updating… restarting service';
+                    const poll = setInterval(async () => {
+                        try {
+                            const c = await fetch('/api/settings', { cache: 'no-store' });
+                            if (c.ok) { clearInterval(poll); location.reload(); }
+                        } catch (e) { /* server still down - keep polling */ }
+                    }, 3000);
+                } else {
+                    alert('Update error: ' + (d.message || r.status));
+                    btn.innerHTML = orig; btn.disabled = false;
+                }
+            } catch (e) {
+                alert('Update failed: ' + e);
+                btn.innerHTML = orig; btn.disabled = false;
+            }
+        }
 
         async function fetchBooks() {
             try {
