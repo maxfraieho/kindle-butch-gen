@@ -395,8 +395,27 @@ if [ -f "$MODEL_PATH" ]; then
     if [ "$actual_gguf_size" -eq "$HY_MT2_SIZE" ]; then
         success "Translation model Hy-MT2-7B-Q4_K_M.gguf is already present and verified."
     else
-        log "Translation model file size mismatch. Redownload recommended."
-        rm -f "$MODEL_PATH"
+        # TASK-32 hardware-test fix: a size mismatch here does NOT prove
+        # corruption - it can simply be a different (perfectly working)
+        # build of the same model; the expected size only describes the
+        # CURRENT default download URL. The previous code did `rm -f`
+        # unconditionally BEFORE any user consent, and non-interactively
+        # (stdin closed -> read returns EOF -> download skipped) that
+        # deleted a working 4.4GB production model with nothing to
+        # replace it. Never delete before explicit consent; EOF/default
+        # keeps the file.
+        log "Translation model at $MODEL_PATH is $actual_gguf_size bytes; the current default download is $HY_MT2_SIZE bytes."
+        echo -n -e "${BLUE}[DEPL]${NC} Keep the existing model (recommended if translation works)? (Y/n): "
+        read -r keep_choice || keep_choice=""
+        case "$keep_choice" in
+            [nN]|[nN][oO])
+                log "Removing existing model at user's request; the download prompt follows."
+                rm -f "$MODEL_PATH"
+                ;;
+            *)
+                success "Keeping the existing translation model as-is."
+                ;;
+        esac
     fi
 fi
 
