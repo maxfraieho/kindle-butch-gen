@@ -112,7 +112,12 @@ fi
 # -------------------------------------------------------------
 # STEP 2: Configure Ubuntu PRoot Container with GPU Bind Mounts
 # -------------------------------------------------------------
-log "Setting up Ubuntu PRoot container..."
+# TASK-32/P1.1: the target container alias is parametrized so the REAL
+# script can be staged against a scratch container on a production device
+# (KBG_DEPLOY_DISTRO=ubuntu-test bash deploy.sh) without touching the
+# working 'ubuntu' container or its launcher. Default is production.
+DEPLOY_DISTRO="${KBG_DEPLOY_DISTRO:-ubuntu}"
+log "Setting up Ubuntu PRoot container (alias: $DEPLOY_DISTRO)..."
 # TASK-32 hardware-test fix (second iteration, verified on the real
 # device this time): the original check piped `grep -q` into a second
 # grep - `grep -q` produces no stdout, so the second grep ALWAYS exited 1
@@ -128,42 +133,52 @@ log "Setting up Ubuntu PRoot container..."
 # "Alias: ubuntu" lines, so a name grep false-positives on a fresh
 # device and would skip a genuinely-needed install.)
 PROOT_VAR="$PREFIX/var/lib/proot-distro"
-if [ -d "$PROOT_VAR/installed-rootfs/ubuntu" ] \
-   || [ -d "$PROOT_VAR/containers/ubuntu" ] \
-   || proot-distro login ubuntu -- /bin/true >/dev/null 2>&1; then
+if [ -d "$PROOT_VAR/installed-rootfs/$DEPLOY_DISTRO" ] \
+   || [ -d "$PROOT_VAR/containers/$DEPLOY_DISTRO" ] \
+   || proot-distro login "$DEPLOY_DISTRO" -- /bin/true >/dev/null 2>&1; then
     UBUNTU_INSTALLED=true
 else
     UBUNTU_INSTALLED=false
 fi
 if [ "$UBUNTU_INSTALLED" = "false" ]; then
-    log "Installing Ubuntu container via proot-distro..."
-    proot-distro install ubuntu
+    log "Installing Ubuntu container via proot-distro (alias: $DEPLOY_DISTRO)..."
+    if [ "$DEPLOY_DISTRO" = "ubuntu" ]; then
+        proot-distro install ubuntu
+    else
+        proot-distro install ubuntu --override-alias "$DEPLOY_DISTRO"
+    fi
 else
-    log "Ubuntu container is already installed."
+    log "Ubuntu container '$DEPLOY_DISTRO' is already installed."
 fi
 
 # Create a launcher script to run Ubuntu - Adreno-bound if detected,
-# plain otherwise (TASK-32 Stage 1 detection above).
-LAUNCHER_PATH="$HOME/ubuntu-gpu.sh"
+# plain otherwise (TASK-32 Stage 1 detection above). A non-default
+# DEPLOY_DISTRO gets its own launcher file so a staging run never
+# overwrites the production launcher.
+if [ "$DEPLOY_DISTRO" = "ubuntu" ]; then
+    LAUNCHER_PATH="$HOME/ubuntu-gpu.sh"
+else
+    LAUNCHER_PATH="$HOME/ubuntu-gpu.$DEPLOY_DISTRO.sh"
+fi
 if [ "$ADRENO_DETECTED" = "true" ]; then
     log "Creating GPU-enabled Ubuntu launcher at ${LAUNCHER_PATH}..."
-    cat << 'EOF' > "$LAUNCHER_PATH"
+    cat << EOF > "$LAUNCHER_PATH"
 #!/usr/bin/env bash
 # Runs Ubuntu PRoot container with Android system vendor directories bind-mounted for OpenCL GPU access
-proot-distro login ubuntu \
-  --bind /vendor:/vendor \
-  --bind /system:/system \
-  --bind /vendor/lib64:/vendor/lib64 \
-  --bind /system/lib64:/system/lib64 \
-  --bind /dev/kgsl:/dev/kgsl \
-  "$@"
+proot-distro login $DEPLOY_DISTRO \\
+  --bind /vendor:/vendor \\
+  --bind /system:/system \\
+  --bind /vendor/lib64:/vendor/lib64 \\
+  --bind /system/lib64:/system/lib64 \\
+  --bind /dev/kgsl:/dev/kgsl \\
+  "\$@"
 EOF
 else
     log "Creating plain (CPU-only) Ubuntu launcher at ${LAUNCHER_PATH}..."
-    cat << 'EOF' > "$LAUNCHER_PATH"
+    cat << EOF > "$LAUNCHER_PATH"
 #!/usr/bin/env bash
 # No Adreno GPU detected on this device - plain Ubuntu PRoot login, no GPU bind-mounts.
-proot-distro login ubuntu "$@"
+proot-distro login $DEPLOY_DISTRO "\$@"
 EOF
 fi
 chmod +x "$LAUNCHER_PATH"
