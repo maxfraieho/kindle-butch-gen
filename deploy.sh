@@ -152,6 +152,17 @@ echo -e "${BLUE}[DEPL]${NC} ТРИМАЙТЕ ЕКРАН УВІМКНЕНИМ і 
 # -------------------------------------------------------------
 log "Installing host Termux packages..."
 pkg update -y
+# TASK-50 fresh-device fix (found on the FIRST real outside install,
+# OnePlus 15): a fresh Termux bootstrap ships an old libc++, and newly
+# installed packages (ffmpeg 8.x / libplacebo) reference newer symbols -
+# "CANNOT LINK EXECUTABLE ... _ZNSt6__ndk1...from_chars..." and dpkg dies.
+# A FULL upgrade first brings the runtime to match the repo, exactly as
+# Termux's own error message prescribes. Non-interactive-safe; the
+# configure -a afterwards heals any half-configured packages left by a
+# previously failed attempt (rerunning the script after this fix is
+# enough - no manual cleanup needed).
+DEBIAN_FRONTEND=noninteractive pkg upgrade -y -o Dpkg::Options::="--force-confnew" || true
+dpkg --configure -a 2>/dev/null || true
 pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip
 pip install --upgrade pip --break-system-packages || true
 pip install Flask flask-httpauth requests ukrainian_word_stress ipa-uk tqdm marisa-trie blinker --break-system-packages
