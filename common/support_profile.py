@@ -80,3 +80,65 @@ def remote_banner_disabled():
 
 def get_priority_tier():
     return fetch_profile()["priority_tier"]
+
+
+# --- Premium entitlements (TASK-53) -------------------------------------
+# Opposite fallback direction from the banner: paid features FAIL CLOSED
+# (Appwrite unreachable -> feature unavailable; generation itself is never
+# blocked - the opt-in toggle just cannot activate). A 7-day grace cache
+# of the last successful read keeps a temporary network loss from locking
+# out someone who already donated.
+import time
+
+_ENTITLEMENT_CACHE = os.path.expanduser("~/.vydra_entitlements.json")
+_GRACE_SECONDS = 7 * 24 * 3600
+
+
+def _fetch_entitlements_remote():
+    """Return list of entitlement strings, or None on ANY failure
+    (None != empty list: None means 'could not read')."""
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            aw = (json.load(f) or {}).get("appwrite") or {}
+        endpoint = aw.get("endpoint", "").rstrip("/")
+        project = aw.get("project", "")
+        tg_id = str(aw.get("telegram_id", "")).strip()
+        key = _read_key()
+        if not (endpoint and project and tg_id and key):
+            return None
+        r = requests.get(
+            f"{endpoint}/databases/{aw.get('database', 'kbg-support')}"
+            f"/collections/{aw.get('collection', 'users')}/documents",
+            headers={"X-Appwrite-Project": project, "X-Appwrite-Key": key},
+            params={"queries[]": json.dumps(
+                {"method": "equal", "attribute": "telegram_id",
+                 "values": [tg_id]})},
+            timeout=_TIMEOUT_S,
+        )
+        r.raise_for_status()
+        docs = r.json().get("documents", [])
+        raw = (docs[0].get("entitlements") or "") if docs else ""
+        return [e for e in raw.split(",") if e]
+    except Exception:
+        return None
+
+
+def is_entitled(feature):
+    """True iff the profile has `feature` - live, or from a fresh (<7d)
+    grace cache when the live read fails. Everything else is False."""
+    ents = _fetch_entitlements_remote()
+    if ents is not None:
+        try:
+            with open(_ENTITLEMENT_CACHE, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "entitlements": ents}, f)
+        except OSError:
+            pass
+        return feature in ents
+    try:
+        with open(_ENTITLEMENT_CACHE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        if time.time() - float(cached.get("ts", 0)) <= _GRACE_SECONDS:
+            return feature in (cached.get("entitlements") or [])
+    except Exception:
+        pass
+    return False

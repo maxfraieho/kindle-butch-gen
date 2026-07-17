@@ -228,12 +228,58 @@ def main(context):
         return res.json({"ok": True})
 
     if cmd == "/premium":
-        # STUB: paid tier / payments not designed yet.
+        # TASK-53: premium features = donation-gated entitlements
+        # (cast_registry, vision_qa). Payments service not integrated yet -
+        # unlock flow is manual admin /grant after a confirmed donation.
+        user = _get_user(db, tg_id)
+        ents = (user.get("entitlements") or "") if user else ""
+        have = [e for e in ents.split(",") if e]
+        status = ("✅ Активні преміум-функції: " + ", ".join(have)) if have \
+            else "Преміум-функції поки не активовані."
         _tg_send(token, chat_id,
-                 "💳 <b>Преміум / оплата</b>\n\n"
-                 "У розробці. Планується: пріоритетна черга генерації та "
-                 "додаткові ліміти. Наразі все безкоштовно, а пріоритет "
-                 "можна отримати за рефералів — /referral 😉")
+                 "💳 <b>Преміум-функції Vydra</b>\n\n"
+                 f"{status}\n\n"
+                 "🧬 <b>Cast Registry</b> — правильний граматичний рід "
+                 "персонажів у перекладі (вона зробила, а не він зробив)\n"
+                 "👁 <b>Vision-QA</b> — додаткова візуальна перевірка якості "
+                 "манґи\n\n"
+                 "Як відкрити: підтримайте проєкт донатом (кнопка "
+                 "☕ Підтримати розробника — сервіс оплати вже підключається), "
+                 "надішліть сюди підтвердження — і функції буде активовано "
+                 "на вашому профілі. Генерація книг як була, так і "
+                 "лишається безкоштовною.")
+        return res.json({"ok": True})
+
+    if cmd == "/grant":
+        # Admin-only: /grant <tg_id|referral_code> <ent1,ent2>
+        admin = os.environ.get("ADMIN_TG_ID", "")
+        if not admin or str(tg_id) != admin:
+            _tg_send(token, chat_id, "Команда доступна лише адміністратору.")
+            return res.json({"ok": True})
+        parts = arg.split()
+        if len(parts) != 2:
+            _tg_send(token, chat_id,
+                     "Формат: /grant &lt;tg_id або referral_code&gt; "
+                     "&lt;cast_registry,vision_qa&gt;")
+            return res.json({"ok": True})
+        who, ents = parts
+        target = None
+        for field in ("telegram_id", "referral_code"):
+            r2 = db.list_documents(DB_ID, COLL_ID,
+                                   queries=[Query.equal(field, who)])
+            if r2.get("documents"):
+                target = r2["documents"][0]
+                break
+        if not target:
+            _tg_send(token, chat_id, f"Користувача '{who}' не знайдено.")
+            return res.json({"ok": True})
+        db.update_document(DB_ID, COLL_ID, target["$id"],
+                           data={"entitlements": ents})
+        _tg_send(token, chat_id,
+                 f"✅ Активовано для {target['telegram_id']}: {ents}")
+        _tg_send(token, int(target["telegram_id"]),
+                 f"🎉 Вам активовано преміум-функції: {ents}. Дякуємо за "
+                 "підтримку! Перемикачі з'являться в налаштуваннях книги.")
         return res.json({"ok": True})
 
     _tg_send(token, chat_id, "🦦 Меню Vydra:", keyboard=_main_keyboard())
