@@ -420,8 +420,12 @@ fi
 echo "Installing Python dependencies (PyTorch, Transformers, Marker, Manga-OCR, Mokuro, PyTesseract, stress-uk, num2words)..."
 pip install --upgrade pip --break-system-packages || true
 # Install PyTorch (CPU version is optimized with OpenMP on Snapdragon ARM64)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --break-system-packages
-pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words --break-system-packages
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --break-system-packages --ignore-installed
+# --ignore-installed: apt (via calibre) ships a debian-built numpy without
+# a pip RECORD file - pip cannot uninstall it and hard-fails the whole
+# line ("Cannot uninstall numpy... installed by debian", found live on
+# the ubuntu-test staging run). Overlay-install instead of uninstalling.
+pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words --break-system-packages --ignore-installed
 
 echo "=== [Ubuntu Setup Completed] ==="
 EOF
