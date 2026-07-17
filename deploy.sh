@@ -90,6 +90,64 @@ release_deploy_wake_lock() {
 trap release_deploy_wake_lock EXIT INT TERM
 
 # -------------------------------------------------------------
+# STEP 0: Pre-flight diagnostics (TASK-50) - fail fast with a clear
+# table BEFORE any long download/compile. Hard requirements abort;
+# soft ones only warn. Designed for a non-specialist following the
+# @GetVydraBot /install instructions on a fresh device.
+# -------------------------------------------------------------
+log "Running pre-flight diagnostics..."
+DIAG_FAILED=0
+diag() { # $1=PASS|WARN|FAIL $2=label $3=detail
+    case "$1" in
+        PASS) echo -e "  ${GREEN}[PASS]${NC} $2 — $3" ;;
+        WARN) echo -e "  \033[0;33m[WARN]\033[0m $2 — $3" ;;
+        FAIL) echo -e "  ${RED}[FAIL]${NC} $2 — $3"; DIAG_FAILED=1 ;;
+    esac
+}
+
+case "$(uname -m)" in
+    aarch64) diag PASS "Архітектура" "aarch64" ;;
+    *) diag FAIL "Архітектура" "$(uname -m) — потрібен aarch64 (64-бітний Android)" ;;
+esac
+
+case "${PREFIX:-}" in
+    *com.termux*) diag PASS "Середовище" "Termux" ;;
+    *) diag FAIL "Середовище" "не Termux — встановіть Termux з F-Droid (НЕ з Play Market)" ;;
+esac
+
+MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+MEM_GB=$((MEM_KB / 1024 / 1024))
+if [ "$MEM_GB" -ge 10 ]; then diag PASS "Оперативна пам'ять" "${MEM_GB}GB"
+elif [ "$MEM_GB" -ge 6 ]; then diag WARN "Оперативна пам'ять" "${MEM_GB}GB — мінімум; великі книги можуть падати"
+else diag FAIL "Оперативна пам'ять" "${MEM_GB}GB — потрібно щонайменше 6GB (модель перекладу займає ~5GB)"; fi
+
+FREE_GB=$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1024/1024)}' || echo 0)
+if [ "$FREE_GB" -ge 25 ]; then diag PASS "Вільне місце" "${FREE_GB}GB"
+elif [ "$FREE_GB" -ge 15 ]; then diag WARN "Вільне місце" "${FREE_GB}GB — вистачить, але впритул (модель 4.4GB + контейнер ~8GB)"
+else diag FAIL "Вільне місце" "${FREE_GB}GB — потрібно щонайменше 15GB"; fi
+
+if curl -s -m 8 -o /dev/null "https://github.com"; then diag PASS "Мережа" "github.com доступний"
+else diag FAIL "Мережа" "github.com недоступний — перевірте інтернет"; fi
+if curl -s -m 8 -o /dev/null "https://huggingface.co"; then diag PASS "Мережа" "huggingface.co доступний (звідти тягнеться модель)"
+else diag WARN "Мережа" "huggingface.co недоступний — завантаження моделі може не пройти"; fi
+
+if [ -e /vendor/lib64/libOpenCL.so ]; then diag PASS "GPU" "Adreno OpenCL знайдено — переклад буде GPU-прискорений"
+else diag WARN "GPU" "Adreno OpenCL не знайдено — все працюватиме, але на CPU (повільніше)"; fi
+
+if [ -d "$HOME/.termux/boot" ] || [ -e "/data/data/com.termux.boot" ]; then
+    diag PASS "Termux:Boot" "встановлено — сервіси стартуватимуть після перезавантаження"
+else
+    diag WARN "Termux:Boot" "не знайдено — встановіть з F-Droid і відкрийте один раз, інакше після перезавантаження телефона сервіси доведеться стартувати вручну (відкриттям Termux)"
+fi
+
+if [ "$DIAG_FAILED" -ne 0 ]; then
+    error "Діагностика виявила невиконані вимоги (позначені FAIL вище). Виправте їх і запустіть скрипт знову."
+fi
+success "Діагностика пройдена."
+echo -e "${BLUE}[DEPL]${NC} Далі: встановлення пакетів, ~10-20 хв компіляції та завантаження моделі 4.4GB."
+echo -e "${BLUE}[DEPL]${NC} ТРИМАЙТЕ ЕКРАН УВІМКНЕНИМ і Termux відкритим — Android вбиває фонові важкі процеси."
+
+# -------------------------------------------------------------
 # STEP 1: Install Termux Host Prerequisites
 # -------------------------------------------------------------
 log "Installing host Termux packages..."
@@ -218,6 +276,47 @@ else
     success "kindle-butch-gen cloned."
 fi
 chmod +x "$PROJECT_DIR/kbg.sh"
+
+# -------------------------------------------------------------
+# STEP 3b (TASK-47/50): Termux-side llama.cpp - what production
+# ACTUALLY runs. start-translation-server.sh launches
+# ~/llama.cpp/build/bin/llama-server with Android vendor GPU libs on
+# LD_LIBRARY_PATH; the container build below never served anything.
+# Build here, host-side, with Adreno OpenCL when detected. This is the
+# one long compile of the install (~10-20 min) - wake-lock is already
+# held and the user was told to keep the screen on.
+# -------------------------------------------------------------
+if [ -x "$HOME/llama.cpp/build/bin/llama-server" ]; then
+    success "Termux-side llama.cpp already present (~/llama.cpp/build/bin) - skipping build."
+else
+    log "Building llama.cpp Termux-side (this is the long step - 10-20 min)..."
+    HOST_CMAKE_GPU_FLAGS=""
+    if [ "$ADRENO_DETECTED" = "true" ]; then
+        HOST_CMAKE_GPU_FLAGS="-DGGML_OPENCL=ON -DGGML_OPENCL_USE_ADRENO_KERNELS=ON"
+    fi
+    if [ ! -d "$HOME/llama.cpp/.git" ]; then
+        git clone --depth 1 https://github.com/ggerganov/llama.cpp.git "$HOME/llama.cpp"
+    fi
+    cd "$HOME/llama.cpp"
+    mkdir -p build && cd build
+    cmake .. $HOST_CMAKE_GPU_FLAGS -DLLAMA_CURL=OFF &
+    wait $! || error "llama.cpp cmake configure failed"
+    make -j"$(nproc)" llama-server llama-cli &
+    wait $! || error "llama.cpp build failed"
+    cd "$HOME"
+    [ -x "$HOME/llama.cpp/build/bin/llama-server" ] || error "llama-server binary missing after build"
+    success "Termux-side llama.cpp built ($HOST_CMAKE_GPU_FLAGS)."
+fi
+
+# The launcher production autostart actually calls - install if absent
+# (never overwrite: the production phone's copy may carry local tuning).
+if [ ! -f "$HOME/start-translation-server.sh" ]; then
+    cp "$PROJECT_DIR/bin/start-translation-server.sh" "$HOME/start-translation-server.sh"
+    chmod +x "$HOME/start-translation-server.sh"
+    success "start-translation-server.sh installed to \$HOME."
+else
+    log "start-translation-server.sh already present in \$HOME - not overwriting."
+fi
 
 # -------------------------------------------------------------
 # STEP 4: Setup OpenCL ICD and Compile llama.cpp inside Ubuntu

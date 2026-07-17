@@ -153,6 +153,32 @@ def main(context):
         _tg_send(token, chat_id, "Готово, більше не показуватимемо ✅")
         return res.json({"ok": True})
 
+    if cmd == "/install":
+        _tg_send(token, chat_id,
+                 "🦦 <b>Встановлення Vydra на ваш Android</b>\n\n"
+                 "Потрібно: 64-бітний телефон, 6+ GB RAM, 15+ GB вільного місця, "
+                 "~30 хв і Wi-Fi (завантажується модель 4.4GB).\n\n"
+                 "<b>Крок 1.</b> Встановіть Termux З F-DROID (не з Play Market — "
+                 "та версія мертва):\n"
+                 "https://f-droid.org/packages/com.termux/\n\n"
+                 "<b>Крок 2.</b> Встановіть Termux:Boot з того ж F-Droid і "
+                 "відкрийте його один раз (це дозволить сервісам стартувати "
+                 "після перезавантаження):\n"
+                 "https://f-droid.org/packages/com.termux.boot/\n\n"
+                 "<b>Крок 3.</b> Відкрийте Termux і вставте одну команду:\n"
+                 "<code>bash &lt;(curl -fsSL https://raw.githubusercontent.com/"
+                 "maxfraieho/kindle-butch-gen/master/deploy.sh) -a</code>\n\n"
+                 "Скрипт сам перевірить, чи телефон відповідає вимогам "
+                 "(діагностика на старті), і розгорне все: пакети, контейнер, "
+                 "компіляцію перекладача, модель.\n\n"
+                 "⚠️ <b>Тримайте екран увімкненим і Termux відкритим</b> до "
+                 "напису «Deployment complete» — Android вбиває важкі фонові "
+                 "процеси.\n\n"
+                 "Після завершення веб-інтерфейс буде на "
+                 "<code>http://localhost:5000</code> (пароль скрипт покаже в "
+                 "консолі). Питання — пишіть сюди.")
+        return res.json({"ok": True})
+
     _tg_send(token, chat_id,
-             "Команди: /start, /referral, /no_support_banner")
+             "Команди: /start, /install, /referral, /no_support_banner")
     return res.json({"ok": True})
