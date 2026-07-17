@@ -74,6 +74,21 @@ fi
 # -------------------------------------------------------------
 log "Acquiring termux-wake-lock for the duration of deployment..."
 termux-wake-lock 2>/dev/null || true
+# termux-wake-lock only blocks CPU sleep - Android's separate Battery
+# Optimization / Adaptive Battery can still kill the whole Termux process
+# in the background regardless (observed live: a 4.4GB model download
+# lost mid-transfer, whole process gone, no error - just silence). This
+# is the actual #1 cause of failed installs on unmodified devices; print
+# it loudly, not just in docs nobody reads mid-install.
+echo -e "${RED}=====================================================================${NC}"
+echo -e "${RED}⚠️  ВАЖЛИВО: вимкніть оптимізацію батареї для Termux ЗАРАЗ${NC}"
+echo -e "${RED}=====================================================================${NC}"
+echo -e "Android може вбити цей процес у фоні (навіть з екраном увімкненим),"
+echo -e "і завантаження на кілька гігабайт доведеться починати заново."
+echo -e "Налаштування → Застосунки → Termux → Батарея → ${GREEN}Без обмежень${NC}"
+echo -e "(на деяких пристроях: Оптимізація батареї → Усі застосунки → Termux →"
+echo -e "${GREEN}Не оптимізувати${NC})"
+echo -e "${RED}=====================================================================${NC}"
 release_deploy_wake_lock() {
     log "Releasing termux-wake-lock..."
     termux-wake-unlock 2>/dev/null || true
