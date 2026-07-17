@@ -1353,7 +1353,17 @@ def change_password_api():
                 replaced = True
                 break
         if not replaced:
-            lines.append("\n" + new_line)
+            # TASK-63: must land BEFORE the autostart trigger line (which
+            # runs "bash start-all-services.sh", spawning Flask as a child
+            # that only inherits env exports already in effect at that
+            # line) - appending to the end is invisible to Flask on every
+            # future autostart. Insert right before that line if present,
+            # otherwise at the very top.
+            insert_at = next(
+                (i for i, line in enumerate(lines) if "start-all-services.sh" in line),
+                0,
+            )
+            lines.insert(insert_at, new_line)
         with open(bashrc_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
     except OSError as e:

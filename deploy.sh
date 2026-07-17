@@ -604,7 +604,19 @@ if grep -q "^export KBG_WEB_PASSWORD=" "$BASHRC_FILE" 2>/dev/null; then
     log "Веб-пароль уже налаштований (не змінюємо)."
 else
     WEB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(12))")
-    printf '\nexport KBG_WEB_PASSWORD='"'"'%s'"'"'\n' "$WEB_PASSWORD" >> "$BASHRC_FILE"
+    # TASK-63: must land BEFORE the autostart trigger line written earlier
+    # in this file (STEP 5 above), not after it - "bash
+    # start-all-services.sh" spawns Flask as a child process that inherits
+    # the environment AS OF THAT LINE, so an export appended below it is
+    # invisible to Flask on every single autostart. Confirmed live: this
+    # exact ordering bug locked a real user out after every Termux
+    # restart, falling back to a random unprintable temporary password.
+    # Prepending (not appending) guarantees correct order regardless of
+    # what STEP 5 already wrote.
+    TMP_BASHRC="$(mktemp)"
+    printf 'export KBG_WEB_PASSWORD='"'"'%s'"'"'\n\n' "$WEB_PASSWORD" > "$TMP_BASHRC"
+    cat "$BASHRC_FILE" >> "$TMP_BASHRC" 2>/dev/null
+    mv "$TMP_BASHRC" "$BASHRC_FILE"
     success "Згенеровано пароль веб-інтерфейсу."
 fi
 
