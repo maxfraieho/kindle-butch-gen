@@ -255,8 +255,12 @@ apt update
 # container's Python and falls back to a source build, which hard-fails
 # without them (found by the P1.1 fresh-container run; the production
 # container's FreeType-less Pillow is the same disease - it was source-
-# built before libfreetype6-dev was in this list).
-apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg tesseract-ocr unrar-free p7zip-full libfreetype6-dev libjpeg-dev zlib1g-dev libpng-dev wamerican
+# built before libfreetype6-dev was in this list). Even with those
+# headers, Pillow\'s own setup.py detects the proot-bound Termux prefix
+# (/data/data/com.termux/files/usr) and injects Android headers into the
+# Ubuntu gcc - the source build is unwinnable here. python3-pil gives a
+# proper Ubuntu-built Pillow that pip recognizes and never rebuilds.
+apt install -y build-essential cmake git opencl-headers ocl-icd-opencl-dev clinfo python3-pip python3-venv libgomp1 calibre ffmpeg tesseract-ocr unrar-free p7zip-full libfreetype6-dev libjpeg-dev zlib1g-dev libpng-dev wamerican python3-pil
 
 # 1. Configure OpenCL ICD for Qualcomm Adreno GPU - TASK-32 Stage 2: only
 # attempted if Stage 1 (Termux-side /vendor/lib64/libOpenCL.so check,
