@@ -328,9 +328,24 @@ echo "=== [Ubuntu Setup Completed] ==="
 EOF
 } > "$UBUNTU_SETUP_SCRIPT_PATH"
 
-# Move setup script into the PRoot container space and run it
+# Move setup script into the PRoot container space and run it.
+# P1.1 SIGTERM-test round 2 finding: bash DEFERS trap execution until the
+# current FOREGROUND child exits - so a TERM during this (long, dpkg-lock-
+# holding) step used to sit queued while launcher->proot->apt/pip ran on,
+# and the group-kill in the trap fired far too late to matter. Running the
+# step in the background and `wait`ing is the fix: wait is interruptible,
+# the trap runs immediately and its group-kill actually reaches the
+# children. (`|| true` on wait: it returns the child's status or 143 on
+# signal - set -e must not eat the normal path; failures of setup.sh
+# itself surface via UBUNTU_SETUP_STATUS below.)
 log "Copying setup script to Ubuntu container and running it..."
-"$LAUNCHER_PATH" -- bash -c "cat $UBUNTU_SETUP_SCRIPT_PATH > /tmp/setup.sh && chmod +x /tmp/setup.sh && /tmp/setup.sh"
+"$LAUNCHER_PATH" -- bash -c "cat $UBUNTU_SETUP_SCRIPT_PATH > /tmp/setup.sh && chmod +x /tmp/setup.sh && /tmp/setup.sh" &
+UBUNTU_SETUP_PID=$!
+UBUNTU_SETUP_STATUS=0
+wait "$UBUNTU_SETUP_PID" || UBUNTU_SETUP_STATUS=$?
+if [ "$UBUNTU_SETUP_STATUS" -ne 0 ]; then
+    error "Ubuntu container setup failed (exit $UBUNTU_SETUP_STATUS) - see output above."
+fi
 rm -f "$UBUNTU_SETUP_SCRIPT_PATH"
 
 success "Ubuntu compilation and setup finished successfully."
