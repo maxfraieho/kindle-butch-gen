@@ -119,6 +119,17 @@ CRITICAL: POV narrator is Фрірен — all first-person verbs must agree wit
    адміном після підтвердженого донату). Генерація без цих фіч лишається 
    повністю безкоштовною і неблокованою.
 
+0c. МОДЕЛЬ ДЛЯ NER — ЗАВАНТАЖЕННЯ НА ВИМОГУ (додано 2026-07-17 після чистки
+   ~/models): локальних Gemma-файлів на пристрої БІЛЬШЕ НЕМАЄ (видалені як
+   Gemma-4, що виключена специфікацією). При ПЕРШОМУ вмиканні
+   enable_cast_registry: (1) діалог у UI: "Буде завантажено модель аналізу
+   персонажів (~3-4 GB). Рекомендовано Wi-Fi. Продовжити?"; (2) завантаження
+   Gemma 3n E4B (або Gemma 3 4B fallback) у ~/models/ з progress-баром і
+   докачуванням (перевикористати check_and_download-патерн deploy.sh);
+   (3) наявність/розмір моделі перевіряти перед кожним NER-проходом —
+   відсутність = чесне повідомлення, НЕ мовчазний фейл. Бот при /grant
+   вже попереджає користувача про це завантаження.
+
 1. characters.json на книгу (books/<slug>/edits/characters.json), розширення 
    edit_store.py. Схема: id, name_source[], name_target, gender, 
    grammar_rules, speech_style, is_pov_narrator, status 
