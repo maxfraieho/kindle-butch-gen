@@ -911,6 +911,25 @@
         </header>
 
         <div class="dashboard-single-col">
+            <!-- Vydra support banner status (TASK-51) -->
+            <div class="glass-card" id="supportCard" style="display:none; padding: 0.9rem 1.2rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.6rem;">
+                    <div>
+                        <span style="font-weight:600;">🦦 Примітки підтримки в книгах:</span>
+                        <span id="supportStatus" style="margin-left:0.3rem;">…</span>
+                    </div>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <a id="supportBotBtn" href="https://t.me/GetVydraBot" target="_blank" class="btn btn-primary"
+                           style="text-decoration:none; padding:0.4rem 0.8rem; font-size:0.85rem; border-radius:8px;">
+                            🤖 Керувати в Telegram (донат / вимкнення)
+                        </a>
+                        <button id="supportLocalBtn" class="btn-outline"
+                                style="padding:0.4rem 0.8rem; font-size:0.85rem; border-radius:8px; cursor:pointer;"
+                                onclick="toggleLocalBanner()">…</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Manage Books -->
             <div class="glass-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
@@ -1124,6 +1143,44 @@
         }
 
         let isFirstLoad = true;
+
+        // TASK-51: support-banner status card. The Telegram bot is the
+        // primary control (donation options live there); the local button
+        // is the promised one-step direct switch.
+        let supportLocalDisabled = false;
+        async function refreshSupportCard() {
+            try {
+                const r = await fetch('/api/support/profile', { cache: 'no-store' });
+                if (!r.ok) return;
+                const d = await r.json();
+                if (!d.config_enabled && !d.effective_disabled) return; // feature off entirely
+                supportLocalDisabled = d.local_disabled;
+                const card = document.getElementById('supportCard');
+                const status = document.getElementById('supportStatus');
+                const btn = document.getElementById('supportLocalBtn');
+                card.style.display = '';
+                if (d.effective_disabled) {
+                    status.textContent = d.remote_disabled
+                        ? 'вимкнено (через Telegram-бот)'
+                        : 'вимкнено (локально)';
+                } else {
+                    status.textContent = 'увімкнено — дякуємо, що лишаєте 💙💛';
+                }
+                btn.textContent = d.local_disabled
+                    ? 'Увімкнути локально' : 'Вимкнути локально';
+            } catch (e) { /* card simply stays hidden */ }
+        }
+        async function toggleLocalBanner() {
+            try {
+                const r = await fetch('/api/support/local-optout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ disabled: !supportLocalDisabled }),
+                });
+                if (r.ok) refreshSupportCard();
+            } catch (e) { alert('Не вдалося перемкнути: ' + e); }
+        }
+        refreshSupportCard();
 
         // TASK-46: one-button service update for non-specialists. POST
         // /api/update checks the remote; "updating" means the server is

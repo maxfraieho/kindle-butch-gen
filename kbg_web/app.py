@@ -1105,6 +1105,49 @@ def set_output_root():
 def get_settings():
     return jsonify(load_global_settings())
 
+@app.route("/api/support/profile")
+def support_profile():
+    """Support-banner status for the dashboard card (TASK-51).
+
+    Combines the LOCAL opt-out flag (global_settings.json) with the
+    REMOTE Appwrite profile flag set via @GetVydraBot. The remote read
+    inherits support_profile.fetch_profile()'s hard timeout and
+    fail-toward-enabled semantics - this endpoint never hangs the UI.
+    """
+    settings = load_global_settings()
+    local_disabled = bool(settings.get("no_support_banner"))
+    try:
+        from common.support_profile import fetch_profile
+        remote = fetch_profile()
+    except Exception:
+        remote = {"banner_disabled": False, "priority_tier": 0}
+    try:
+        from common.support_banner import load_support_config
+        cfg_enabled = load_support_config() is not None
+    except Exception:
+        cfg_enabled = False
+    return jsonify({
+        "config_enabled": cfg_enabled,
+        "local_disabled": local_disabled,
+        "remote_disabled": bool(remote.get("banner_disabled")),
+        "priority_tier": int(remote.get("priority_tier") or 0),
+        "effective_disabled": local_disabled or bool(remote.get("banner_disabled")),
+        "bot_link": "https://t.me/GetVydraBot",
+    })
+
+@app.route("/api/support/local-optout", methods=["POST"])
+def support_local_optout():
+    """One-step LOCAL banner toggle - honors the plan's promise that the
+    opt-out is never hidden behind extra steps. The Telegram-bot route is
+    the primary funnel (donation options live there), this is the direct
+    switch."""
+    data = request.get_json() or {}
+    settings = load_global_settings()
+    settings["no_support_banner"] = bool(data.get("disabled"))
+    save_global_settings(settings)
+    return jsonify({"status": "success",
+                    "local_disabled": settings["no_support_banner"]})
+
 @app.route("/api/update", methods=["POST"])
 def self_update():
     """One-button service update (TASK-46).
