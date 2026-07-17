@@ -150,7 +150,7 @@ def login():
             session.clear()
             session["user"] = username
             session.permanent = True
-            return redirect(request.args.get("next") or url_for("index"))
+            return redirect(request.args.get("next") or url_for("dashboard"))
         return render_template_string(LOGIN_PAGE, error="Невірний логін або пароль"), 401
     return render_template_string(LOGIN_PAGE, error=None)
 
