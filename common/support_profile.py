@@ -22,16 +22,26 @@ _TIMEOUT_S = 3
 _SAFE_DEFAULTS = {"banner_disabled": False, "priority_tier": 0}
 
 
+_TERMUX_HOME = "/data/data/com.termux/files/home"
+
+
 def _read_key():
     key = os.environ.get("KBG_APPWRITE_KEY", "").strip()
     if key:
         return key
-    try:
-        with open(os.path.expanduser("~/.kbg_appwrite_key"), "r",
-                  encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        return ""
+    # Two candidates because $HOME differs between Termux and the proot
+    # container (/root) while the Termux home stays bind-mounted at its
+    # absolute path - the pipeline INSIDE the container must still find
+    # the key (found live: entitlement fail-closed deactivated the cast
+    # registry during in-container translation).
+    for path in (os.path.expanduser("~/.kbg_appwrite_key"),
+                 os.path.join(_TERMUX_HOME, ".kbg_appwrite_key")):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            continue
+    return ""
 
 
 def fetch_profile():
@@ -90,7 +100,9 @@ def get_priority_tier():
 # out someone who already donated.
 import time
 
-_ENTITLEMENT_CACHE = os.path.expanduser("~/.vydra_entitlements.json")
+_ENTITLEMENT_CACHE = (os.path.join(_TERMUX_HOME, ".vydra_entitlements.json")
+                      if os.path.isdir(_TERMUX_HOME)
+                      else os.path.expanduser("~/.vydra_entitlements.json"))
 _GRACE_SECONDS = 7 * 24 * 3600
 
 
