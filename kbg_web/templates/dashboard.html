@@ -932,6 +932,7 @@
                     <div>
                         <span style="font-weight:600;">🦦 Примітки підтримки в книгах:</span>
                         <span id="supportStatus" style="margin-left:0.3rem;">…</span>
+                        <div id="premiumStatus" style="display:none; font-size:0.88rem; margin-top:0.25rem; color:#f0b429;"></div>
                     </div>
                     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                         <a id="supportBotBtn" href="https://t.me/GetVydraBot" target="_blank" class="btn btn-primary"
@@ -1183,6 +1184,15 @@
                 }
                 btn.textContent = d.local_disabled
                     ? 'Увімкнути локально' : 'Вимкнути локально';
+                const prem = document.getElementById('premiumStatus');
+                const names = { cast_registry: 'Cast Registry (рід персонажів)',
+                                vision_qa: 'Vision-QA (візуальна перевірка манґи)' };
+                if (d.entitlements && d.entitlements.length) {
+                    prem.style.display = '';
+                    prem.textContent = '💎 Преміум активовано: ' +
+                        d.entitlements.map(e => names[e] || e).join(', ') +
+                        ' — перемикачі з\'являться в налаштуваннях книги з наступним оновленням';
+                } else { prem.style.display = 'none'; }
             } catch (e) { /* card simply stays hidden */ }
         }
         async function toggleLocalBanner() {
