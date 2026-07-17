@@ -978,6 +978,164 @@
         </div>
     </div>
 
+
+    <!-- Folder Selector Modal -->
+    <div id="folderModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Output Directory</h3>
+                <button class="modal-close" onclick="closeFolderSelector()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">Choose where translated books and audio files should be saved.</p>
+                <div class="fs-parent-btn" id="fsParentBtn" onclick="navigateFsParent()" style="display: none;">
+                    <span>⬆</span> Up to parent folder
+                </div>
+                <div class="fs-list" id="fsList">
+                    <!-- Dynamic folder list -->
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.5rem;">
+                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Currently selected path (press Enter to browse):</label>
+                    <input type="text" class="fs-path-container" id="fsCurrentPath" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.15); box-sizing: border-box; outline: none; background: rgba(0,0,0,0.4);" value="/storage/emulated/0" onkeydown="if(event.key === 'Enter') loadDirectory(this.value)">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-outline" onclick="closeFolderSelector()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmFolderSelection()" id="fsSelectBtn" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: background 0.2s;">✓ Select This Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal (TASK-61) -->
+    <div id="passwordModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔑 Change Password</h3>
+                <button class="modal-close" onclick="closePasswordModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="passwordStatus" class="upload-status"></div>
+                <div class="form-group">
+                    <label for="newPassword1">New password (min 6 characters)</label>
+                    <input type="password" id="newPassword1" class="form-control" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="newPassword2">Confirm new password</label>
+                    <input type="password" id="newPassword2" class="form-control" autocomplete="new-password"
+                           onkeydown="if(event.key === 'Enter') submitPasswordChange()">
+                </div>
+                <p style="margin: 0; font-size: 0.8rem; color: var(--text-secondary);">
+                    Login name stays the same. Takes effect immediately - no restart needed.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-outline" onclick="closePasswordModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitPasswordChange()" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer;">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Models Manager Modal -->
+    <div id="modelsModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 650px;">
+            <div class="modal-header">
+                <h3>🤖 Models & Services Manager</h3>
+                <button class="modal-close" onclick="closeModelsSelector()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Server Status Section -->
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem;">
+                    <h4 style="margin: 0 0 1rem 0; font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>🖥️</span> Llama Server Status (Port 8081)
+                    </h4>
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <span id="modelsServerDot" class="status-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block;"></span>
+                            <div>
+                                <div id="modelsServerStatus" style="font-weight: 600; font-size: 0.95rem;">Checking...</div>
+                                <div id="modelsServerLoaded" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.1rem;">No model loaded</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button id="modelsStartBtn" class="btn btn-success" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--success); border: none; cursor: pointer; border-radius: 6px;" onclick="startTranslationServer()">Start Server</button>
+                            <button id="modelsStopBtn" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--danger); border: none; cursor: pointer; border-radius: 6px;" onclick="stopTranslationServer()">Stop Server</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Models Configuration -->
+                <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="modelsTranslationSelect" style="font-weight: 600; color: #fff; margin-bottom: 0.5rem; display: block;">Translation Model (.gguf)</label>
+                        <select id="modelsTranslationSelect" class="form-control" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 0.5rem; border-radius: 6px;">
+                            <!-- Populated dynamically -->
+                        </select>
+                        <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.35rem 0 0 0;">Used during PDF/EPUB text translation step.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="margin-top: 1.5rem;">
+                <button class="btn-outline" onclick="closeModelsSelector()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveModelsConfiguration()" id="modelsSaveBtn" style="background: var(--primary); border: none; color: #fff; font-weight: 500; cursor: pointer;">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+    <!-- Add Book Modal -->
+    <div id="addBookModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>➕ Add New Book</h3>
+                <button class="modal-close" onclick="closeAddBookModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="uploadStatus" class="upload-status"></div>
+                <form id="addBookForm">
+                    <div class="form-group">
+                        <label for="file_upload" id="fileUploadLabel">Upload File (PDF / EPUB / TXT / MD)</label>
+                        <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
+                    </div>
+                    <div class="form-group">
+                        <label for="pdf_path" id="pdfPathLabel">Or Enter Source PDF Path (on system)</label>
+                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
+                    </div>
+                    <input type="hidden" id="slug" required pattern="^[a-z0-9_-]+$">
+                    <div class="form-group">
+                        <label for="title">Title</label>
+                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off" oninput="document.getElementById('slug').value = slugify(this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label for="authors">Authors</label>
+                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="source_lang">Source Language</label>
+                        <select id="source_lang" class="form-control" required>
+                            <option value="auto">Auto-detect (EPUB only)</option>
+                            <option value="en">English (en)</option>
+                            <option value="ru">Russian (ru)</option>
+                            <option value="uk">Ukrainian (uk)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="lang">Target Language (TTS & E-Book)</label>
+                        <select id="lang" class="form-control" required>
+                            <option value="uk">Ukrainian (uk)</option>
+                            <option value="ru">Russian (ru)</option>
+                            <option value="en">English (en)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 1.5rem;">
+                        <input type="checkbox" id="is_manga" style="width: auto; margin: 0; cursor: pointer;" onchange="updateSourcePathPlaceholder(this.checked)">
+                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Is Manga / Comic (Images)</label>
+                    </div>
+                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Action Button -->
+    <button class="fab" id="openAddBookBtn" onclick="openAddBookModal()" title="Add New Book">➕</button>
     <script>
         // Intercept fetch to prevent credential errors when document URL has basic auth details
         (function() {
@@ -2266,163 +2424,5 @@
         // Initialize settings on page load
         initSettings();
     </script>
-
-    <!-- Folder Selector Modal -->
-    <div id="folderModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Select Output Directory</h3>
-                <button class="modal-close" onclick="closeFolderSelector()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">Choose where translated books and audio files should be saved.</p>
-                <div class="fs-parent-btn" id="fsParentBtn" onclick="navigateFsParent()" style="display: none;">
-                    <span>⬆</span> Up to parent folder
-                </div>
-                <div class="fs-list" id="fsList">
-                    <!-- Dynamic folder list -->
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.5rem;">
-                    <label style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Currently selected path (press Enter to browse):</label>
-                    <input type="text" class="fs-path-container" id="fsCurrentPath" style="width: 100%; border: 1px solid rgba(255, 255, 255, 0.15); box-sizing: border-box; outline: none; background: rgba(0,0,0,0.4);" value="/storage/emulated/0" onkeydown="if(event.key === 'Enter') loadDirectory(this.value)">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-outline" onclick="closeFolderSelector()">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmFolderSelection()" id="fsSelectBtn" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: background 0.2s;">✓ Select This Folder</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Change Password Modal (TASK-61) -->
-    <div id="passwordModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>🔑 Change Password</h3>
-                <button class="modal-close" onclick="closePasswordModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div id="passwordStatus" class="upload-status"></div>
-                <div class="form-group">
-                    <label for="newPassword1">New password (min 6 characters)</label>
-                    <input type="password" id="newPassword1" class="form-control" autocomplete="new-password">
-                </div>
-                <div class="form-group">
-                    <label for="newPassword2">Confirm new password</label>
-                    <input type="password" id="newPassword2" class="form-control" autocomplete="new-password"
-                           onkeydown="if(event.key === 'Enter') submitPasswordChange()">
-                </div>
-                <p style="margin: 0; font-size: 0.8rem; color: var(--text-secondary);">
-                    Login name stays the same. Takes effect immediately - no restart needed.
-                </p>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-outline" onclick="closePasswordModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="submitPasswordChange()" style="background: var(--primary); border: none; color: #fff; padding: 0.625rem 1.25rem; border-radius: 8px; font-weight: 500; cursor: pointer;">Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Models Manager Modal -->
-    <div id="modelsModal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 650px;">
-            <div class="modal-header">
-                <h3>🤖 Models & Services Manager</h3>
-                <button class="modal-close" onclick="closeModelsSelector()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <!-- Server Status Section -->
-                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem;">
-                    <h4 style="margin: 0 0 1rem 0; font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
-                        <span>🖥️</span> Llama Server Status (Port 8081)
-                    </h4>
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-                        <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <span id="modelsServerDot" class="status-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block;"></span>
-                            <div>
-                                <div id="modelsServerStatus" style="font-weight: 600; font-size: 0.95rem;">Checking...</div>
-                                <div id="modelsServerLoaded" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.1rem;">No model loaded</div>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button id="modelsStartBtn" class="btn btn-success" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--success); border: none; cursor: pointer; border-radius: 6px;" onclick="startTranslationServer()">Start Server</button>
-                            <button id="modelsStopBtn" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--danger); border: none; cursor: pointer; border-radius: 6px;" onclick="stopTranslationServer()">Stop Server</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Models Configuration -->
-                <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label for="modelsTranslationSelect" style="font-weight: 600; color: #fff; margin-bottom: 0.5rem; display: block;">Translation Model (.gguf)</label>
-                        <select id="modelsTranslationSelect" class="form-control" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 0.5rem; border-radius: 6px;">
-                            <!-- Populated dynamically -->
-                        </select>
-                        <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.35rem 0 0 0;">Used during PDF/EPUB text translation step.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer" style="margin-top: 1.5rem;">
-                <button class="btn-outline" onclick="closeModelsSelector()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveModelsConfiguration()" id="modelsSaveBtn" style="background: var(--primary); border: none; color: #fff; font-weight: 500; cursor: pointer;">Save Configuration</button>
-            </div>
-        </div>
-    </div>
-    <!-- Add Book Modal -->
-    <div id="addBookModal" class="modal-overlay">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h3>➕ Add New Book</h3>
-                <button class="modal-close" onclick="closeAddBookModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div id="uploadStatus" class="upload-status"></div>
-                <form id="addBookForm">
-                    <div class="form-group">
-                        <label for="file_upload" id="fileUploadLabel">Upload File (PDF / EPUB / TXT / MD)</label>
-                        <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
-                    </div>
-                    <div class="form-group">
-                        <label for="pdf_path" id="pdfPathLabel">Or Enter Source PDF Path (on system)</label>
-                        <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
-                    </div>
-                    <input type="hidden" id="slug" required pattern="^[a-z0-9_-]+$">
-                    <div class="form-group">
-                        <label for="title">Title</label>
-                        <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off" oninput="document.getElementById('slug').value = slugify(this.value)">
-                    </div>
-                    <div class="form-group">
-                        <label for="authors">Authors</label>
-                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="source_lang">Source Language</label>
-                        <select id="source_lang" class="form-control" required>
-                            <option value="auto">Auto-detect (EPUB only)</option>
-                            <option value="en">English (en)</option>
-                            <option value="ru">Russian (ru)</option>
-                            <option value="uk">Ukrainian (uk)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="lang">Target Language (TTS & E-Book)</label>
-                        <select id="lang" class="form-control" required>
-                            <option value="uk">Ukrainian (uk)</option>
-                            <option value="ru">Russian (ru)</option>
-                            <option value="en">English (en)</option>
-                        </select>
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 1.5rem;">
-                        <input type="checkbox" id="is_manga" style="width: auto; margin: 0; cursor: pointer;" onchange="updateSourcePathPlaceholder(this.checked)">
-                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Is Manga / Comic (Images)</label>
-                    </div>
-                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Floating Action Button -->
-    <button class="fab" id="openAddBookBtn" onclick="openAddBookModal()" title="Add New Book">➕</button>
 </body>
 </html>
