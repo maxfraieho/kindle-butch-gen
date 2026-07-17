@@ -10,7 +10,7 @@
     "project": "6a23420a003a04b4997b",
     "database": "kbg-support",
     "collection": "users",
-    "telegram_id": ""
+    "telegram_id": "6412868393"
   },
   "_comment": "Track A = ЗАГАЛЬНА сторінка офіційного фонду (не конкретна кампанія). track_b_url порожній = Track B не показується; заповнити посиланням на банку/BMC розробника. enabled:false або відсутність файлу = жодних вставок."
 }
