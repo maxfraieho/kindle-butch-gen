@@ -1072,6 +1072,18 @@
                 ? 'Uploading book file and extracting content (this may take a few seconds)...'
                 : 'Adding local book on system...', 'info');
 
+            // /api/add (local-path entries) rejects source_lang=auto with a
+            // 400 - there's no file content to sniff a language from, unlike
+            // an uploaded EPUB. Found live: this silently dead-ended a real
+            // manga add (son's phone) with no clear feedback path noticed.
+            // Auto-detect is the field's DEFAULT option, so a first-time
+            // user typing a manual path never has a reason to change it.
+            let effectiveSourceLang = source_lang;
+            if (!isUpload && source_lang === 'auto') {
+                effectiveSourceLang = 'en';
+                showUploadStatus('Auto-detect works only for uploaded files - using English as the source language for this local path (change "Source Language" above and retry if that\'s wrong).', 'info');
+            }
+
             async function attempt(currentSlug) {
                 if (isUpload) {
                     const formData = new FormData();
@@ -1088,7 +1100,7 @@
                 const response = await fetch('/api/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ slug: currentSlug, pdf_path, title, authors, lang, source_lang, is_manga })
+                    body: JSON.stringify({ slug: currentSlug, pdf_path, title, authors, lang, source_lang: effectiveSourceLang, is_manga })
                 });
                 return { response, res: await response.json() };
             }
