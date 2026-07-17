@@ -80,3 +80,17 @@ Set `tts_voice` to `"supertonic3"`.
 *   Відображає точний прогрес генерації у реальному часі.
 *   Надає можливість миттєвого прослуховування аудіо-прев'ю перед повним запуском озвучення книги.
 *   Дозволяє завантажувати готові файли (`.epub`, `.azw3`, `.mp3`) в один клік.
+
+## Швидкий старт на своєму Android (Vydra 🦦)
+
+1. Встановіть [Termux з F-Droid](https://f-droid.org/packages/com.termux/) (не з Play Market).
+2. Встановіть [Termux:Boot](https://f-droid.org/packages/com.termux.boot/) і відкрийте його один раз.
+3. У Termux виконайте:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/maxfraieho/kindle-butch-gen/master/deploy.sh) -a
+```
+
+Скрипт спершу проганяє діагностику вимог (aarch64, 6+GB RAM, 15+GB місця, мережа),
+потім розгортає все сам. Тримайте екран увімкненим до «Deployment complete».
+Супровід і реєстрація: [@GetVydraBot](https://t.me/GetVydraBot) (команда /install).
