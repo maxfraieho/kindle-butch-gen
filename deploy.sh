@@ -150,12 +150,15 @@ else
     UBUNTU_INSTALLED=false
 fi
 if [ "$UBUNTU_INSTALLED" = "false" ]; then
-    log "Installing Ubuntu container via proot-distro (alias: $DEPLOY_DISTRO)..."
-    if [ "$DEPLOY_DISTRO" = "ubuntu" ]; then
-        proot-distro install ubuntu
-    else
-        proot-distro install ubuntu --override-alias "$DEPLOY_DISTRO"
-    fi
+    # P1.1 fresh-test finding: a bare 'ubuntu' image resolves to the LATEST
+    # interim release (25.10/python3.14 at test time), where marker-pdf's
+    # 'Pillow<11' pin is unsatisfiable as a binary (Pillow 10.x predates
+    # py3.14) and the source build is unwinnable inside proot (Pillow's
+    # setup.py detects the bound Termux prefix and injects Android headers
+    # into the Ubuntu gcc). Pin the container to the 24.04 LTS image
+    # (python3.12), where every pinned dependency has a prebuilt wheel.
+    log "Installing Ubuntu 24.04 LTS container via proot-distro (alias: $DEPLOY_DISTRO)..."
+    proot-distro install ubuntu:24.04 --override-alias "$DEPLOY_DISTRO"
 else
     log "Ubuntu container '$DEPLOY_DISTRO' is already installed."
 fi
