@@ -48,7 +48,7 @@ log "Starting deployment of kindle-butch-gen on OnePlus 13..."
 # Ask interactively if not passed as CLI argument
 if [ "$AUTOSTART" = "false" ]; then
     echo -n -e "${BLUE}[DEPL]${NC} Do you want to configure automatic startup of services (sshd, llama-server, web server) on Termux launch? (y/N): "
-    read -r choice
+    read -r choice || choice=""   # EOF-safe: set -e must not kill a non-interactive run
     case "$choice" in 
         [yY]|[yY][eE][sS])
             AUTOSTART=true
@@ -422,7 +422,7 @@ check_and_download() {
         fi
         
         echo -n -e "${BLUE}[DEPL]${NC} Do you want to resume/retry the download? (Y/n): "
-        read -r retry_choice
+        read -r retry_choice || retry_choice=""   # EOF-safe: set -e must not kill a non-interactive run
         case "$retry_choice" in
             [nN]|[nN][oO])
                 log "Download aborted by user."
@@ -479,7 +479,7 @@ if [ ! -f "$MODEL_PATH" ]; then
     echo "  2) Paste a custom download link"
     echo "  3) Skip downloading for now"
     echo -n -e "${BLUE}[DEPL]${NC} Enter choice [1-3]: "
-    read -r model_choice
+    read -r model_choice || model_choice=""   # EOF-safe: set -e must not kill a non-interactive run
     
     case "$model_choice" in
         1)
@@ -487,7 +487,7 @@ if [ ! -f "$MODEL_PATH" ]; then
             ;;
         2)
             echo -n -e "${BLUE}[DEPL]${NC} Please paste the direct download URL for the GGUF model: "
-            read -r custom_url
+            read -r custom_url || custom_url=""   # EOF-safe: set -e must not kill a non-interactive run
             if [ -n "$custom_url" ]; then
                 log "Downloading model from custom URL..."
                 curl -L -C - --progress-bar -o "$MODEL_PATH" "$custom_url"
@@ -515,7 +515,7 @@ else
     echo -e "\n${BLUE}[DEPL]${NC} Supertonic 3 TTS model directory is missing or incomplete."
     echo "This is the premium default TTS voice model required for audiobook synthesis."
     echo -n -e "${BLUE}[DEPL]${NC} Do you want to download and extract Supertonic 3 TTS model? (Y/n): "
-    read -r tts_choice
+    read -r tts_choice || tts_choice=""   # EOF-safe: set -e must not kill a non-interactive run
     case "$tts_choice" in
         [nN]|[nN][oO])
             log "Supertonic 3 TTS model download skipped."
