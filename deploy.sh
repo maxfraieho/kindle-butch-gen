@@ -203,11 +203,26 @@ log "Configuring OpenCL and compiling llama.cpp inside Ubuntu container..."
 # single-quoted 'EOF' to protect its own $(nproc)/etc. variables (meant
 # to be evaluated INSIDE the container at run time, not by this outer
 # Termux shell at write time).
+# TASK-32 hardware-test finding (2026-07-17): PRODUCTION runs llama-server
+# TERMUX-SIDE (~/llama.cpp/build/bin, launched by start-translation-server.sh
+# with Android GPU libs on LD_LIBRARY_PATH) - NOT the container build this
+# step produces. On the real OnePlus 13 the container check below therefore
+# always failed and the script launched a full llama.cpp compile on a device
+# that already had a working (GPU-accelerated) server - a massive thermal
+# burst that got Termux SIGKILLed by Android. If a working Termux-side build
+# exists, skip the container build entirely.
+SKIP_LLAMA_BUILD=false
+if [ -x "$HOME/llama.cpp/build/bin/llama-server" ]; then
+    SKIP_LLAMA_BUILD=true
+    success "Working Termux-side llama.cpp build detected (~/llama.cpp/build/bin) - container build will be skipped."
+fi
+
 UBUNTU_SETUP_SCRIPT_PATH="/data/data/com.termux/files/home/kindle-butch-gen/ubuntu_setup.sh"
 {
     echo "#!/usr/bin/env bash"
     echo "set -euo pipefail"
     echo "ADRENO_DETECTED=$ADRENO_DETECTED"
+    echo "SKIP_LLAMA_BUILD=$SKIP_LLAMA_BUILD"
     cat << 'EOF'
 
 echo "=== [Ubuntu Setup] ==="
@@ -246,7 +261,12 @@ fi
 # reboot) before doing a full rm -rf + reclone + recompile. This also
 # correctly handles a build killed mid-compile (nothing yet installed to
 # /usr/local/bin => rebuild) vs. a genuinely completed prior run (skip).
-if [ -x /usr/local/bin/llama-server ] && [ -x /usr/local/bin/llama-cli ]; then
+if [ "$SKIP_LLAMA_BUILD" = "true" ]; then
+    echo "llama.cpp: host has a working Termux-side build (~/llama.cpp/build/bin) that production's start-translation-server.sh actually uses - skipping the container build."
+    # Clean any leftovers from a previously interrupted container build
+    # (an Android-killed compile once left 800+MB in here).
+    rm -rf /tmp/llama.cpp
+elif [ -x /usr/local/bin/llama-server ] && [ -x /usr/local/bin/llama-cli ]; then
     echo "llama.cpp binaries already present at /usr/local/bin - skipping recompilation."
 else
     echo "Cloning and building llama.cpp (flags: ${CMAKE_GPU_FLAGS:-CPU-only})..."
