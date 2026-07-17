@@ -50,15 +50,24 @@ def load_support_config():
 
 def user_opted_out():
     """The opt-out is real and one-step: a single flag wins over everything.
-    Reads <repo>/global_settings.json directly so every pipeline entry point
-    (Flask, CLI, proot) sees the same flag without plumbing."""
+    Two sources, either wins: the local global_settings.json flag, and the
+    remote Appwrite profile flag set by the Telegram bot's
+    /no_support_banner (TASK-49). The remote check has a hard timeout and
+    fails toward 'not opted out' - the banner counts as enabled and the
+    build is never blocked by the external service being down."""
     try:
         with open(os.path.join(_REPO_ROOT, "global_settings.json"),
                   "r", encoding="utf-8") as f:
             settings = json.load(f)
+        if isinstance(settings, dict) and settings.get("no_support_banner"):
+            return True
     except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    try:
+        from common.support_profile import remote_banner_disabled
+        return remote_banner_disabled()
+    except Exception:
         return False
-    return bool(isinstance(settings, dict) and settings.get("no_support_banner"))
 
 
 def is_heavy_scene(text_tail):
