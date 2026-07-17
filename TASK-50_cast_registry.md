@@ -129,6 +129,13 @@ CRITICAL: POV narrator is Фрірен — all first-person verbs must agree wit
    (3) наявність/розмір моделі перевіряти перед кожним NER-проходом —
    відсутність = чесне повідомлення, НЕ мовчазний фейл. Бот при /grant
    вже попереджає користувача про це завантаження.
+   СТАТУС НА ПРИСТРОЇ Q (2026-07-17): модель ВЖЕ завантажена і
+   розмір-верифікована: ~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf
+   (2489757856 B) + mmproj-model-f16.gguf (851251104 B), джерело
+   ggml-org/gemma-3-4b-it-GGUF. Для текстового NER досить наявних
+   llama-server/llama-cli; для vision-QA потрібно ДОБУДУВАТИ ціль
+   llama-mtmd-cli у ~/llama.cpp/build (make llama-mtmd-cli) - включи
+   це в implementацію.
 
 1. characters.json на книгу (books/<slug>/edits/characters.json), розширення 
    edit_store.py. Схема: id, name_source[], name_target, gender, 
