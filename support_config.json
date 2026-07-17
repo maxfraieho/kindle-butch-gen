@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "interval_min_pages": 50,
+  "interval_max_pages": 70,
+  "track_a_name": "Повернись живим",
+  "track_a_url": "https://savelife.in.ua/donate/",
+  "track_b_url": "",
+  "_comment": "Track A = ЗАГАЛЬНА сторінка офіційного фонду (не конкретна кампанія). track_b_url порожній = Track B не показується; заповнити посиланням на банку/BMC розробника. enabled:false або відсутність файлу = жодних вставок."
+}

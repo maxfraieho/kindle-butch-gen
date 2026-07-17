@@ -66,14 +66,21 @@
 - [ ] Евристика тону (ключові слова останнього уривка) — skip якщо важка сцена.
 - [ ] Повага до `no_support_banner` у global_settings.json.
 
-### Phase 2 — Telegram-бот + профілі (dev-сервер)
-- [ ] Бот: /start (токен ↔ TG ID), /no_support_banner, /referral.
-- [ ] Сховище профілів (SQLite на dev-сервері).
-- [ ] Синхронізація прапорця opt-out і бонусів із пайплайном.
+### Phase 2 — Telegram-бот + профілі (Appwrite, за вказівкою Q 2026-07-17)
+> Q: "система підтримки та монетизації окремо, орієнтуйся на Appwrite SaaS"
+> Акаунт: project `6a23420a003a04b4997b`, `fra.cloud.appwrite.io` (Education
+> plan), API key на dev 184 в `~/.env`. Це ОКРЕМА система від пайплайна.
+- [ ] Appwrite Function (HTTP) = Telegram-бот webhook: /start (токен ↔ TG ID),
+      /no_support_banner, /referral.
+- [ ] Appwrite Databases: колекції `profiles` (tg_id, token, no_support_banner,
+      referral_code, referred_by, bonus_tier), `referrals`.
+- [ ] Пайплайн/веб kbg читає opt-out і bonus_tier через Appwrite REST
+      (server-side ключ; телефон лише GET за токеном користувача).
 
 ### Phase 3 — сайт (1 сторінка) + реферальні бонуси в черзі
-- [ ] Статична сторінка (Cloudflare Pages або dev-сервер NGINX).
-- [ ] Пріоритет у черзі генерації для рефералів (інтеграція з наявною чергою).
+- [ ] Односторінковий сайт: Appwrite Sites або CF Pages (що простіше з наявним
+      акаунтом), лінк на бота, прозоро про Track A/B, лінк на репо.
+- [ ] Пріоритет у черзі генерації для рефералів (bonus_tier → черга).
 
 ## Обмеження/ризики
 - Тексти банерів українською; жодних спойлерів; тон-евристика консервативна
