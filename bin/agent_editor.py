@@ -62,23 +62,36 @@ def _overlaps_any(box, partners):
     return any(_intersection(box, p) for p in partners)
 
 
-def resolve_overlap(box, partners, W, H, min_gap=8):
+def resolve_overlap(box, partners, W, H, min_gap=8,
+                    prefer=None, forbid=None, max_shift=None):
     """Minimal-displacement shift (or edge cut as fallback) that leaves
     ZERO intersection with every partner box. Returns a new [x1,y1,x2,y2]
-    or None if no acceptable geometry exists."""
+    or None if no acceptable geometry exists.
+
+    prefer/forbid/max_shift come from Q-authored DRAKON rules (TASK-66):
+    preferred directions are tried first (then the rest by distance),
+    forbidden ones are never tried, and any candidate shift longer than
+    max_shift px is rejected."""
     x1, y1, x2, y2 = box
     for _ in range(4):  # a shift can create a new collision; few passes
         hit = next((p for p in partners if _intersection((x1, y1, x2, y2), p)), None)
         if hit is None:
             break
-        moves = [
-            (hit[0] - x2 - min_gap, 0),   # shift left of partner
-            (hit[2] - x1 + min_gap, 0),   # shift right of partner
-            (0, hit[1] - y2 - min_gap),   # shift above partner
-            (0, hit[3] - y1 + min_gap),   # shift below partner
-        ]
+        moves = {
+            "left":  (hit[0] - x2 - min_gap, 0),
+            "right": (hit[2] - x1 + min_gap, 0),
+            "up":    (0, hit[1] - y2 - min_gap),
+            "down":  (0, hit[3] - y1 + min_gap),
+        }
+        for d in (forbid or []):
+            moves.pop(d, None)
+        ordered = sorted(moves.items(),
+                         key=lambda kv: (0 if kv[0] in (prefer or []) else 1,
+                                         abs(kv[1][0]) + abs(kv[1][1])))
+        candidates = [v for _, v in ordered
+                      if max_shift is None or abs(v[0]) + abs(v[1]) <= max_shift]
         placed = False
-        for dx, dy in sorted(moves, key=lambda m: abs(m[0]) + abs(m[1])):
+        for dx, dy in candidates:
             nx1, ny1, nx2, ny2 = x1 + dx, y1 + dy, x2 + dx, y2 + dy
             if nx1 >= 0 and ny1 >= 0 and nx2 <= W and ny2 <= H \
                     and not _overlaps_any((nx1, ny1, nx2, ny2), partners):
@@ -109,8 +122,9 @@ def load_rules(book_dir, repo):
     """v0 rules interpreter (TASK-66): reads agent_rules.yaml written by
     the studio's drakon2rules converter (strict subset - parsed with a
     tiny indent parser, no yaml dependency on the Termux host). Honored
-    verbs in v0: skip, require_note, veto_note. Directional verbs are
-    parsed and logged but not yet steering geometry."""
+    verbs: skip, require_note, advise lines (vision prompt), and the
+    directional set - prefer_move / forbid_move / max_shift_px - which
+    steer resolve_overlap's candidate ordering directly."""
     path = os.path.join(book_dir, "agent_rules.yaml")
     if not os.path.exists(path):
         path = os.path.join(repo, "agent_rules.yaml")
@@ -179,23 +193,40 @@ def _eval_cond(cond, facts):
 
 
 def apply_rules(rules, facts):
-    """Returns (skip_reason|None, extra_notes, matched_ids). First-in-file
-    precedence; skip is strongest and stops evaluation."""
+    """Returns (skip_reason|None, extra_notes, matched_ids, constraints).
+    First-in-file precedence; skip is strongest and stops evaluation.
+    constraints: prefer/forbid move directions, max_shift_px - consumed
+    by resolve_overlap so Q's diagrams literally steer the geometry."""
     notes, matched = [], []
+    cons = {"prefer": [], "forbid": [], "max_shift": None}
     for r in rules:
         if not all(_eval_cond(c, facts) for c in r["when"]):
             continue
         matched.append(r["id"])
         for verb, arg in r["then"]:
             if verb == "skip":
-                return arg or r["id"], notes, matched
+                return arg or r["id"], notes, matched, cons
             if verb == "require_note":
                 notes.append(arg)
             elif verb == "veto_note":
-                pass  # collected globally via advise; per-rule veto notes v1
+                pass  # advise lines cover the vision prompt globally
+            elif verb == "prefer_move" and arg in ("left", "right", "up", "down"):
+                if arg not in cons["prefer"]:
+                    cons["prefer"].append(arg)
+            elif verb == "forbid_move" and arg in ("left", "right", "up", "down"):
+                if arg not in cons["forbid"]:
+                    cons["forbid"].append(arg)
+            elif verb == "max_shift_px":
+                try:
+                    v = int(arg)
+                    # first-in-file wins: keep the earliest (strictest-by-order)
+                    if cons["max_shift"] is None:
+                        cons["max_shift"] = v
+                except ValueError:
+                    log(f"[rules] {r['id']}: bad max_shift_px value {arg!r}")
             else:
-                log(f"[rules] {r['id']}: verb {verb!r} parsed, not yet honored in v0 interpreter")
-    return None, notes, matched
+                log(f"[rules] {r['id']}: verb {verb!r} not honored (font verbs apply once font proposals exist)")
+    return None, notes, matched, cons
 
 
 def is_nonsense_text(text):
@@ -416,7 +447,7 @@ def main():
         # 0. Q-authored rules first (TASK-66 v0 interpreter): the
         # knowledge base can skip a case outright or attach notes.
         facts = _rule_facts(case, bubble, width, height)
-        skip_reason, rule_notes, matched_ids = apply_rules(rules, facts)
+        skip_reason, rule_notes, matched_ids, rule_cons = apply_rules(rules, facts)
         if matched_ids:
             log(f"[rules] matched for {bubble_id}: {', '.join(matched_ids)}")
         if skip_reason:
@@ -456,7 +487,10 @@ def main():
             if widened and not _overlaps_any(widened, partners):
                 new_box, fix_kind = widened, "widen-distorted-box"
             elif partners:
-                resolved = resolve_overlap(cur_box, partners, width, height)
+                resolved = resolve_overlap(cur_box, partners, width, height,
+                                           prefer=rule_cons["prefer"],
+                                           forbid=rule_cons["forbid"],
+                                           max_shift=rule_cons["max_shift"])
                 if resolved and resolved != [int(v) for v in cur_box]:
                     new_box, fix_kind = resolved, "resolve-overlap"
 
