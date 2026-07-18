@@ -1640,6 +1640,40 @@
                     return;
                 }
 
+                // Не перемальовувати картки, поки користувач із ними
+                // працює: інакше 5-секундний авто-рефреш закриває
+                // «Додаткові налаштування», скидає чекбокси й скролить
+                // термінал під руками. Замість повного innerHTML робимо
+                // ЛЕГКЕ точкове оновлення прогресу і виходимо.
+                const userBusy = !isFirstLoad && container.children.length > 0 && (
+                    Array.from(container.querySelectorAll('details[id^="adv-"]')).some(d => d.open) ||
+                    (document.activeElement && container.contains(document.activeElement)) ||
+                    (currentLogsSlug && document.getElementById(`terminal-${currentLogsSlug}`)?.style.display === 'block')
+                );
+                if (userBusy) {
+                    books.forEach(book => {
+                        const badge = document.getElementById(`badge-${book.slug}`);
+                        if (badge) {
+                            badge.className = `badge ${book.is_running ? 'badge-running' : 'badge-idle'}`;
+                            badge.textContent = book.is_running ? 'Працює' : 'Очікує';
+                        }
+                        const pf = document.getElementById(`progressfill-${book.slug}`);
+                        const pp = document.getElementById(`progresspct-${book.slug}`);
+                        if (book.progress.is_manga) {
+                            const pct = book.progress.manga_percent || 0;
+                            if (pf) pf.style.width = pct + '%';
+                            if (pp) pp.textContent = pct + '%';
+                        } else {
+                            const op = Math.round(((book.progress.marker_percent||0)+(book.progress.translation_percent||0)+(book.progress.stress_percent||0)+(book.progress.tts_percent||0))/4);
+                            if (pf) pf.style.width = op + '%';
+                            if (pp) pp.textContent = op + '%';
+                        }
+                    });
+                    if (currentLogsSlug) pollLogs();
+                    isFirstLoad = false;
+                    return;
+                }
+
                 container.innerHTML = books.map((book, index) => {
                     const badgeClass = book.is_running ? 'badge-running' : 'badge-idle';
                     const badgeText = book.is_running ? 'Працює' : 'Очікує';
@@ -1699,10 +1733,10 @@
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
                                     <span class="pipeline-active-stage">Перекладаю сторінки: <strong>${comp} із ${tot}</strong></span>
-                                    <span class="pipeline-percent">${pct}%</span>
+                                    <span class="pipeline-percent" id="progresspct-${book.slug}">${pct}%</span>
                                 </div>
                                 <div class="progress-bar-bg">
-                                    <div class="progress-bar-fill fill-translation" style="width: ${pct}%"></div>
+                                    <div class="progress-bar-fill fill-translation" id="progressfill-${book.slug}" style="width: ${pct}%"></div>
                                 </div>
                             </div>
                         `;
@@ -1735,10 +1769,10 @@
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
                                     <span class="pipeline-active-stage"><strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
-                                    <span class="pipeline-percent">${overall_p}%</span>
+                                    <span class="pipeline-percent" id="progresspct-${book.slug}">${overall_p}%</span>
                                 </div>
                                 <div class="progress-bar-bg">
-                                    <div class="progress-bar-fill pipeline-gradient-fill" style="width: ${overall_p}%"></div>
+                                    <div class="progress-bar-fill pipeline-gradient-fill" id="progressfill-${book.slug}" style="width: ${overall_p}%"></div>
                                 </div>
                                 <div class="pipeline-steps">
                                     <span class="step-node ${marker_p === 100 ? 'completed' : (activeStage === 'Розпізнаю текст' ? 'active' : '')}" title="Розпізнавання тексту">Текст</span>
@@ -1846,7 +1880,7 @@
                                     <h3>${book.title}</h3>
                                     ${book.authors && book.authors !== 'Unknown' ? `<p>${book.authors}</p>` : ''}
                                 </div>
-                                <span class="badge ${badgeClass}">${badgeText}</span>
+                                <span id="badge-${book.slug}" class="badge ${badgeClass}">${badgeText}</span>
                             </div>
 
                             ${progressHtml}
