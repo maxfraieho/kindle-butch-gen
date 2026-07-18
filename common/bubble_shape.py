@@ -53,6 +53,12 @@ def classify_bubble_shape(gray, box):
         wx2, wy2 = min(W, x2 + margin), min(H, y2 + margin)
         win = gray[wy1:wy2, wx1:wx2]
         light = (win > LIGHT_THRESHOLD).astype(np.uint8)
+        # Morphological opening of the LIGHT mask = closing of the dark
+        # outline: seals hairline gaps in the balloon border (tail
+        # openings, scan artifacts) so the flood can't leak through a
+        # 1-2px crack and falsely mark a closed bubble as open.
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        light = cv2.morphologyEx(light, cv2.MORPH_OPEN, kernel)
 
         # Seed at the box center; if it lands on a leftover dark pixel,
         # probe a small neighborhood before giving up.
@@ -82,6 +88,18 @@ def classify_bubble_shape(gray, box):
         # balloon around this text (caption on art, sign, SFX).
         return _res("sfx_candidate", 0, 0, not touches, 0.5)
     if touches:
+        # Open region: distinguish rectangular CAPTION/narration boxes
+        # (very common in seinen like frieren - panel-edge-attached
+        # rectangles) from free-floating SFX. A caption's flooded
+        # region fills its own bounding rect almost completely
+        # (rectangularity ~1); irregular art background doesn't.
+        rx, ry, rw, rh = cv2.boundingRect(cnt)
+        rect_fill = cv2.contourArea(cnt) / max(1, rw * rh)
+        # And it should not have flooded into half the page - a caption
+        # region stays comparable to the text box size.
+        area_ratio = cv2.contourArea(cnt) / max(1, w * h)
+        if rect_fill > 0.85 and area_ratio < 8:
+            return _res("caption", 0, 0, False, 0.7)
         return _res("sfx_candidate", 0, 0, False, 0.6)
 
     pts = cnt[:, 0, :].astype(np.float64)
