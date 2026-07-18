@@ -790,6 +790,21 @@ def _normalize_sentence_case(text, glossary):
 # hit the network at most once, never per page). None = feature inactive.
 _CAST_CACHE = {"initialized": False, "chars": None}
 
+# TASK-67: bubble-tone prompt injection gate. Classification itself
+# always runs (data lands in bubbles_meta); only the PROMPT effect is
+# flag-gated until a live retranslate A/B confirms no regressions.
+_TONE_CFG = {"enabled": False}
+
+
+def init_bubble_tone(book_dir):
+    try:
+        cfg = json.load(open(os.path.join(book_dir, "config.json"), encoding="utf-8"))
+        _TONE_CFG["enabled"] = bool(cfg.get("enable_bubble_tone"))
+        if _TONE_CFG["enabled"]:
+            log("Bubble-tone prompt injection: ENABLED for this book")
+    except Exception:
+        _TONE_CFG["enabled"] = False
+
 
 def init_cast_registry(book_dir):
     if _CAST_CACHE["initialized"]:
@@ -810,7 +825,7 @@ def init_cast_registry(book_dir):
 
 
 def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None,
-                        cast_characters=None):
+                        cast_characters=None, tones=None):
     if not texts:
         return {}
 
@@ -844,14 +859,29 @@ def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None,
         except Exception:
             cast_rules = ""
 
-    prompt_list = "\n".join([f"{i+1}. {txt}" for i, txt in enumerate(remaining)])
+    # TASK-67: per-bubble tone tags from geometric bubble classification
+    # (shout/thought/caption). tones maps source text -> class. When the
+    # feature is off or every bubble is plain speech, the prompt stays
+    # byte-identical to before (same guarantee as the Cast Registry hook).
+    tone_tag = {"shout": "[КРИК]", "thought": "[ДУМКА]", "caption": "[НАРАЦІЯ]"}
+    tones = tones or {}
+    def _line(i, txt):
+        tag = tone_tag.get(tones.get(txt, ""), "")
+        return f"{i+1}. {tag} {txt}" if tag else f"{i+1}. {txt}"
+    prompt_list = "\n".join([_line(i, txt) for i, txt in enumerate(remaining)])
+    tone_rules = ""
+    if any(tones.get(t) in tone_tag for t in remaining):
+        tone_rules = ("Some lines carry a tone tag describing the bubble type - adapt the translation register accordingly and DO NOT copy the tag into the output:\n"
+                      "[КРИК] - a shout/burst bubble: expressive, punchy phrasing.\n"
+                      "[ДУМКА] - an inner-thought cloud: reflective, softer inner voice.\n"
+                      "[НАРАЦІЯ] - a narration caption: literary register, third person.\n")
 
     system_prompt = f"""You are a professional manga translator. Translate the following numbered list of texts from {source_lang.upper()} to Ukrainian.
 Preserve context, sound effects (if present), informal spoken registers, character personalities, and sentence fragments.
 Do NOT translate characters names if they are part of the glossary.
 The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting entirely. Output your translation in normal Ukrainian sentence case: capitalize only the first letter of each sentence and proper nouns, everything else lowercase. Never output an entire line in capital letters unless it is a genuine sound effect (onomatopoeia) or the character is explicitly shouting/emphasizing that specific word.
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
-{glossary_rules}{cast_rules}"""
+{glossary_rules}{cast_rules}{tone_rules}"""
 
     try:
         response = requests.post(
@@ -1036,12 +1066,32 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
     if not page_ocr_texts:
         return img, img, page_quality_flags, page_bubbles_meta
 
-    translations = translate_batch_llm(page_ocr_texts, lang, glossary, api_url, overrides=overrides, cast_characters=_CAST_CACHE["chars"])
-
     # Stage B: larger radius + per-block flat-fill fallback for cases the
     # wider TELEA radius alone still leaves a "ghost" of the original
     # text under (bold/large source fonts).
     inpainted = robust_inpaint(img, mask_refined, blk_list)
+
+    # TASK-67: geometric bubble classification on the INPAINTED page
+    # (glyphs gone, balloon outline intact - the flood-fill needs a clear
+    # interior). Always computed and stored in bubbles_meta; feeds the
+    # translation prompt only when enable_bubble_tone is on.
+    bubble_class_by_text = {}
+    bubble_class_full = {}
+    try:
+        from common.bubble_shape import classify_bubble_shape
+        gray_clean = cv2.cvtColor(inpainted, cv2.COLOR_BGR2GRAY)
+        for blk, orig_txt in block_crops:
+            bx1, by1, bx2, by2 = blk.xyxy
+            cls = classify_bubble_shape(gray_clean, [bx1, by1, bx2, by2])
+            bubble_class_full[orig_txt] = cls
+            if cls["confidence"] >= 0.6:
+                bubble_class_by_text[orig_txt] = cls["bubble_class"]
+    except Exception as e:
+        log(f"bubble classification skipped: {e}")
+
+    translations = translate_batch_llm(page_ocr_texts, lang, glossary, api_url, overrides=overrides,
+                                       cast_characters=_CAST_CACHE["chars"],
+                                       tones=bubble_class_by_text if _TONE_CFG["enabled"] else None)
 
     pil_img = Image.fromarray(cv2.cvtColor(inpainted, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil_img)
@@ -1139,6 +1189,8 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
             "bbox_ref_size": [w_img, h_img],
             "original_text": orig_txt,
             "translated_text": translated_txt,
+            "bubble_class": (bubble_class_full.get(orig_txt) or {}).get("bubble_class"),
+            "bubble_class_confidence": (bubble_class_full.get(orig_txt) or {}).get("confidence"),
             "quality_flags": bubble_quality_flags
         })
 
@@ -1339,6 +1391,7 @@ def _scale_bbox_overrides(raw_bbox_overrides, actual_img_shape):
 
 def regenerate_single_page(args, glossary, detector, mocr):
     init_cast_registry(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
+    init_bubble_tone(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
     """TASK-21: re-runs the FULL A-E pipeline (process_page) on just one
     page, for a manual bubble-edit regen. Deliberately does NOT skip
     straight to typeset on the existing cleaned image - re-running
@@ -1803,6 +1856,7 @@ def main():
                     shutil.copy2(page_path, os.path.join(temp_out, basename))
 
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+        init_bubble_tone(book_dir)
 
         for idx, page_path in enumerate(pages_to_process):
             log(f"Page {idx+1}/{len(pages_to_process)}: {os.path.basename(page_path)}")
