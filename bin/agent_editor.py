@@ -173,7 +173,6 @@ def main():
     existing = {e["target_id"] for e in edit_store.list_edits(args.book)
                 if e["status"] in ("pending", "approved")}
 
-    from PIL import Image
     proposed = skipped = 0
     for case in cases:
         if proposed >= args.limit:
@@ -205,7 +204,16 @@ def main():
             skipped += 1
             continue
 
-        width, height = Image.open(image_path).size
+        # Canonical bubble coordinate space (no PIL on the Termux host -
+        # TASK-57 lesson; bubbles_meta already carries the reference size,
+        # and using it keeps every number in the prompt consistent with
+        # the bubble bboxes, which are stored in that same space).
+        ref = bubble.get("bbox_ref_size")
+        if not (isinstance(ref, list) and len(ref) == 2):
+            log(f"skip {bubble_id}: no bbox_ref_size in meta")
+            skipped += 1
+            continue
+        width, height = int(ref[0]), int(ref[1])
         facts = {
             "reason": case.get("reason"),
             "bubble_id": bubble_id,
