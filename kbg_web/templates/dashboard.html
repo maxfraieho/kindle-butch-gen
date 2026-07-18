@@ -1523,6 +1523,7 @@
         async function fetchBooks() {
             try {
                 const openDetails = {};
+                const openAdvanced = {};
                 const formValues = {};
                 const activeId = document.activeElement ? document.activeElement.id : null;
                 let selStart = null, selEnd = null;
@@ -1553,6 +1554,10 @@
 
                         if (detailsEl) {
                             openDetails[slug] = detailsEl.open;
+                        }
+                        const advEl = document.getElementById(`adv-${slug}`);
+                        if (advEl) {
+                            openAdvanced[slug] = advEl.open;
                         }
 
                         formValues[slug] = {
@@ -1592,6 +1597,7 @@
                     const badgeClass = book.is_running ? 'badge-running' : 'badge-idle';
                     const badgeText = book.is_running ? 'Працює' : 'Очікує';
                     const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
+                    const advOpenAttr = openAdvanced[book.slug] ? 'open' : '';
                     
                     let speakerOptions = '';
                     let speakerDisabled = '';
@@ -1609,29 +1615,29 @@
                     const stress_p = book.progress.stress_percent || 0;
                     const tts_p = book.progress.tts_percent || 0;
 
-                    let activeStage = "Idle";
+                    let activeStage = "Очікує";
                     let activePercent = 0;
 
                     if (tts_p > 0 && tts_p < 100) {
-                        activeStage = "TTS Audio";
+                        activeStage = "Озвучую";
                         activePercent = tts_p;
                     } else if (stress_p > 0 && stress_p < 100) {
-                        activeStage = "Stressifier";
+                        activeStage = "Розставляю наголоси";
                         activePercent = stress_p;
                     } else if (trans_p > 0 && trans_p < 100) {
-                        activeStage = "Translation";
+                        activeStage = "Перекладаю";
                         activePercent = trans_p;
                     } else if (marker_p > 0 && marker_p < 100) {
-                        activeStage = "Marker (OCR)";
+                        activeStage = "Розпізнаю текст";
                         activePercent = marker_p;
                     } else if (tts_p === 100) {
-                        activeStage = "Completed";
+                        activeStage = "Готово ✅";
                         activePercent = 100;
                     } else if (book.is_running) {
-                        if (marker_p < 100) { activeStage = "Marker (OCR)"; activePercent = marker_p; }
-                        else if (trans_p < 100) { activeStage = "Translation"; activePercent = trans_p; }
-                        else if (stress_p < 100) { activeStage = "Stressifier"; activePercent = stress_p; }
-                        else if (tts_p < 100) { activeStage = "TTS Audio"; activePercent = tts_p; }
+                        if (marker_p < 100) { activeStage = "Розпізнаю текст"; activePercent = marker_p; }
+                        else if (trans_p < 100) { activeStage = "Перекладаю"; activePercent = trans_p; }
+                        else if (stress_p < 100) { activeStage = "Розставляю наголоси"; activePercent = stress_p; }
+                        else if (tts_p < 100) { activeStage = "Озвучую"; activePercent = tts_p; }
                     }
 
                     const overall_p = Math.round((marker_p + trans_p + stress_p + tts_p) / 4);
@@ -1645,7 +1651,7 @@
                         progressHtml = `
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
-                                    <span class="pipeline-active-stage">Manga Translation: <strong>${comp} of ${tot} pages</strong></span>
+                                    <span class="pipeline-active-stage">Перекладаю сторінки: <strong>${comp} із ${tot}</strong></span>
                                     <span class="pipeline-percent">${pct}%</span>
                                 </div>
                                 <div class="progress-bar-bg">
@@ -1655,13 +1661,13 @@
                         `;
                         optionsHtml = `
                             <div class="options-group" id="opts-${book.slug}">
-                                <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Clean Pages</label>
-                                <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Translate</label>
-                                <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Build Kindle AZW3</label>
+                                <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Повторно очистити сторінки</label>
+                                <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Переклад</label>
+                                <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Книга для Kindle (AZW3)</label>
                             </div>
                             
                             <div class="form-group" style="margin-top:0.75rem; margin-bottom:0.75rem;">
-                                <label for="manga-res-${book.slug}" style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.25rem;">Target Device / Screen Resolution</label>
+                                <label for="manga-res-${book.slug}" style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.25rem;">Пристрій для читання (роздільність)</label>
                                 <select id="manga-res-${book.slug}" class="form-control" style="padding: 0.4rem 0.5rem; font-size: 0.85rem; width: 100%;">
                                     <option value="1280x1920" selected>Safe Default (1280x1920)</option>
                                     <option value="1860x2480">Kindle Scribe (1860x2480)</option>
@@ -1674,36 +1680,36 @@
                             </div>
 
                             <div style="font-size: 0.8rem; color: var(--text-secondary); padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                                📖 <strong>Manga Mode:</strong> Packs pages to CBZ and compiles to AZW3 for Kindle (RTL layout).
+                                📖 Режим манґи: сторінки пакуються у CBZ і збираються в AZW3 для Kindle (читання справа наліво).
                             </div>
                         `;
                     } else {
                         progressHtml = `
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
-                                    <span class="pipeline-active-stage">Stage: <strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
+                                    <span class="pipeline-active-stage"><strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
                                     <span class="pipeline-percent">${overall_p}%</span>
                                 </div>
                                 <div class="progress-bar-bg">
                                     <div class="progress-bar-fill pipeline-gradient-fill" style="width: ${overall_p}%"></div>
                                 </div>
                                 <div class="pipeline-steps">
-                                    <span class="step-node ${marker_p === 100 ? 'completed' : (activeStage === 'Marker (OCR)' ? 'active' : '')}" title="OCR">OCR</span>
+                                    <span class="step-node ${marker_p === 100 ? 'completed' : (activeStage === 'Розпізнаю текст' ? 'active' : '')}" title="Розпізнавання тексту">Текст</span>
                                     <span class="step-divider"></span>
-                                    <span class="step-node ${trans_p === 100 ? 'completed' : (activeStage === 'Translation' ? 'active' : '')}" title="Translation">Trans</span>
+                                    <span class="step-node ${trans_p === 100 ? 'completed' : (activeStage === 'Перекладаю' ? 'active' : '')}" title="Переклад">Переклад</span>
                                     <span class="step-divider"></span>
-                                    <span class="step-node ${stress_p === 100 ? 'completed' : (activeStage === 'Stressifier' ? 'active' : '')}" title="Stressifier">Stress</span>
+                                    <span class="step-node ${stress_p === 100 ? 'completed' : (activeStage === 'Розставляю наголоси' ? 'active' : '')}" title="Наголоси для озвучення">Наголоси</span>
                                     <span class="step-divider"></span>
-                                    <span class="step-node ${tts_p === 100 ? 'completed' : (activeStage === 'TTS Audio' ? 'active' : '')}" title="Audio TTS">TTS</span>
+                                    <span class="step-node ${tts_p === 100 ? 'completed' : (activeStage === 'Озвучую' ? 'active' : '')}" title="Синтез аудіо">Звук</span>
                                 </div>
                             </div>
                         `;
                         optionsHtml = `
                             <div class="options-group" id="opts-${book.slug}">
-                                <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Clean</label>
-                                <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Translate</label>
-                                <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Build Ebook</label>
-                                <label class="option-checkbox"><input type="checkbox" id="audio-${book.slug}" checked> Generate Audio</label>
+                                <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Повторне очищення</label>
+                                <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Переклад</label>
+                                <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Електронна книга</label>
+                                <label class="option-checkbox"><input type="checkbox" id="audio-${book.slug}" checked> Аудіокнига</label>
                             </div>
                         `;
                     }
@@ -1712,7 +1718,7 @@
                     if (!book.progress.is_manga) {
                         settingsHtml = `
                             <details class="settings-details" id="details-${book.slug}" ${detailsOpenAttr}>
-                                <summary>🛠️ TTS Settings</summary>
+                                <summary>🎙️ Налаштування голосу</summary>
                                 <form onsubmit="saveTtsSettings(event, '${book.slug}')" class="settings-grid">
 
                                     <div class="form-group" style="margin-bottom:0;">
@@ -1766,6 +1772,22 @@
                         `;
                     }
 
+                    // Simple-mode primary action (TASK-68 UX): one big
+                    // obvious next step per state - the reference user is
+                    // a non-technical manga reader.
+                    const files = book.output_files || [];
+                    const pick = (exts) => { for (const e of exts) { const f = files.find(x => x.endsWith(e)); if (f) return f; } return null; };
+                    const primaryFile = pick(['.azw3', '.epub', '.cbz', '.mp3', '.md']);
+                    let primaryHtml = '';
+                    if (book.is_running) {
+                        primaryHtml = `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">⏸ Зупинити переклад</button>`;
+                    } else if (primaryFile) {
+                        primaryHtml = `<a class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem; text-decoration:none; text-align:center;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити готову книгу</a>
+                            <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; padding:0.8rem 1rem;">📖 Переглянути</a>`;
+                    } else {
+                        primaryHtml = `<button onclick="runConversion('${book.slug}')" class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">▶️ Почати переклад</button>`;
+                    }
+
                     const cardStyle = isFirstLoad
                         ? `style="animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${index * 50}ms; opacity: 0; animation-fill-mode: forwards;"`
                         : `style="opacity: 1;"`;
@@ -1775,33 +1797,34 @@
                             <div class="book-header">
                                 <div class="book-info">
                                     <h3>${book.title}</h3>
-                                    <p>by ${book.authors} | Slug: <code>${book.slug}</code> | Lang: ${book.target_lang}</p>
+                                    ${book.authors && book.authors !== 'Unknown' ? `<p>${book.authors}</p>` : ''}
                                 </div>
                                 <span class="badge ${badgeClass}">${badgeText}</span>
                             </div>
 
                             ${progressHtml}
 
-                            ${optionsHtml}
-
-                            ${settingsHtml}
-
-                            <div class="controls">
-                                ${book.is_running 
-                                    ? `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger">Stop Conversion</button>`
-                                    : `<button onclick="runConversion('${book.slug}')" class="btn btn-success">▶️ Перекласти</button>`
-                                }
-                                ${!book.is_running && book.output_files && book.output_files.length > 0
-                                    ? `<button onclick="rerunConversion('${book.slug}')" class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); color: white; border: none;">🔄 Re-run</button>`
-                                    : ''
-                                }
-                                <button onclick="toggleBookTerminal('${book.slug}', '${book.title}')" class="btn btn-secondary">Console Logs</button>
-                                <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center;">Visual Preview</a>
-                                ${!book.is_running
-                                    ? `<button onclick="deleteBook('${book.slug}', '${book.title.replace(/'/g, "\\'")}')" class="btn btn-danger" title="Delete this book permanently">🗑️ Delete</button>`
-                                    : ''
-                                }
+                            <div class="controls" style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+                                ${primaryHtml}
                             </div>
+
+                            <details class="settings-details" id="adv-${book.slug}" ${advOpenAttr} style="margin-top:0.8rem;">
+                                <summary>⚙️ Додаткові налаштування та дії</summary>
+                                ${optionsHtml}
+                                ${settingsHtml}
+                                <div class="controls" style="margin-top:0.8rem;">
+                                    ${!book.is_running && book.output_files && book.output_files.length > 0
+                                        ? `<button onclick="rerunConversion('${book.slug}')" class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); color: white; border: none;">🔄 Перекласти заново</button>`
+                                        : ''
+                                    }
+                                    ${!primaryFile && !book.is_running ? `<a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none;">📖 Переглянути сторінки</a>` : ''}
+                                    <button onclick="toggleBookTerminal('${book.slug}', '${book.title}')" class="btn btn-secondary">🧾 Технічний журнал</button>
+                                    ${!book.is_running
+                                        ? `<button onclick="deleteBook('${book.slug}', '${book.title.replace(/'/g, "\\'")}')" class="btn btn-danger" title="Видалити книгу назавжди">🗑️ Видалити</button>`
+                                        : ''
+                                    }
+                                </div>
+                            </details>
 
                             ${book.output_files && book.output_files.length > 0 ? `
                                 <div class="downloads">
