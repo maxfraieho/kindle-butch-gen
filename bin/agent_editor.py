@@ -83,8 +83,13 @@ def query_mempalace(text):
 
 
 def run_vision(model, mmproj, image_path, prompt, timeout=1200):
+    # -t 4: deliberately NOT all cores. Full-load llama-mtmd-cli got the
+    # entire Termux session killed by Android's background process killer
+    # on the OnePlus 13 (known device behavior, independent of thermals -
+    # happened WITH active cooling and 8GB free RAM). Slower per page but
+    # survives.
     cmd = [MTMD_CLI, "-m", model, "--mmproj", mmproj, "--image", image_path,
-           "-c", "8192", "-n", "512", "--temp", "0.2", "-p", prompt]
+           "-c", "8192", "-n", "512", "--temp", "0.2", "-t", "4", "-p", prompt]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return res.stdout
 
