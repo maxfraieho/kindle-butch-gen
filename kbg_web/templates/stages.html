@@ -1359,15 +1359,30 @@
                 });
 
                 let html = "";
+                if (window._lastApprovedPage) {
+                    const ap = window._lastApprovedPage;
+                    const apMatch = ap.match(/- p(\d+)/);
+                    const apLabel = apMatch ? `сторінку ${parseInt(apMatch[1], 10)}` : "сторінку";
+                    html += `<div class="glass-card" style="padding:0.8rem 1rem; margin-bottom:1rem; border:1px solid rgba(34,197,94,.4); display:flex; align-items:center; gap:0.8rem; flex-wrap:wrap;">
+                        <span style="color:#22c55e;">✅ Правку прийнято.</span>
+                        <button class="nav-btn" style="padding:0.35rem 0.8rem; font-size:0.85rem; background:var(--primary); color:#fff;" onclick="viewPageResult('${jsAttrEscape(ap)}', this)">👁 Подивитись ${apLabel}</button>
+                    </div>`;
+                    window._lastApprovedPage = null;
+                }
                 if (Object.keys(byPage).length === 0) {
                     html += `<div class="glass-card" style="text-align:center; padding:2rem; color:var(--text-secondary);">Немає pending-правок для манги.</div>`;
                 } else {
                     for (const [page, pageEdits] of Object.entries(byPage)) {
+                        const pm = page.match(/- p(\d+)/);
+                        const pageLabel = pm ? `Сторінка ${parseInt(pm[1], 10)}` : page;
                         html += `
                             <div class="paragraph-card" style="margin-bottom:1rem;">
                                 <div class="card-meta">
-                                    <span>📄 ${page} — ${pageEdits.length} правк${pageEdits.length === 1 ? 'а' : 'и'}</span>
-                                    <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="regeneratePageFromQueue('${jsAttrEscape(page)}', this)">🔄 Regenerate page</button>
+                                    <span title="${jsAttrEscape(page)}">📄 ${pageLabel} — ${pageEdits.length} правк${pageEdits.length === 1 ? 'а' : 'и'}</span>
+                                    <span style="display:flex; gap:0.4rem;">
+                                        <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="regeneratePageFromQueue('${jsAttrEscape(page)}', this)">🔄 Застосувати</button>
+                                        <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="viewPageResult('${jsAttrEscape(page)}', this)">👁 Результат</button>
+                                    </span>
                                 </div>
                                 ${pageEdits.map(e => `
                                     <div style="border-top:1px dashed var(--border-color); padding-top:0.6rem; margin-top:0.6rem;">
@@ -1402,7 +1417,7 @@
                                             </label>
                                         </div>`}
                                         <div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">
-                                            <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="approveMangaEdit('${e.id}', this)">✅ Approve</button>
+                                            <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="approveMangaEdit('${e.id}', this, '${jsAttrEscape(page)}')">✅ Approve</button>
                                             ${typeof e.edited_value === 'object' ? `<button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="replacePendingEditWithMine('${e.id}', this)">💾 Замінити моєю правкою</button>` : ''}
                                             <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="discardEdit('${e.id}', this)">🗑️ Discard</button>
                                         </div>
@@ -1438,19 +1453,45 @@
                 drawPendingEditVisuals(byPage);
             }
 
-            window.approveMangaEdit = async (editId, btn) => {
+            window.approveMangaEdit = async (editId, btn, page) => {
                 btn.disabled = true;
                 btn.textContent = "Approving...";
                 try {
                     const res = await fetch(`/api/edit/approve/${slug}/${editId}`, { method: "POST" });
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.message);
+                    if (page) window._lastApprovedPage = page;
                     renderMangaPendingEditsTab();
                 } catch (err) {
                     alert("Approve failed: " + err.message);
                     btn.disabled = false;
                     btn.textContent = "✅ Approve";
                 }
+            };
+
+            // "Де шукати результат?" - one button that bakes every
+            // pending+approved change for the page (the backend now
+            // includes approved edits - see the TASK-65 UX fix in app.py)
+            // and jumps straight to that page in the Viewer, translated
+            // state. Tolerates "nothing to regenerate" (already baked).
+            window.viewPageResult = async (page, btn) => {
+                const orig = btn ? btn.textContent : "";
+                if (btn) { btn.disabled = true; btn.textContent = "⏳ Оновлюємо..."; }
+                try {
+                    const res = await fetch(`/api/edit/regenerate-manga-page/${slug}/${page}`, { method: "POST" });
+                    if (!res.ok) {
+                        const d = await res.json();
+                        if (!/nothing to regenerate/i.test(d.message || "")) throw new Error(d.message);
+                    }
+                } catch (err) {
+                    alert("Не вдалося оновити сторінку: " + err.message);
+                    if (btn) { btn.disabled = false; btn.textContent = orig; }
+                    return;
+                }
+                const idx = (bookData.translated_pages || []).indexOf(page);
+                if (idx >= 0) currentMangaPage = idx;
+                activeState = "translated";
+                document.getElementById("manga-tab-viewer").click();
             };
 
             window.regeneratePageFromQueue = async (page, btn) => {

@@ -2456,9 +2456,15 @@ def edit_regenerate_manga_page(slug, page_filename):
 
     prefix = f"{page_filename}#"
     page_edits = [e for e in edit_store.list_edits(slug, mode="manga") if e["target_id"].startswith(prefix)]
-    pending = [e for e in page_edits if e.get("status") == "pending"]
-    if not pending:
-        return jsonify({"status": "error", "message": "No pending edits for this page - nothing to regenerate"}), 400
+    # TASK-65 UX fix (found via Q approving before regenerating): edits
+    # approved while still status=pending never got baked - to_apply
+    # below only carried pending+regenerated, and this gate refused to
+    # run at all once everything on the page was approved. Approved
+    # edits are confirmed human intent - they must both allow a regen
+    # and ride along in it.
+    actionable = [e for e in page_edits if e.get("status") in ("pending", "approved")]
+    if not actionable:
+        return jsonify({"status": "error", "message": "No pending or approved edits for this page - nothing to regenerate"}), 400
 
     # Bug found live during TASK-36 testing: process_page() re-runs the
     # WHOLE page from scratch on every regen (fresh OCR + fresh LLM
@@ -2474,7 +2480,7 @@ def edit_regenerate_manga_page(slug, page_filename):
     # but once triggered, every previously-confirmed fix for this page
     # rides along. "orphaned"/"discarded" edits are excluded - they no
     # longer correspond to anything meaningful to reapply.
-    to_apply = [e for e in page_edits if e.get("status") in ("pending", "regenerated")]
+    to_apply = [e for e in page_edits if e.get("status") in ("pending", "regenerated", "approved")]
 
     page_stem = os.path.splitext(page_filename)[0]
     meta_path = os.path.join(paths["book_dir"], "bubbles_meta", f"{page_stem}.json")
