@@ -711,6 +711,12 @@ def run_conversion_api(slug):
         import time as _time
         _time.sleep(1)
         
+    heavy = _heavy_state()
+    if heavy["agent"]:
+        return _busy_409("🤖 Зараз працює ШІ-агент пошуку проблем. Зупиніть його у вкладці «Агент» (або зачекайте кілька хвилин) — і запускайте переклад.")
+    if heavy["ner"]:
+        return _busy_409("🔎 Йде сканування персонажів (NER). Це кілька хвилин — потім запускайте переклад.")
+
     # Clear stale progress files
     epub_prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
     if os.path.exists(epub_prog_path):
@@ -1301,6 +1307,13 @@ def characters_scan_api(slug):
                             "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    heavy = _heavy_state()
+    if heavy["agent"]:
+        return _busy_409("🤖 ШІ-агент зараз працює — сканування персонажів використовує ту саму модель. Зачекайте або зупиніть агента.")
+    if heavy["conversion"]:
+        return _busy_409("📚 Йде переклад книги — сканування персонажів конкурувало б за ресурси. Дочекайтесь завершення перекладу.")
+    if heavy["llama_server"]:
+        return _busy_409("Сервер перекладу тримає модель у пам'яті. Зупиніть його (кнопка «Моделі» на головній → Stop) і повторіть — після сканування увімкніть назад.")
     book_dir = os.path.join(repo_dir, "books", slug)
     model = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
     if not os.path.exists(model):
@@ -1364,6 +1377,29 @@ def premium_download_models_api():
     return jsonify({"status": "started",
                     "message": "Завантаження моделей (~3.5ГБ) стартувало у фоні."})
 
+def _heavy_state():
+    """One source of truth for 'which heavy model is busy right now'.
+    Every launcher of a resource-hungry process consults this and refuses
+    with a clear Ukrainian message instead of letting two multi-GB models
+    fight over RAM/CPU (the exact failure mode that OOM-killed the whole
+    Termux session during TASK-65 testing)."""
+    def up(pattern):
+        return subprocess.run(["pgrep", "-f", pattern],
+                              capture_output=True).returncode == 0
+    return {
+        "llama_server": up("llama-server"),
+        "agent": up("agent_editor.py") or up("llama-mtmd-cli"),
+        "ner": up("cast_ner_prepass.py"),
+        "conversion": any(p.poll() is None for p in active_processes.values())
+                      or up("translate_manga.py") or up("run_conversion_batches.py")
+                      or up("translate_epub.py"),
+    }
+
+
+def _busy_409(message):
+    return jsonify({"status": "busy", "message": message}), 409
+
+
 @app.route("/api/agent-editor/status/<slug>")
 def agent_editor_status_api(slug):
     """Live state for the Agent tab: is a scan running, log tail, how
@@ -1396,8 +1432,11 @@ def agent_editor_status_api(slug):
                         if e.get("source") == "gemma_agent")
     llama_running = subprocess.run(["pgrep", "-f", "llama-server"],
                                    capture_output=True).returncode == 0
+    ner_running = subprocess.run(["pgrep", "-f", "cast_ner_prepass.py"],
+                                 capture_output=True).returncode == 0
     return jsonify({"running": running, "log": log_lines, "flagged": flagged,
-                    "agent_pending": agent_pending, "llama_running": llama_running})
+                    "agent_pending": agent_pending, "llama_running": llama_running,
+                    "ner_running": ner_running})
 
 @app.route("/api/agent-editor/stop/<slug>", methods=["POST"])
 def agent_editor_stop_api(slug):
@@ -1440,6 +1479,11 @@ def agent_editor_scan_api(slug):
         return jsonify({"status": "error",
                         "message": "Агентний редактор вимкнено для цієї книги "
                                    "(enable_agent_editor у config.json)."}), 400
+    heavy = _heavy_state()
+    if heavy["conversion"]:
+        return _busy_409("📚 Йде переклад книги. ШІ-агента можна запускати тільки коли переклад завершено або зупинено — обидва процеси надто важкі для одночасної роботи.")
+    if heavy["ner"]:
+        return _busy_409("🔎 Йде сканування персонажів. Зачекайте кілька хвилин — потім запускайте агента.")
     model = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
     mmproj = os.path.expanduser("~/models/gemma3-4b/mmproj-model-f16.gguf")
     if not (os.path.exists(model) and os.path.exists(mmproj)):
@@ -1716,6 +1760,11 @@ def _stop_llama_server():
 
 @app.route("/api/models/start", methods=["POST"])
 def start_translation_server_api():
+    heavy = _heavy_state()
+    if heavy["agent"]:
+        return _busy_409("🤖 ШІ-агент зараз використовує пам'ять для vision-аналізу. Сервер перекладу увімкнеться автоматично, щойно агент завершить (або зупиніть агента у вкладці «Агент»).")
+    if heavy["ner"]:
+        return _busy_409("🔎 Йде сканування персонажів — воно займає пам'ять тієї ж моделі. Зачекайте кілька хвилин і повторіть.")
     import time
 
     # Clear a stale lock (e.g. left behind by a crashed request) before
@@ -2474,6 +2523,12 @@ def edit_regenerate_manga_page(slug, page_filename):
         cfg = json.load(f)
     if not cfg.get("is_manga", False):
         return jsonify({"status": "error", "message": "Not a manga"}), 400
+
+    _h = _heavy_state()
+    if _h["agent"]:
+        return _busy_409("🤖 ШІ-агент зараз аналізує сторінки. Зупиніть його у вкладці «Агент» або зачекайте — тоді регенеруйте сторінку.")
+    if _h["ner"]:
+        return _busy_409("🔎 Йде сканування персонажів. Зачекайте кілька хвилин і повторіть.")
 
     # TASK-23: don't fire a second translate_manga.py process (same GPU/OCR/
     # LLM resources) if the main pipeline is still running for this book -

@@ -1789,7 +1789,7 @@
                             <div class="controls">
                                 ${book.is_running 
                                     ? `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger">Stop Conversion</button>`
-                                    : `<button onclick="runConversion('${book.slug}')" class="btn btn-success">Run Conversion</button>`
+                                    : `<button onclick="runConversion('${book.slug}')" class="btn btn-success">▶️ Перекласти</button>`
                                 }
                                 ${!book.is_running && book.output_files && book.output_files.length > 0
                                     ? `<button onclick="rerunConversion('${book.slug}')" class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); color: white; border: none;">🔄 Re-run</button>`
@@ -1919,7 +1919,7 @@
                     fetchBooks();
                     selectBookForLogs(slug, slug);
                 } else {
-                    alert('Error starting conversion: ' + res.message);
+                    alert('Не вдалося запустити переклад:\n\n' + res.message);
                 }
             } catch (err) {
                 alert('Request failed: ' + err.message);
