@@ -39,33 +39,39 @@ def classify_bubble_shape(gray, box):
     if aspect > ASPECT_SFX_WIDE or aspect < ASPECT_SFX_TALL:
         return _res("sfx_candidate", 0, 0, False, 0.7)
 
-    margin = int(max(w, h) * 0.4)
-    wx1, wy1 = max(0, x1 - margin), max(0, y1 - margin)
-    wx2, wy2 = min(W, x2 + margin), min(H, y2 + margin)
-    win = gray[wy1:wy2, wx1:wx2]
-    light = (win > LIGHT_THRESHOLD).astype(np.uint8)
+    # The balloon outline usually sits well OUTSIDE the text box (the
+    # balloon is 1.5-2x the text extent) - a single tight window makes
+    # the flood hit the window border before it ever meets the outline,
+    # falsely classifying closed bubbles as open (first live calibration:
+    # 75% false sfx_candidate). Escalate the window until the flooded
+    # region closes, and only then call it genuinely open.
+    region = None
+    touches = True
+    for margin_ratio in (0.4, 0.8, 1.4):
+        margin = int(max(w, h) * margin_ratio)
+        wx1, wy1 = max(0, x1 - margin), max(0, y1 - margin)
+        wx2, wy2 = min(W, x2 + margin), min(H, y2 + margin)
+        win = gray[wy1:wy2, wx1:wx2]
+        light = (win > LIGHT_THRESHOLD).astype(np.uint8)
 
-    # Seed at the box center; if it lands on a leftover dark pixel, probe
-    # a small neighborhood before giving up.
-    sy, sx = (y1 + y2) // 2 - wy1, (x1 + x2) // 2 - wx1
-    seed = None
-    for dy, dx in [(0, 0), (-6, 0), (6, 0), (0, -6), (0, 6), (-12, -12), (12, 12)]:
-        py, px = sy + dy, sx + dx
-        if 0 <= py < light.shape[0] and 0 <= px < light.shape[1] and light[py, px]:
-            seed = (py, px)
+        # Seed at the box center; if it lands on a leftover dark pixel,
+        # probe a small neighborhood before giving up.
+        sy, sx = (y1 + y2) // 2 - wy1, (x1 + x2) // 2 - wx1
+        seed = None
+        for dy, dx in [(0, 0), (-6, 0), (6, 0), (0, -6), (0, 6), (-12, -12), (12, 12)]:
+            py, px = sy + dy, sx + dx
+            if 0 <= py < light.shape[0] and 0 <= px < light.shape[1] and light[py, px]:
+                seed = (py, px)
+                break
+        if seed is None:
+            return _res("uncertain", 0, 0, False, 0.2)
+
+        num, labels = cv2.connectedComponents(light, connectivity=4)
+        region = (labels == labels[seed]).astype(np.uint8)
+        touches = (region[0, :].any() or region[-1, :].any()
+                   or region[:, 0].any() or region[:, -1].any())
+        if not touches:
             break
-    if seed is None:
-        return _res("uncertain", 0, 0, False, 0.2)
-
-    num, labels = cv2.connectedComponents(light, connectivity=4)
-    region = (labels == labels[seed]).astype(np.uint8)
-
-    # A region that runs into the analysis window's border means the
-    # balloon outline never closed inside it - open contour: either an
-    # SFX/free-floating text or a bubble cut by the panel edge. Both are
-    # the research's "needs vision / candidate" bucket, not a shape class.
-    touches = (region[0, :].any() or region[-1, :].any()
-               or region[:, 0].any() or region[:, -1].any())
 
     contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
