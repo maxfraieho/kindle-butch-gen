@@ -986,6 +986,10 @@
                 `;
                 wireGeometryNumericFields();
                 renderResizeHandles();
+                const liveTa = document.getElementById("bubble-edit-textarea");
+                if (liveTa) liveTa.addEventListener("input", renderLiveTextPreview);
+                const liveFs = document.getElementById("bbox-field-font-size");
+                if (liveFs) liveFs.addEventListener("input", renderLiveTextPreview);
                 panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
             }
 
@@ -1019,7 +1023,36 @@
 
             function clearResizeHandles() {
                 const container = document.getElementById("bubble-overlay-container");
-                if (container) container.querySelectorAll(".bbox-edit-handle, .bbox-edit-body").forEach(el => el.remove());
+                if (container) container.querySelectorAll(".bbox-edit-handle, .bbox-edit-body, .bbox-live-preview").forEach(el => el.remove());
+            }
+
+            // Live "як то буде" preview while editing: the textarea's
+            // current text rendered INSIDE the bubble zone on the page
+            // image - translucent violet so the underlying render stays
+            // visible. Repositioned on every drag/resize (called from
+            // renderResizeHandles) and re-rendered on every keystroke.
+            function renderLiveTextPreview() {
+                const container = document.getElementById("bubble-overlay-container");
+                const scale = _geometryScale();
+                if (!container || !scale || !editingBubbleBox) return;
+                container.querySelectorAll(".bbox-live-preview").forEach(el => el.remove());
+                const ta = document.getElementById("bubble-edit-textarea");
+                if (!ta) return;
+                const { scaleX, scaleY } = scale;
+                const { x1, y1, x2, y2 } = editingBubbleBox;
+                const fsField = document.getElementById("bbox-field-font-size");
+                const refFont = (fsField && parseInt(fsField.value)) || editingFontSize || 24;
+                const el = document.createElement("div");
+                el.className = "bbox-live-preview";
+                el.style.cssText = `position:absolute; left:${x1 * scaleX}px; top:${y1 * scaleY}px;`
+                    + `width:${(x2 - x1) * scaleX}px; height:${(y2 - y1) * scaleY}px;`
+                    + `background:rgba(139,92,246,0.35); color:#fff; overflow:hidden;`
+                    + `display:flex; align-items:center; justify-content:center; text-align:center;`
+                    + `font-size:${Math.max(6, refFont * scaleY)}px; line-height:1.15;`
+                    + `word-break:break-word; border-radius:4px; pointer-events:none; z-index:4;`
+                    + `text-shadow:0 0 3px rgba(0,0,0,0.9);`;
+                el.textContent = ta.value;
+                container.appendChild(el);
             }
 
             function _geometryScale() {
@@ -1066,6 +1099,7 @@
                     handle.addEventListener("pointerdown", (e) => startGeometryDrag(e, name));
                     container.appendChild(handle);
                 });
+                renderLiveTextPreview();
             }
 
             let _dragState = null;
@@ -1338,18 +1372,38 @@
                                 ${pageEdits.map(e => `
                                     <div style="border-top:1px dashed var(--border-color); padding-top:0.6rem; margin-top:0.6rem;">
                                         <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.4rem;">${e.target_id.split("#")[1]}${e.source === 'gemma_agent' ? ' <span style="background:rgba(139,92,246,.25); color:#c4b5fd; border-radius:6px; padding:0.1rem 0.45rem; font-size:0.72rem;">🤖 запропоновано агентом</span>' : ''}</div>
+                                        ${typeof e.original_value === 'string' && typeof e.edited_value === 'string' ? `
                                         <div class="grid-stages">
                                             <div class="stage-box">
                                                 <div class="stage-title">Before</div>
-                                                <div class="stage-content">${typeof e.original_value === 'string' && typeof e.edited_value === 'string' ? wordDiffHtml(e.original_value, e.edited_value, false) : `<code style="font-size:0.78rem; white-space:pre-wrap;">${htmlEscape(JSON.stringify(e.original_value))}</code>`}</div>
+                                                <div class="stage-content">${wordDiffHtml(e.original_value, e.edited_value, false)}</div>
                                             </div>
                                             <div class="stage-box">
                                                 <div class="stage-title">After</div>
-                                                <div class="stage-content stage-stressed">${typeof e.original_value === 'string' && typeof e.edited_value === 'string' ? wordDiffHtml(e.original_value, e.edited_value, true) : `<code style="font-size:0.78rem; white-space:pre-wrap;">${htmlEscape(JSON.stringify(e.edited_value))}</code>`}</div>
+                                                <div class="stage-content stage-stressed">${wordDiffHtml(e.original_value, e.edited_value, true)}</div>
+                                            </div>
+                                        </div>` : `
+                                        <div class="grid-stages">
+                                            <div class="stage-box">
+                                                <div class="stage-title">Як є</div>
+                                                <canvas id="peb-${e.id}" style="max-width:100%; border-radius:6px; border:1px solid var(--border-color);"></canvas>
+                                            </div>
+                                            <div class="stage-box">
+                                                <div class="stage-title">Як буде</div>
+                                                <canvas id="pea-${e.id}" style="max-width:100%; border-radius:6px; border:1px solid var(--border-color);"></canvas>
                                             </div>
                                         </div>
-                                        <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
+                                        <div style="display:grid; grid-template-columns:1fr auto; gap:0.5rem; margin-top:0.5rem; align-items:end;">
+                                            <label style="font-size:0.75rem; color:var(--text-secondary);">Текст (можна поправити перед прийняттям)
+                                                <textarea id="petxt-${e.id}" style="width:100%; min-height:56px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.4rem; font-family:inherit; margin-top:0.2rem;" placeholder="завантаження тексту бульбашки..."></textarea>
+                                            </label>
+                                            <label style="font-size:0.75rem; color:var(--text-secondary);">Шрифт, px
+                                                <input type="number" id="pefs-${e.id}" value="${(e.edited_value && e.edited_value.font_size) || ''}" placeholder="авто" style="width:74px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.4rem; margin-top:0.2rem;">
+                                            </label>
+                                        </div>`}
+                                        <div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">
                                             <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="approveMangaEdit('${e.id}', this)">✅ Approve</button>
+                                            ${typeof e.edited_value === 'object' ? `<button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem; background:var(--primary); color:#fff;" onclick="replacePendingEditWithMine('${e.id}', this)">💾 Замінити моєю правкою</button>` : ''}
                                             <button class="nav-btn" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick="discardEdit('${e.id}', this)">🗑️ Discard</button>
                                         </div>
                                     </div>
@@ -1381,6 +1435,7 @@
                 }
 
                 mangaTabContent.innerHTML = html;
+                drawPendingEditVisuals(byPage);
             }
 
             window.approveMangaEdit = async (editId, btn) => {
@@ -1438,6 +1493,103 @@
                 } catch (err) {
                     alert("Discard failed: " + err.message);
                     btn.disabled = false;
+                }
+            };
+
+            // Humans parse pictures, not coordinate tuples: for every
+            // geometry edit draw the REAL translated page crop twice -
+            // current zone (red) vs proposed zone (green) - instead of
+            // asking anyone to mentally diff two JSON arrays.
+            const _pendingEditMeta = {};
+            async function drawPendingEditVisuals(byPage) {
+                for (const [page, pageEdits] of Object.entries(byPage)) {
+                    const objEdits = pageEdits.filter(e => typeof e.edited_value === 'object' && e.edited_value !== null);
+                    if (objEdits.length === 0) continue;
+                    let bubbles = [];
+                    try {
+                        const r = await fetch(`/api/preview/manga-bubbles/${slug}/${page}`);
+                        if (r.ok) bubbles = (await r.json()).bubbles || [];
+                    } catch (e) { /* visuals are best-effort */ }
+                    const img = new Image();
+                    img.src = `/api/preview/manga-file/${slug}/translated/${page}`;
+                    try { await img.decode(); } catch (e) { continue; }
+
+                    for (const e of objEdits) {
+                        const bubbleId = e.target_id.split("#")[1];
+                        const bubble = bubbles.find(b => b.id === bubbleId);
+                        const refSize = (e.edited_value && e.edited_value.ref_size)
+                            || (bubble && bubble.bbox_ref_size)
+                            || [img.naturalWidth, img.naturalHeight];
+                        const sx = img.naturalWidth / refSize[0], sy = img.naturalHeight / refSize[1];
+                        const oldBox = (e.original_value && e.original_value.bbox) || (bubble && bubble.bbox);
+                        const newBox = (e.edited_value && e.edited_value.bbox) || oldBox;
+                        if (!oldBox || !newBox) continue;
+                        _pendingEditMeta[e.id] = { page, bubbleId, newBox, refSize,
+                                                   bubbleText: bubble ? bubble.translated_text : null };
+                        const txtEl = document.getElementById(`petxt-${e.id}`);
+                        if (txtEl && bubble) txtEl.value = bubble.translated_text || "";
+
+                        const pad = Math.round(30 / sx);
+                        const ux1 = Math.max(0, Math.min(oldBox[0], newBox[0]) - pad);
+                        const uy1 = Math.max(0, Math.min(oldBox[1], newBox[1]) - pad);
+                        const ux2 = Math.min(refSize[0], Math.max(oldBox[2], newBox[2]) + pad);
+                        const uy2 = Math.min(refSize[1], Math.max(oldBox[3], newBox[3]) + pad);
+                        const cw = (ux2 - ux1) * sx, ch = (uy2 - uy1) * sy;
+
+                        const drawCrop = (canvasId, box, color) => {
+                            const canvas = document.getElementById(canvasId);
+                            if (!canvas) return;
+                            canvas.width = cw; canvas.height = ch;
+                            const ctx = canvas.getContext("2d");
+                            try {
+                                ctx.drawImage(img, ux1 * sx, uy1 * sy, cw, ch, 0, 0, cw, ch);
+                            } catch (err) { return; }
+                            ctx.lineWidth = Math.max(3, cw / 120);
+                            ctx.strokeStyle = color;
+                            ctx.strokeRect((box[0] - ux1) * sx, (box[1] - uy1) * sy,
+                                           (box[2] - box[0]) * sx, (box[3] - box[1]) * sy);
+                        };
+                        drawCrop(`peb-${e.id}`, oldBox, "#ef4444");
+                        drawCrop(`pea-${e.id}`, newBox, "#22c55e");
+                    }
+                }
+            }
+
+            // "Замінити моєю правкою": human tweaks the agent's proposal
+            // (text and/or font size) before accepting - submits through
+            // the SAME endpoints as any manual edit (source=human), then
+            // discards the agent's original. Result stays pending: the
+            // human still approves the final version explicitly.
+            window.replacePendingEditWithMine = async (editId, btn) => {
+                const meta = _pendingEditMeta[editId];
+                if (!meta) { alert("Метадані ще завантажуються - спробуйте за секунду."); return; }
+                const fsEl = document.getElementById(`pefs-${editId}`);
+                const txtEl = document.getElementById(`petxt-${editId}`);
+                const fontSize = fsEl && fsEl.value ? parseInt(fsEl.value) : null;
+                const newText = txtEl ? txtEl.value.trim() : "";
+                btn.disabled = true;
+                btn.textContent = "💾...";
+                try {
+                    const bboxBody = { bubble_id: meta.bubbleId, bbox: meta.newBox, ref_size: meta.refSize, source: "human" };
+                    if (fontSize) bboxBody.font_size = fontSize;
+                    let res = await fetch(`/api/edit/manga-bbox/${slug}/${meta.page}`, {
+                        method: "PUT", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(bboxBody) });
+                    let data = await res.json();
+                    if (!res.ok) throw new Error(data.message);
+                    if (newText && meta.bubbleText !== null && newText !== meta.bubbleText) {
+                        res = await fetch(`/api/edit/manga-text/${slug}/${meta.page}`, {
+                            method: "PUT", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ bubble_id: meta.bubbleId, translated_text: newText, source: "human" }) });
+                        data = await res.json();
+                        if (!res.ok) throw new Error(data.message);
+                    }
+                    await fetch(`/api/edit/discard/${slug}/${editId}`, { method: "POST" });
+                    renderMangaPendingEditsTab();
+                } catch (err) {
+                    alert("Не вдалося замінити: " + err.message);
+                    btn.disabled = false;
+                    btn.textContent = "💾 Замінити моєю правкою";
                 }
             };
 
