@@ -534,6 +534,10 @@
             return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         }
 
+        function htmlEscape(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
         function wordDiffHtml(oldText, newText, showNew) {
             const oldWords = (oldText || '').split(/(\s+)/);
             const newWords = (newText || '').split(/(\s+)/);
@@ -1337,11 +1341,11 @@
                                         <div class="grid-stages">
                                             <div class="stage-box">
                                                 <div class="stage-title">Before</div>
-                                                <div class="stage-content">${wordDiffHtml(e.original_value, e.edited_value, false)}</div>
+                                                <div class="stage-content">${typeof e.original_value === 'string' && typeof e.edited_value === 'string' ? wordDiffHtml(e.original_value, e.edited_value, false) : `<code style="font-size:0.78rem; white-space:pre-wrap;">${htmlEscape(JSON.stringify(e.original_value))}</code>`}</div>
                                             </div>
                                             <div class="stage-box">
                                                 <div class="stage-title">After</div>
-                                                <div class="stage-content stage-stressed">${wordDiffHtml(e.original_value, e.edited_value, true)}</div>
+                                                <div class="stage-content stage-stressed">${typeof e.original_value === 'string' && typeof e.edited_value === 'string' ? wordDiffHtml(e.original_value, e.edited_value, true) : `<code style="font-size:0.78rem; white-space:pre-wrap;">${htmlEscape(JSON.stringify(e.edited_value))}</code>`}</div>
                                             </div>
                                         </div>
                                         <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
