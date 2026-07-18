@@ -1035,6 +1035,53 @@
         </div>
     </div>
 
+    <!-- Premium Onboarding Modal (TASK-65) -->
+    <div id="premiumOnboardModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h3>💎 Преміум активовано — налаштуймо все за хвилину</h3>
+                <button class="modal-close" onclick="closePremiumOnboarding(false)">&times;</button>
+            </div>
+            <div class="modal-body" style="font-size: 0.92rem;">
+                <p style="margin-top:0;">Дякуємо за підтримку Vydra 💙💛 Ось що тепер доступно і що варто зробити:</p>
+
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
+                    <b>1️⃣ Vision-модель для агент-редактора</b>
+                    <div id="premModelStatus" style="margin:0.4rem 0; color: var(--text-secondary);">Перевірка...</div>
+                    <button id="premDownloadBtn" class="btn btn-primary" onclick="startPremiumModelDownload()"
+                            style="background: var(--primary); border:none; color:#fff; padding:0.5rem 1rem; border-radius:8px; cursor:pointer;">
+                        ⬇️ Завантажити модель (~3.5 ГБ)
+                    </button>
+                </div>
+
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
+                    <b>2️⃣ ⚠️ Охолодження телефона</b>
+                    <div style="margin-top:0.4rem; color: var(--text-secondary);">
+                        Vision-аналіз сильно навантажує процесор. Радимо активне охолодження
+                        (магнітний кулер) під час роботи агента і перекладу — без нього Android
+                        може зупиняти важкі задачі, а телефон троттлитиме.
+                    </div>
+                </div>
+
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem;">
+                    <b>3️⃣ Як цим користуватися</b>
+                    <div style="margin-top:0.4rem; color: var(--text-secondary);">
+                        🧬 <b>Cast Registry</b> — вкладка "Cast &amp; Context" у переглядачі книги:
+                        скануйте персонажів, підтвердіть рід — переклад відмінюватиме правильно.<br>
+                        🤖 <b>Агент-редактор</b> — на проблемних сторінках (вкладка Pending Edits)
+                        агент пропонує виправлення; ви їх бачите візуально і затверджуєте.<br>
+                        <a href="/manual#support" style="color: var(--primary);">📖 Докладна інструкція в Посібнику →</a>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-outline" onclick="closePremiumOnboarding(false)">Нагадати пізніше</button>
+                <button class="btn btn-primary" onclick="closePremiumOnboarding(true)"
+                        style="background: var(--primary); border:none; color:#fff; padding:0.625rem 1.25rem; border-radius:8px; font-weight:500; cursor:pointer;">Готово, все ясно</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Models Manager Modal -->
     <div id="modelsModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 650px;">
@@ -1364,8 +1411,67 @@
                     prem.textContent = '💎 Преміум активовано: ' +
                         d.entitlements.map(e => names[e] || e).join(', ') +
                         ' — перемикачі з\'являться в налаштуваннях книги з наступним оновленням';
+                    // TASK-65: first-time premium onboarding dialog -
+                    // model download, cooling warning, usage docs link.
+                    if (localStorage.getItem('vydra_premium_onboarded') !== '1') {
+                        openPremiumOnboarding();
+                    }
                 } else { prem.style.display = 'none'; }
             } catch (e) { /* card simply stays hidden */ }
+        }
+
+        async function openPremiumOnboarding() {
+            const modal = document.getElementById('premiumOnboardModal');
+            if (!modal) return;
+            modal.classList.add('active');
+            refreshPremiumModelStatus();
+        }
+        function closePremiumOnboarding(remember) {
+            if (remember) localStorage.setItem('vydra_premium_onboarded', '1');
+            const modal = document.getElementById('premiumOnboardModal');
+            if (modal) modal.classList.remove('active');
+            if (window._premStatusTimer) { clearInterval(window._premStatusTimer); window._premStatusTimer = null; }
+        }
+        async function refreshPremiumModelStatus() {
+            const el = document.getElementById('premModelStatus');
+            const btn = document.getElementById('premDownloadBtn');
+            if (!el) return;
+            try {
+                const r = await fetch('/api/premium/model-status', { cache: 'no-store' });
+                const s = await r.json();
+                const doneBytes = (s.gemma.bytes || 0) + (s.mmproj.bytes || 0);
+                if (s.gemma.ready && s.mmproj.ready) {
+                    el.innerHTML = '✅ Vision-модель встановлена — агент-редактор готовий до роботи.';
+                    if (btn) btn.style.display = 'none';
+                    if (window._premStatusTimer) { clearInterval(window._premStatusTimer); window._premStatusTimer = null; }
+                } else if (s.downloading) {
+                    const pct = Math.min(99, Math.round(doneBytes / s.total_expected_bytes * 100));
+                    el.innerHTML = `⏳ Завантаження триває: ~${pct}% (${(doneBytes / 1e9).toFixed(2)} ГБ). Можна закрити діалог — воно продовжиться у фоні.`;
+                    if (btn) btn.style.display = 'none';
+                    if (!window._premStatusTimer) window._premStatusTimer = setInterval(refreshPremiumModelStatus, 5000);
+                } else {
+                    el.innerHTML = doneBytes > 0
+                        ? `⏸️ Завантажено частково (${(doneBytes / 1e9).toFixed(2)} ГБ) — натисніть, щоб продовжити з того ж місця.`
+                        : '📦 Vision-модель (~3.5 ГБ) ще не завантажена. Потрібна для агент-редактора манґи (Cast Registry працює без неї).';
+                    if (btn) btn.style.display = '';
+                }
+            } catch (e) {
+                el.textContent = 'Не вдалося перевірити стан моделей.';
+            }
+        }
+        async function startPremiumModelDownload() {
+            const btn = document.getElementById('premDownloadBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const r = await fetch('/api/premium/download-models', { method: 'POST' });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.message);
+                refreshPremiumModelStatus();
+            } catch (e) {
+                alert('Не вдалося запустити завантаження: ' + e.message);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
         }
         async function toggleLocalBanner() {
             try {

@@ -1319,6 +1319,51 @@ def characters_scan_api(slug):
                     "message": "Сканування персонажів запущено (кілька хвилин); "
                                "оновіть список згодом."})
 
+@app.route("/api/premium/model-status")
+def premium_model_status_api():
+    """TASK-65 onboarding: lets the premium-welcome dialog show real
+    download state (present / partial with byte progress / absent)."""
+    model_dir = os.path.expanduser("~/models/gemma3-4b")
+    def _f(name):
+        done = os.path.join(model_dir, name)
+        part = done + ".part"
+        if os.path.exists(done):
+            return {"ready": True, "bytes": os.path.getsize(done)}
+        if os.path.exists(part):
+            return {"ready": False, "bytes": os.path.getsize(part)}
+        return {"ready": False, "bytes": 0}
+    downloading = subprocess.run(["pgrep", "-f", "download_premium_models"],
+                                 capture_output=True).returncode == 0
+    return jsonify({
+        "gemma": _f("gemma-3-4b-it-Q4_K_M.gguf"),
+        "mmproj": _f("mmproj-model-f16.gguf"),
+        "downloading": downloading,
+        "total_expected_bytes": 3500000000,
+    })
+
+@app.route("/api/premium/download-models", methods=["POST"])
+def premium_download_models_api():
+    """TASK-65 onboarding: kick off the detached, resumable premium
+    vision-model download. Entitlement-gated like every premium action."""
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error",
+                            "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    if subprocess.run(["pgrep", "-f", "download_premium_models"],
+                      capture_output=True).returncode == 0:
+        return jsonify({"status": "already_running",
+                        "message": "Завантаження вже триває."})
+    log_path = os.path.expanduser("~/premium-model-download.log")
+    with open(log_path, "w") as lf:
+        subprocess.Popen(
+            ["bash", os.path.join(repo_dir, "bin", "download_premium_models.sh")],
+            stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
+    return jsonify({"status": "started",
+                    "message": "Завантаження моделей (~3.5ГБ) стартувало у фоні."})
+
 @app.route("/api/agent-editor/scan/<slug>", methods=["POST"])
 def agent_editor_scan_api(slug):
     """TASK-65 (spec "TASK-53"): launch the Gemma vision edit-agent
