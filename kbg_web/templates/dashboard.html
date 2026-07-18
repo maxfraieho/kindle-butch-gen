@@ -1048,7 +1048,14 @@
                 <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
                     <b>1️⃣ Vision-модель для агент-редактора</b>
                     <div id="premModelStatus" style="margin:0.4rem 0; color: var(--text-secondary);">Перевірка...</div>
-                    <button id="premDownloadBtn" class="btn btn-primary" onclick="startPremiumModelDownload()"
+                    <label id="premTermsWrap" style="display:flex; gap:0.5rem; align-items:flex-start; font-size:0.82rem; color:var(--text-secondary); margin:0.5rem 0;">
+                        <input type="checkbox" id="premGemmaTerms" style="width:auto; margin-top:0.2rem;" onchange="document.getElementById('premDownloadBtn').disabled = !this.checked;">
+                        <span>Модель працює на Google Gemma. Приймаю
+                            <a href="https://ai.google.dev/gemma/terms" target="_blank">Gemma Terms of Use</a> та
+                            <a href="https://ai.google.dev/gemma/prohibited_use_policy" target="_blank">Prohibited Use Policy</a>
+                            (заборона незаконного/шкідливого контенту).</span>
+                    </label>
+                    <button id="premDownloadBtn" class="btn btn-primary" onclick="startPremiumModelDownload()" disabled
                             style="background: var(--primary); border:none; color:#fff; padding:0.5rem 1rem; border-radius:8px; cursor:pointer;">
                         ⬇️ Завантажити модель (~3.5 ГБ)
                     </button>
@@ -1500,7 +1507,10 @@
             const btn = document.getElementById('premDownloadBtn');
             if (btn) btn.disabled = true;
             try {
-                const r = await fetch('/api/premium/download-models', { method: 'POST' });
+                const accepted = document.getElementById('premGemmaTerms') && document.getElementById('premGemmaTerms').checked;
+                const r = await fetch('/api/premium/download-models', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ gemma_terms_accepted: accepted }) });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.message);
                 refreshPremiumModelStatus();

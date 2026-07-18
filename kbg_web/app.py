@@ -1365,15 +1365,22 @@ def premium_download_models_api():
                             "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    # Gemma Terms consent must be explicitly given in the onboarding
+    # dialog before we fetch the weights (flow-down obligation).
+    data = request.get_json(silent=True) or {}
+    if not data.get("gemma_terms_accepted"):
+        return jsonify({"status": "error", "message":
+                        "Потрібно прийняти умови Gemma перед завантаженням."}), 400
     if subprocess.run(["pgrep", "-f", "download_premium_models"],
                       capture_output=True).returncode == 0:
         return jsonify({"status": "already_running",
                         "message": "Завантаження вже триває."})
     log_path = os.path.expanduser("~/premium-model-download.log")
+    env = dict(os.environ, GEMMA_TERMS_ACCEPTED="1")
     with open(log_path, "w") as lf:
         subprocess.Popen(
             ["bash", os.path.join(repo_dir, "bin", "download_premium_models.sh")],
-            stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
+            stdout=lf, stderr=subprocess.STDOUT, start_new_session=True, env=env)
     return jsonify({"status": "started",
                     "message": "Завантаження моделей (~3.5ГБ) стартувало у фоні."})
 
