@@ -766,3 +766,35 @@ Recommended design constraint to keep this contained: add a **new, additive, pag
 ## [~] TASK-68: interface for non-specialists (Q's directive; reference user = his son)
 * Round 2 shipped+deployed (`0f9e95d`): simple-mode book card - ONE primary action per state (Почати/Зупинити/⬇️ Завантажити готову книгу з автовибором формату), human phase names, cockpit (checkboxes/resolutions/TTS sliders/re-run/tech log/delete) collapsed into "⚙️ Додаткові налаштування" with preserved open-state. Round 1 was labels+premium states.
 * Still open for next rounds: Add-Book simplification (file-first, auto title from filename, langs collapsed, "почати переклад одразу?" after add), viewer/stages jargon pass, first-run hello screen. Live feedback source: son gets premium today (/grant in bot) and tests together with Q.
+
+## HANDOFF для наступних моделей (Fable 5 недоступний з завтра; написано механічно-виконуваними кроками)
+
+### Стан на передачу (все задеплоєно на телефон Q, все запушено)
+Агент v2 + вкладка Агент + guard-и моделей + правила DRAKON (повний runtime: skip/notes/advise/напрямки) + студія (dev-184:8090) + спрощені картки книг і форма додавання + класифікація бульбашок у пайплайні (дані завжди, тон у промпті за прапорцем).
+
+### Крок 1 (перевірка, безпечно): cast-init у повних прогонах
+`grep -n "init_cast_registry" translate_manga.py` → викликається ТІЛЬКИ в regenerate-шляхах (1393, 1458). Повний прогін, схоже, ніколи не ініціалізує Cast Registry. ПЕРЕВІРИТИ: запустити повний переклад 2 сторінок тестової книги, шукати "Cast Registry active" в conversion_progress.log. Якщо нема - додати `init_cast_registry(book_dir)` поруч з `init_bubble_tone(book_dir)` (~рядок 1859) і повторити перевірку.
+
+### Крок 2 (A/B тесту тону): enable_bubble_tone
+1. У books/frieren/config.json додати "enable_bubble_tone": true.
+2. Regenerate 2-3 сторінки, де bubbles_meta має bubble_class=shout/thought (шукати: `grep -l '"bubble_class": "shout"' books/frieren/bubbles_meta/*.json`).
+3. Порівняти переклад до/після (bubbles_meta зберігає translated_text). Якщо реєстр тону доречний і нічого не зламалось - зробити прапорець default=true у kbg_web/app.py /api/add (створення config.json нової книги).
+4. Лог пайплайна при увімкненому: "Bubble-tone prompt injection: ENABLED".
+
+### Крок 3 (типографіка за класом, спец TASK-67 §3): NE ЧІПАТИ без A/B
+Точка входу: fit_text/draw у translate_manga.py (шрифт вибирається там). Мапа: shout→Bold Italic +15-20% кегль; thought→Italic -5%; caption→вирівнювання вліво. Кирилічні виносні (Ї/Щ/Ц) вже враховані в TASK-28 stroke-width - НЕ переносити латинську "crossbar I" конвенцію.
+
+### Крок 4 (калібрування далі, за бажанням): частка sfx_candidate 31%
+Найкращий наступний хід - НЕ підкручувати пороги наосліп, а очима переглянути 15-20 sfx_candidate-кейсів (класифікатор друкує σ/spikes/closed для кожного) і розділити "справжні SFX/титули" від помилок. Пороги - константи в common/bubble_shape.py.
+
+### Тестування з сином (коли повернеться)
+Грант: /grant <його tg_id|referral_code> cast_registry,vision_qa у @GetVydraBot. Оновлення на його телефоні: кнопка "🔄 Оновити Vydra". Спостерігати 3 точки: додавання книги / що робити далі / де результат.
+
+### Пастки (щоб не наступати повторно)
+- pkill -f "<ім'я скрипта>" вбиває ВЛАСНИЙ ssh-шелл → завжди bracket-regex: `pkill -f "app[.]py"`.
+- Flask рестарт на телефоні: kill і launch РІЗНИМИ ssh-сесіями, launch з setsid nohup + явні KBG_WEB_USER/KBG_WEB_PASSWORD (Q: vokov/[REDACTED - see support_config.json / private notes]).
+- Шаблони Flask кешуються - після зміни templates/ потрібен рестарт.
+- Термукс /tmp нередоступний для запису; heredoc з кирилицею через подвійний ssh ламається → Write локально + scp.
+- Vision (llama-mtmd-cli) на OnePlus 13: ТІЛЬКИ -t 4 і ТІЛЬКИ при зупиненому llama-server (RAM-guard в агенті це контролює).
+- Після кожного push: git pull клону ~/projects/kindle-butch-gen на dev-184 + docker exec gitnexus-server ... analyze (інакше індекс бреше).
+- GitNexus HTTP MCP: initialize→mcp-session-id→notifications/initialized→tools/call; готовий скрипт-патерн /tmp/gq3.sh на dev-184.
