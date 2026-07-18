@@ -13,18 +13,17 @@ Hard rules (direct lessons from the removed TASK-17 editor_model):
 - NOTHING is ever applied without human approval. agent_auto_approve is
   read but deliberately NOT honored in v1 - no exceptions.
 - Only algorithmically flagged cases are examined (never the whole book).
-- MemPalace is queried (best-effort) for precedent before proposing a
-  text change; approved decisions are recorded elsewhere (approve hook in
-  app.py) - this script never writes to any translation memory itself.
+- v2: geometry fixes are computed deterministically; the vision model
+  only veto-checks them. Text proposals were dropped entirely (approved
+  human text edits still feed the translation memory via the approve
+  hook in app.py - this script never writes memory itself).
 """
 import argparse
-import base64
 import json
 import os
 import re
 import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kbg_web import edit_store
@@ -35,22 +34,94 @@ MTMD_CLI = os.path.expanduser("~/llama.cpp/build/bin/llama-mtmd-cli")
 
 FLAG_REASONS = ("box_overlap", "overflow", "text_overflow")
 
-PROMPT_TEMPLATE = """You are a manga typesetting QA agent. Look at the attached translated manga page.
+# v2 (Q's live feedback on v1): a 4B vision model CANNOT invent good
+# coordinates - it played "least invasive" and produced +-10px tweaks and
+# outright no-ops. Roles are now flipped: GEOMETRY computes the fix
+# deterministically (resolve overlaps to zero intersection, widen
+# distorting tall-narrow boxes), and vision only VETOES a computed
+# candidate if the target area visibly contains artwork/other text.
+VERIFY_PROMPT = """You are a manga typesetting reviewer. Look at the attached translated manga page.
 
-A quality check flagged this problem:
+A text box will be MOVED/RESIZED as follows (coordinates in a {width}x{height} pixel space):
 {facts}
 
-Decide the SINGLE best fix and answer with ONLY a JSON object, no other text:
-{{"action": "bbox" | "font_size" | "text" | "none",
-  "bbox": [x1, y1, x2, y2],          // only for action=bbox, absolute pixels on this image ({width}x{height})
-  "font_size": <int 8-200>,           // only for action=font_size
-  "translated_text": "...",           // only for action=text (Ukrainian)
-  "rationale": "one short sentence why"}}
+Question: would the NEW box position cover important artwork, a character's face,
+or OTHER text that is not part of this box's own text? Answer ONLY JSON:
+{{"approve": true|false, "reason": "one short sentence"}}"""
 
-Rules: prefer the least invasive fix (usually shrinking/moving the box or
-reducing font size); only propose "text" if the translation itself is
-clearly wrong or too long for any reasonable box; "none" if the render
-actually looks fine."""
+
+def _intersection(a, b):
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    if ix1 >= ix2 or iy1 >= iy2:
+        return None
+    return (ix1, iy1, ix2, iy2)
+
+
+def _overlaps_any(box, partners):
+    return any(_intersection(box, p) for p in partners)
+
+
+def resolve_overlap(box, partners, W, H, min_gap=8):
+    """Minimal-displacement shift (or edge cut as fallback) that leaves
+    ZERO intersection with every partner box. Returns a new [x1,y1,x2,y2]
+    or None if no acceptable geometry exists."""
+    x1, y1, x2, y2 = box
+    for _ in range(4):  # a shift can create a new collision; few passes
+        hit = next((p for p in partners if _intersection((x1, y1, x2, y2), p)), None)
+        if hit is None:
+            break
+        moves = [
+            (hit[0] - x2 - min_gap, 0),   # shift left of partner
+            (hit[2] - x1 + min_gap, 0),   # shift right of partner
+            (0, hit[1] - y2 - min_gap),   # shift above partner
+            (0, hit[3] - y1 + min_gap),   # shift below partner
+        ]
+        placed = False
+        for dx, dy in sorted(moves, key=lambda m: abs(m[0]) + abs(m[1])):
+            nx1, ny1, nx2, ny2 = x1 + dx, y1 + dy, x2 + dx, y2 + dy
+            if nx1 >= 0 and ny1 >= 0 and nx2 <= W and ny2 <= H \
+                    and not _overlaps_any((nx1, ny1, nx2, ny2), partners):
+                x1, y1, x2, y2 = nx1, ny1, nx2, ny2
+                placed = True
+                break
+        if not placed:
+            # No legal shift - cut the overlapping side instead.
+            inter = _intersection((x1, y1, x2, y2), hit)
+            if (inter[2] - inter[0]) <= (inter[3] - inter[1]):
+                if hit[0] > x1:
+                    x2 = hit[0] - min_gap
+                else:
+                    x1 = hit[2] + min_gap
+            else:
+                if hit[1] > y1:
+                    y2 = hit[1] - min_gap
+                else:
+                    y1 = hit[3] + min_gap
+            if (x2 - x1) < 40 or (y2 - y1) < 30:
+                return None
+    if _overlaps_any((x1, y1, x2, y2), partners):
+        return None
+    return [int(x1), int(y1), int(x2), int(y2)]
+
+
+def widen_if_distorting(box, text, partners, W, H, min_gap=8):
+    """A box much taller than wide squeezes text into a distorted
+    one-character-per-line column. Widen it horizontally into free space
+    (never into a partner box or off-page). Returns new box or None."""
+    x1, y1, x2, y2 = box
+    w, h = x2 - x1, y2 - y1
+    if w >= 0.5 * h or len(text or "") < 8:
+        return None
+    target_w = min(int(1.3 * h), int(2.5 * w) + 60)
+    grow = (target_w - w) / 2
+    left_limit = max([0] + [p[2] + min_gap for p in partners if p[3] > y1 and p[1] < y2 and p[2] <= x1])
+    right_limit = min([W] + [p[0] - min_gap for p in partners if p[3] > y1 and p[1] < y2 and p[0] >= x2])
+    nx1 = max(left_limit, int(x1 - grow))
+    nx2 = min(right_limit, int(x2 + grow))
+    if (nx2 - nx1) < w * 1.3:
+        return None  # not enough free space to make a real difference
+    return [nx1, y1, nx2, y2]
 
 
 def log(msg):
@@ -62,24 +133,6 @@ def api_call(api_base, auth, method, path, payload):
     url = api_base.rstrip("/") + path
     r = requests.request(method, url, json=payload, auth=auth, timeout=30)
     return r.status_code, (r.json() if r.headers.get("content-type", "").startswith("application/json") else {})
-
-
-def query_mempalace(text):
-    """Best-effort precedent lookup; absent URL or any failure -> None."""
-    url = os.environ.get("KBG_MEMPALACE_URL")
-    if not url or not text:
-        return None
-    try:
-        import requests
-        r = requests.get(url.rstrip("/") + "/api/tm/search",
-                         params={"q": text[:200]}, timeout=5)
-        if r.ok:
-            hits = r.json()
-            if isinstance(hits, list) and hits:
-                return json.dumps(hits[:3], ensure_ascii=False)
-    except Exception:
-        pass
-    return None
 
 
 def run_vision(model, mmproj, image_path, prompt, timeout=1200):
@@ -102,36 +155,6 @@ def parse_proposal(raw):
         return json.loads(m.group(0))
     except json.JSONDecodeError:
         return None
-
-
-def validate_proposal(prop, width, height):
-    """Return (kind, payload_fragment) or (None, reason)."""
-    action = (prop or {}).get("action")
-    if action == "none":
-        return "none", None
-    if action == "bbox":
-        bbox = prop.get("bbox")
-        if not (isinstance(bbox, list) and len(bbox) == 4
-                and all(isinstance(v, (int, float)) for v in bbox)):
-            return None, "malformed bbox"
-        x1, y1, x2, y2 = [int(v) for v in bbox]
-        if not (0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height):
-            return None, f"bbox out of bounds for {width}x{height}"
-        return "bbox", {"bbox": [x1, y1, x2, y2], "ref_size": [width, height]}
-    if action == "font_size":
-        try:
-            fs = int(prop.get("font_size"))
-        except (TypeError, ValueError):
-            return None, "malformed font_size"
-        if not (8 <= fs <= 200):
-            return None, "font_size out of range"
-        return "bbox", {"font_size": fs}
-    if action == "text":
-        text = (prop.get("translated_text") or "").strip()
-        if not text:
-            return None, "empty text"
-        return "text", {"translated_text": text}
-    return None, f"unknown action {action!r}"
 
 
 def main():
@@ -241,52 +264,73 @@ def main():
             skipped += 1
             continue
         width, height = int(ref[0]), int(ref[1])
-        facts = {
-            "reason": case.get("reason"),
-            "bubble_id": bubble_id,
-            "bubble_bbox": case.get("box") or bubble.get("bbox"),
-            "overlapping_with": case.get("overlapping_with"),
-            "iou": case.get("iou"),
-            "current_translated_text": bubble.get("translated_text"),
-            "original_text": bubble.get("original_text"),
-        }
-        precedent = query_mempalace(bubble.get("original_text") or "")
-        if precedent:
-            facts["translation_precedents"] = precedent
+        cur_box = case.get("box") or bubble.get("bbox")
+        partner_ids = case.get("overlapping_with") or []
+        partners = [b["bbox"] for b in bubbles
+                    if b["id"] in partner_ids and b.get("bbox")]
 
-        prompt = PROMPT_TEMPLATE.format(
+        # 1. GEOMETRY computes the actual fix (deterministic - the thing
+        # a human would do: розвести рамки, розширити спотворену).
+        new_box = None
+        fix_kind = None
+        widened = widen_if_distorting(cur_box, bubble.get("translated_text"),
+                                      [b["bbox"] for b in bubbles
+                                       if b["id"] != bubble_id and b.get("bbox")],
+                                      width, height)
+        if widened and not _overlaps_any(widened, partners):
+            new_box, fix_kind = widened, "widen-distorted-box"
+        elif partners:
+            resolved = resolve_overlap(cur_box, partners, width, height)
+            if resolved and resolved != [int(v) for v in cur_box]:
+                new_box, fix_kind = resolved, "resolve-overlap"
+
+        # Hard honesty gate: no computable real improvement -> NO proposal.
+        # (v1 shipped +-10px tweaks and no-ops; better silence than noise.)
+        if new_box is None:
+            log(f"skip {bubble_id}: no real geometric improvement computable "
+                f"(box={cur_box}, partners={len(partners)})")
+            skipped += 1
+            continue
+        if partners and _overlaps_any(new_box, partners):
+            log(f"skip {bubble_id}: computed box still overlaps - refusing to propose")
+            skipped += 1
+            continue
+
+        # 2. VISION only veto-checks the computed candidate (binary
+        # judgment - within a 4B model's actual competence, unlike
+        # coordinate generation).
+        facts = {
+            "fix_kind": fix_kind,
+            "bubble_own_text": bubble.get("translated_text"),
+            "current_box": [int(v) for v in cur_box],
+            "proposed_new_box": new_box,
+        }
+        prompt = VERIFY_PROMPT.format(
             facts=json.dumps(facts, ensure_ascii=False, indent=1),
             width=width, height=height)
-
-        log(f"vision pass: {bubble_id} ({case.get('reason')})...")
+        log(f"geometry fix ready for {bubble_id} ({fix_kind}: {cur_box} -> {new_box}); vision veto-check...")
+        vetoed = False
         try:
             raw = run_vision(args.model, args.mmproj, image_path, prompt)
+            verdict = parse_proposal(raw)
+            if isinstance(verdict, dict) and verdict.get("approve") is False:
+                vetoed = True
+                log(f"skip {bubble_id}: vision VETO - {verdict.get('reason', 'no reason')!r}")
         except subprocess.TimeoutExpired:
-            log(f"skip {bubble_id}: vision call timed out")
+            log(f"{bubble_id}: vision check timed out - submitting geometry fix anyway "
+                f"(human gate is the final QA)")
+        if vetoed:
             skipped += 1
             continue
 
-        prop = parse_proposal(raw)
-        kind, payload = validate_proposal(prop, width, height)
-        if kind is None:
-            log(f"skip {bubble_id}: invalid proposal ({payload}); raw tail: {raw[-200:]!r}")
-            skipped += 1
-            continue
-        if kind == "none":
-            log(f"{bubble_id}: agent says render is fine - no proposal")
-            skipped += 1
-            continue
-
-        body = dict(payload)
-        body["bubble_id"] = bubble_id
-        body["source"] = "gemma_agent"
-        endpoint = f"/api/edit/manga-{'bbox' if kind == 'bbox' else 'text'}/{args.book}/{page}"
+        body = {"bubble_id": bubble_id, "source": "gemma_agent",
+                "bbox": new_box, "ref_size": [width, height]}
+        endpoint = f"/api/edit/manga-bbox/{args.book}/{page}"
         status, resp = api_call(args.api, auth, "PUT", endpoint, body)
         if status == 200:
             proposed += 1
             existing.add(target_id)
-            log(f"PROPOSED {kind} for {bubble_id}: {json.dumps(payload, ensure_ascii=False)}"
-                f" | rationale: {prop.get('rationale', '')!r}")
+            log(f"PROPOSED {fix_kind} for {bubble_id}: {cur_box} -> {new_box}")
         else:
             skipped += 1
             log(f"skip {bubble_id}: API {status}: {resp.get('message')}")
