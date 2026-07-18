@@ -105,6 +105,99 @@ def resolve_overlap(box, partners, W, H, min_gap=8):
     return [int(x1), int(y1), int(x2), int(y2)]
 
 
+def load_rules(book_dir, repo):
+    """v0 rules interpreter (TASK-66): reads agent_rules.yaml written by
+    the studio's drakon2rules converter (strict subset - parsed with a
+    tiny indent parser, no yaml dependency on the Termux host). Honored
+    verbs in v0: skip, require_note, veto_note. Directional verbs are
+    parsed and logged but not yet steering geometry."""
+    path = os.path.join(book_dir, "agent_rules.yaml")
+    if not os.path.exists(path):
+        path = os.path.join(repo, "agent_rules.yaml")
+    if not os.path.exists(path):
+        return [], []
+    rules, advise, cur, section = [], [], None, None
+    for raw in open(path, encoding="utf-8"):
+        line = raw.rstrip("\n")
+        s = line.strip()
+        if s.startswith("#") or not s:
+            continue
+        if s == "rules:":
+            section = "rules"
+        elif s == "advise:":
+            section = "advise"
+        elif section == "advise" and s.startswith("- "):
+            advise.append(s[2:].strip().strip('"'))
+        elif section == "rules":
+            if s.startswith("- id:"):
+                cur = {"id": s.split(":", 1)[1].strip(), "when": [], "then": []}
+                rules.append(cur)
+            elif cur is not None and s.startswith("- ") and ":" not in s:
+                cur["when"].append(s[2:].strip())
+            elif cur is not None and s.startswith("- "):
+                body = s[2:]
+                if any(body.startswith(op) for op in ()) or " == " in body or " != " in body \
+                        or " < " in body or " > " in body or " <= " in body or " >= " in body:
+                    cur["when"].append(body.strip())
+                else:
+                    verb, _, arg = body.partition(":")
+                    cur["then"].append((verb.strip(), arg.strip().strip('"')))
+    return rules, advise
+
+
+def _rule_facts(case, bubble, width, height):
+    box = case.get("box") or bubble.get("bbox") or [0, 0, 1, 1]
+    w, h = box[2] - box[0], box[3] - box[1]
+    cy = (box[1] + box[3]) / 2
+    pos = "top" if cy < height / 3 else ("bottom" if cy > 2 * height / 3 else "middle")
+    text = bubble.get("translated_text") or ""
+    return {"reason": case.get("reason"), "aspect": (w / h) if h else 1.0,
+            "text_len": len(text), "text_looks_sfx": is_nonsense_text(text),
+            "iou": case.get("iou") or 0.0, "page_position": pos,
+            "box_w": w, "box_h": h}
+
+
+def _eval_cond(cond, facts):
+    m = re.match(r"^(\w+)\s*(==|!=|<=|>=|<|>)\s*(.+)$", cond)
+    if not m or m.group(1) not in facts:
+        return False
+    left, op, raw = facts[m.group(1)], m.group(2), m.group(3).strip()
+    if raw in ("true", "false"):
+        right = raw == "true"
+    else:
+        try:
+            right = float(raw)
+        except ValueError:
+            right = raw
+    try:
+        if isinstance(right, float):
+            left = float(left)
+        return {"==": left == right, "!=": left != right, "<": left < right,
+                "<=": left <= right, ">": left > right, ">=": left >= right}[op]
+    except (TypeError, ValueError):
+        return False
+
+
+def apply_rules(rules, facts):
+    """Returns (skip_reason|None, extra_notes, matched_ids). First-in-file
+    precedence; skip is strongest and stops evaluation."""
+    notes, matched = [], []
+    for r in rules:
+        if not all(_eval_cond(c, facts) for c in r["when"]):
+            continue
+        matched.append(r["id"])
+        for verb, arg in r["then"]:
+            if verb == "skip":
+                return arg or r["id"], notes, matched
+            if verb == "require_note":
+                notes.append(arg)
+            elif verb == "veto_note":
+                pass  # collected globally via advise; per-rule veto notes v1
+            else:
+                log(f"[rules] {r['id']}: verb {verb!r} parsed, not yet honored in v0 interpreter")
+    return None, notes, matched
+
+
 def is_nonsense_text(text):
     """OCR-garbage detector (Q's feedback on the real p173 case: a page-
     tall column reading 'му ікі ?а ащ и 2 от @ << пат) ее іб 2 ей').
@@ -258,6 +351,10 @@ def main():
     password = os.environ.get("KBG_WEB_PASSWORD", "")
     auth = (user, password)
 
+    rules, advise = load_rules(book_dir, repo)
+    if rules or advise:
+        log(f"[rules] loaded {len(rules)} rule(s), {len(advise)} advise line(s) from agent_rules.yaml")
+
     flags_path = os.path.join(book_dir, "quality_flags.json")
     try:
         flags = json.load(open(flags_path, encoding="utf-8"))
@@ -316,6 +413,17 @@ def main():
         partners = [b["bbox"] for b in bubbles
                     if b["id"] in partner_ids and b.get("bbox")]
 
+        # 0. Q-authored rules first (TASK-66 v0 interpreter): the
+        # knowledge base can skip a case outright or attach notes.
+        facts = _rule_facts(case, bubble, width, height)
+        skip_reason, rule_notes, matched_ids = apply_rules(rules, facts)
+        if matched_ids:
+            log(f"[rules] matched for {bubble_id}: {', '.join(matched_ids)}")
+        if skip_reason:
+            log(f"skip {bubble_id}: rule says skip - {skip_reason}")
+            skipped += 1
+            continue
+
         # 1. GEOMETRY computes the actual fix (deterministic - the thing
         # a human would do: розвести рамки, розширити спотворену).
         other_boxes = [b["bbox"] for b in bubbles
@@ -368,15 +476,17 @@ def main():
         # 2. VISION only veto-checks the computed candidate (binary
         # judgment - within a 4B model's actual competence, unlike
         # coordinate generation).
-        facts = {
+        vfacts = {
             "fix_kind": fix_kind,
             "bubble_own_text": bubble.get("translated_text"),
             "current_box": [int(v) for v in cur_box],
             "proposed_new_box": new_box,
         }
         prompt = VERIFY_PROMPT.format(
-            facts=json.dumps(facts, ensure_ascii=False, indent=1),
+            facts=json.dumps(vfacts, ensure_ascii=False, indent=1),
             width=width, height=height)
+        if advise:
+            prompt += "\nAdditional owner rules:\n" + "\n".join(f"- {a}" for a in advise)
         log(f"geometry fix ready for {bubble_id} ({fix_kind}: {cur_box} -> {new_box}); vision veto-check...")
         vetoed = False
         veto_reason = ""
@@ -407,6 +517,10 @@ def main():
                 skipped += 1
                 continue
 
+        if rule_notes:
+            note = ((note + " ") if note else "") + " ".join(rule_notes)
+        if matched_ids:
+            note = ((note + " ") if note else "") + f"[правила: {', '.join(matched_ids)}]"
         body = {"bubble_id": bubble_id, "source": "gemma_agent",
                 "bbox": new_box, "ref_size": [width, height]}
         if note:
