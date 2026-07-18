@@ -660,6 +660,7 @@
                     <button class="tab-btn active" id="manga-tab-viewer" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📖 Viewer</button>
                     <button class="tab-btn" id="manga-tab-pending" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📝 Pending Edits</button>
                     <button class="tab-btn" id="manga-tab-cast" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">🧬 Cast & Context</button>
+                    <button class="tab-btn" id="manga-tab-agent" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">🤖 Агент</button>
                 </div>
                 <div id="manga-tab-content"></div>
             `;
@@ -685,8 +686,111 @@
                 btnCast.style.color = "var(--primary)"; btnCast.style.borderBottomColor = "var(--primary)";
                 btnViewer.style.color = "var(--text-secondary)"; btnViewer.style.borderBottomColor = "transparent";
                 btnPending.style.color = "var(--text-secondary)"; btnPending.style.borderBottomColor = "transparent";
+                const ba = document.getElementById("manga-tab-agent");
+                ba.style.color = "var(--text-secondary)"; ba.style.borderBottomColor = "transparent";
                 renderCastTab(mangaTabContent);
             });
+            const btnAgent = document.getElementById("manga-tab-agent");
+            btnAgent.addEventListener("click", () => {
+                btnAgent.style.color = "var(--primary)"; btnAgent.style.borderBottomColor = "var(--primary)";
+                [btnViewer, btnPending, btnCast].forEach(b => { b.style.color = "var(--text-secondary)"; b.style.borderBottomColor = "transparent"; });
+                renderAgentTab();
+            });
+
+            // ── 🤖 Agent tab: explicit owner-controlled start/stop with a
+            // live process view. The agent NEVER starts by itself - the
+            // only triggers are this button and the API call behind it.
+            let _agentPollTimer = null;
+            let _agentWeStoppedLlama = false;
+
+            async function renderAgentTab() {
+                if (_agentPollTimer) { clearInterval(_agentPollTimer); _agentPollTimer = null; }
+                mangaTabContent.innerHTML = `
+                    <div class="glass-card" style="padding:1rem;">
+                        <h3 style="margin-top:0;">🤖 Агент пошуку проблем перекладу (преміум)</h3>
+                        <div id="agent-status-line" style="color:var(--text-secondary); margin-bottom:0.6rem;">Перевірка стану...</div>
+                        <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.8rem;">
+                            Агент запускається <b>тільки цією кнопкою</b> - ніколи сам. Аналіз навантажує
+                            процесор (рекомендоване активне охолодження) і потребує зупинки сервера
+                            перекладу на час роботи - після завершення сервер повернеться автоматично.
+                        </div>
+                        <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+                            <label style="font-size:0.85rem; color:var(--text-secondary);">Кейсів за раз:
+                                <input type="number" id="agent-limit" value="8" min="1" max="20" style="width:64px; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.3rem; margin-left:0.3rem;">
+                            </label>
+                            <button class="nav-btn" id="agent-start-btn" style="padding:0.5rem 1.1rem; background:var(--primary); color:#fff;" onclick="startAgentScan(this)">▶️ Запустити пошук</button>
+                            <button class="nav-btn" id="agent-stop-btn" style="padding:0.5rem 1.1rem; background:#7f1d1d; color:#fff; display:none;" onclick="stopAgentScan(this)">⏹ Зупинити</button>
+                        </div>
+                        <pre id="agent-log" style="background:#0b0b12; border:1px solid var(--border-color); border-radius:8px; padding:0.7rem; margin-top:0.9rem; font-size:0.76rem; max-height:320px; overflow-y:auto; white-space:pre-wrap; display:none;"></pre>
+                    </div>`;
+                refreshAgentStatus();
+                _agentPollTimer = setInterval(refreshAgentStatus, 5000);
+            }
+
+            async function refreshAgentStatus() {
+                const line = document.getElementById("agent-status-line");
+                if (!line) { if (_agentPollTimer) { clearInterval(_agentPollTimer); _agentPollTimer = null; } return; }
+                try {
+                    const r = await fetch(`/api/agent-editor/status/${slug}`, { cache: "no-store" });
+                    const s = await r.json();
+                    const startBtn = document.getElementById("agent-start-btn");
+                    const stopBtn = document.getElementById("agent-stop-btn");
+                    const logEl = document.getElementById("agent-log");
+                    line.innerHTML = (s.running
+                        ? '<span style="color:#f0b429;">⏳ Агент працює - аналізує сторінки...</span>'
+                        : '<span style="color:#22c55e;">🟢 Агент не запущений.</span>')
+                        + ` Позначених проблем: <b>${s.flagged}</b> · пропозицій агента в черзі: <b>${s.agent_pending}</b>`
+                        + (s.llama_running ? ' · сервер перекладу: 🟢' : ' · сервер перекладу: ⚪ зупинений');
+                    if (startBtn) startBtn.style.display = s.running ? "none" : "";
+                    if (stopBtn) stopBtn.style.display = s.running ? "" : "none";
+                    if (logEl && s.log && s.log.length) {
+                        logEl.style.display = "";
+                        const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
+                        logEl.textContent = s.log.join("\n");
+                        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+                    }
+                    if (!s.running && _agentWeStoppedLlama) {
+                        _agentWeStoppedLlama = false;
+                        fetch("/api/models/start", { method: "POST" }).catch(() => {});
+                    }
+                } catch (e) { line.textContent = "Не вдалося отримати стан агента."; }
+            }
+
+            window.startAgentScan = async (btn) => {
+                const limit = parseInt(document.getElementById("agent-limit").value) || 8;
+                const ok = confirm("Запустити агента?\n\n• Сервер перекладу буде тимчасово зупинений (звільняємо пам'ять)\n• Телефон буде під навантаженням - бажане активне охолодження\n• Кожна пропозиція чекатиме вашого підтвердження, нічого не застосується саме");
+                if (!ok) return;
+                btn.disabled = true;
+                try {
+                    const st = await (await fetch(`/api/agent-editor/status/${slug}`, { cache: "no-store" })).json();
+                    if (st.llama_running) {
+                        await fetch("/api/models/stop", { method: "POST" });
+                        _agentWeStoppedLlama = true;
+                        await new Promise(res => setTimeout(res, 2500));
+                    }
+                    const r = await fetch(`/api/agent-editor/scan/${slug}`, {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ limit }) });
+                    const d = await r.json();
+                    if (!r.ok) throw new Error(d.message);
+                } catch (err) {
+                    alert("Не вдалося запустити: " + err.message);
+                    if (_agentWeStoppedLlama) { _agentWeStoppedLlama = false; fetch("/api/models/start", { method: "POST" }).catch(() => {}); }
+                } finally {
+                    btn.disabled = false;
+                    refreshAgentStatus();
+                }
+            };
+
+            window.stopAgentScan = async (btn) => {
+                btn.disabled = true;
+                try {
+                    await fetch(`/api/agent-editor/stop/${slug}`, { method: "POST" });
+                } finally {
+                    btn.disabled = false;
+                    refreshAgentStatus();
+                }
+            };
 
             let activeState = "processed";
             let currentPageBubbles = [];

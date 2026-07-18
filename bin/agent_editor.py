@@ -379,18 +379,33 @@ def main():
             width=width, height=height)
         log(f"geometry fix ready for {bubble_id} ({fix_kind}: {cur_box} -> {new_box}); vision veto-check...")
         vetoed = False
+        veto_reason = ""
         try:
             raw = run_vision(args.model, args.mmproj, image_path, prompt)
             verdict = parse_proposal(raw)
             if isinstance(verdict, dict) and verdict.get("approve") is False:
                 vetoed = True
-                log(f"skip {bubble_id}: vision VETO - {verdict.get('reason', 'no reason')!r}")
+                veto_reason = str(verdict.get("reason", ""))
+                log(f"vision VETO for {bubble_id}: {veto_reason!r}")
         except subprocess.TimeoutExpired:
             log(f"{bubble_id}: vision check timed out - submitting geometry fix anyway "
                 f"(human gate is the final QA)")
         if vetoed:
-            skipped += 1
-            continue
+            if note:
+                # Nonsense case: the FINDING must reach the human even
+                # when no safe geometry exists (first live run: both
+                # p173 reformats vetoed for covering the character's
+                # face - correct veto, but the flag itself vanished).
+                new_box = [int(v) for v in cur_box]
+                fix_kind = "nonsense-flag-only"
+                note += (" Горизонтальне переформатування відхилено vision-перевіркою"
+                         + (f" ({veto_reason})" if veto_reason else "")
+                         + " - розташуйте рамку вручну.")
+                log(f"{bubble_id}: falling back to flag-only proposal with the note")
+            else:
+                log(f"skip {bubble_id}: vetoed, no note to surface")
+                skipped += 1
+                continue
 
         body = {"bubble_id": bubble_id, "source": "gemma_agent",
                 "bbox": new_box, "ref_size": [width, height]}

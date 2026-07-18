@@ -1364,6 +1364,52 @@ def premium_download_models_api():
     return jsonify({"status": "started",
                     "message": "Завантаження моделей (~3.5ГБ) стартувало у фоні."})
 
+@app.route("/api/agent-editor/status/<slug>")
+def agent_editor_status_api(slug):
+    """Live state for the Agent tab: is a scan running, log tail, how
+    many flagged cases exist, how many agent proposals are pending. The
+    agent NEVER starts on its own - only the explicit start button (or
+    API call) launches it; this endpoint is read-only."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    book_dir = os.path.join(repo_dir, "books", slug)
+    running = subprocess.run(["pgrep", "-f", "agent_editor.py"],
+                             capture_output=True).returncode == 0
+    log_lines = []
+    log_path = os.path.join(book_dir, "edits", "agent_editor.log")
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_lines = f.read().splitlines()[-30:]
+        except OSError:
+            pass
+    flagged = 0
+    qf_path = os.path.join(book_dir, "quality_flags.json")
+    if os.path.exists(qf_path):
+        try:
+            with open(qf_path, "r", encoding="utf-8") as f:
+                flagged = sum(1 for x in json.load(f)
+                              if x.get("reason") in ("box_overlap", "overflow", "text_overflow"))
+        except Exception:
+            pass
+    agent_pending = sum(1 for e in edit_store.list_edits(slug, mode="manga", status="pending")
+                        if e.get("source") == "gemma_agent")
+    llama_running = subprocess.run(["pgrep", "-f", "llama-server"],
+                                   capture_output=True).returncode == 0
+    return jsonify({"running": running, "log": log_lines, "flagged": flagged,
+                    "agent_pending": agent_pending, "llama_running": llama_running})
+
+@app.route("/api/agent-editor/stop/<slug>", methods=["POST"])
+def agent_editor_stop_api(slug):
+    """Owner's hard stop: kills the agent scan and its vision inference
+    immediately. Deliberately narrow patterns - never touches
+    llama-server or a running translation."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    subprocess.run(["pkill", "-f", "agent_editor.py"], capture_output=True)
+    subprocess.run(["pkill", "-f", "llama-mtmd-cli"], capture_output=True)
+    return jsonify({"status": "success", "message": "Агента зупинено."})
+
 @app.route("/api/agent-editor/scan/<slug>", methods=["POST"])
 def agent_editor_scan_api(slug):
     """TASK-65 (spec "TASK-53"): launch the Gemma vision edit-agent
