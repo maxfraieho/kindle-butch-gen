@@ -1319,6 +1319,56 @@ def characters_scan_api(slug):
                     "message": "Сканування персонажів запущено (кілька хвилин); "
                                "оновіть список згодом."})
 
+@app.route("/api/agent-editor/scan/<slug>", methods=["POST"])
+def agent_editor_scan_api(slug):
+    """TASK-65 (spec "TASK-53"): launch the Gemma vision edit-agent
+    detached over the book's ALREADY-FLAGGED QA cases only. Proposals
+    land in edit_store as pending/source=gemma_agent - the human
+    Approve/Discard gate is never bypassed. Opt-in per book
+    (enable_agent_editor in config.json) + premium-gated like the rest
+    of the Cast Registry feature line."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error",
+                            "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+    book_dir = os.path.join(repo_dir, "books", slug)
+    cfg = {}
+    cfg_path = os.path.join(book_dir, "config.json")
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            pass
+    if not cfg.get("enable_agent_editor"):
+        return jsonify({"status": "error",
+                        "message": "Агентний редактор вимкнено для цієї книги "
+                                   "(enable_agent_editor у config.json)."}), 400
+    model = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
+    mmproj = os.path.expanduser("~/models/gemma3-4b/mmproj-model-f16.gguf")
+    if not (os.path.exists(model) and os.path.exists(mmproj)):
+        return jsonify({"status": "error", "model_missing": True,
+                        "message": "Vision-модель ще не завантажена."}), 409
+    data = request.get_json() or {}
+    limit = min(int(data.get("limit", 5) or 5), 20)
+    log_path = os.path.join(book_dir, "edits", "agent_editor.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    env = dict(os.environ)
+    with open(log_path, "w") as lf:
+        subprocess.Popen(
+            ["python3", os.path.join(repo_dir, "bin", "agent_editor.py"),
+             "--book", slug, "--limit", str(limit)],
+            stdout=lf, stderr=subprocess.STDOUT,
+            cwd=repo_dir, env=env, start_new_session=True)
+    return jsonify({"status": "started",
+                    "message": "Агент аналізує позначені сторінки (vision, кілька хвилин "
+                               "на випадок); пропозиції з'являться в Pending Edits."})
+
 @app.route("/api/change-password", methods=["POST"])
 def change_password_api():
     """In-UI password change (TASK-61) - the only way to change it before
@@ -2171,6 +2221,35 @@ def edit_approve(slug, edit_id):
     # a reviewer confirming the regenerated result, not a data write.
 
     edit_store.mark_status(slug, edit_id, "approved", applied_at=datetime.now().isoformat())
+
+    # TASK-65: translation-memory record for APPROVED text edits only.
+    # Agent proposals must never contaminate the memory before a human
+    # confirms them - so this hook fires exclusively on approve, never on
+    # add. Local JSONL always; MemPalace POST is best-effort and only
+    # when KBG_MEMPALACE_URL is configured (the phone may have no route
+    # to it - must never block or fail the approve itself).
+    if edit.get("field") == "translated_text":
+        tm_record = {
+            "slug": slug, "target_id": edit["target_id"],
+            "original": edit["original_value"], "approved": edit["edited_value"],
+            "source": edit.get("source", "human"),
+            "approved_at": datetime.now().isoformat(),
+        }
+        try:
+            tm_path = os.path.join(paths["book_dir"], "edits", "approved_tm.jsonl")
+            os.makedirs(os.path.dirname(tm_path), exist_ok=True)
+            with open(tm_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(tm_record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+        mp_url = os.environ.get("KBG_MEMPALACE_URL")
+        if mp_url:
+            try:
+                import requests
+                requests.post(mp_url.rstrip("/") + "/api/tm", json=tm_record, timeout=5)
+            except Exception:
+                pass
+
     return jsonify({"status": "success"})
 
 @app.route("/api/edit/discard/<slug>/<edit_id>", methods=["POST"])
@@ -2211,9 +2290,12 @@ def edit_manga_text(slug, page_filename):
     if not bubble:
         return jsonify({"status": "error", "message": f"Bubble '{bubble_id}' not found on this page"}), 404
 
+    source = data.get("source", "human")
+    if source not in ("human", "gemma_agent"):
+        return jsonify({"status": "error", "message": "source must be 'human' or 'gemma_agent'"}), 400
     edit = edit_store.add_edit(slug, mode="manga", target_id=f"{page_filename}#{bubble_id}",
                                 field="translated_text", original_value=bubble["translated_text"],
-                                edited_value=new_text)
+                                edited_value=new_text, source=source)
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/manga-bbox/<slug>/<page_filename>", methods=["PUT"])
@@ -2277,9 +2359,12 @@ def edit_manga_bbox(slug, page_filename):
     if font_size is not None:
         edited_value["font_size"] = font_size
 
+    source = data.get("source", "human")
+    if source not in ("human", "gemma_agent"):
+        return jsonify({"status": "error", "message": "source must be 'human' or 'gemma_agent'"}), 400
     edit = edit_store.add_edit(slug, mode="manga", target_id=f"{page_filename}#{bubble_id}",
                                 field="manual_bbox_override", original_value=original_value,
-                                edited_value=edited_value)
+                                edited_value=edited_value, source=source)
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/regenerate-manga-page/<slug>/<page_filename>", methods=["POST"])

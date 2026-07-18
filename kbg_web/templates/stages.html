@@ -1333,7 +1333,7 @@
                                 </div>
                                 ${pageEdits.map(e => `
                                     <div style="border-top:1px dashed var(--border-color); padding-top:0.6rem; margin-top:0.6rem;">
-                                        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.4rem;">${e.target_id.split("#")[1]}</div>
+                                        <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.4rem;">${e.target_id.split("#")[1]}${e.source === 'gemma_agent' ? ' <span style="background:rgba(139,92,246,.25); color:#c4b5fd; border-radius:6px; padding:0.1rem 0.45rem; font-size:0.72rem;">🤖 запропоновано агентом</span>' : ''}</div>
                                         <div class="grid-stages">
                                             <div class="stage-box">
                                                 <div class="stage-title">Before</div>

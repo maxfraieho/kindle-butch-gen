@@ -34,10 +34,16 @@ def _save_edits(slug, edits):
         json.dump(edits, f, ensure_ascii=False, indent=2)
 
 
-def add_edit(slug, mode, target_id, field, original_value, edited_value):
+def add_edit(slug, mode, target_id, field, original_value, edited_value,
+             source="human"):
     """Record a new non-destructive edit overlay. Does not touch any
     generated artifact (cache/markdown/audio) — that only happens on
-    approve_edit()."""
+    approve_edit().
+
+    source: "human" (default) or "gemma_agent" (TASK-65 agent editor) —
+    a mandatory audit trail so any future bug triage can always tell who
+    authored a given edit. Agent edits go through the exact same
+    pending→approve gate as human ones."""
     edits = _load_edits(slug)
     edit = {
         "id": f"e_{uuid.uuid4().hex[:12]}",
@@ -47,6 +53,7 @@ def add_edit(slug, mode, target_id, field, original_value, edited_value):
         "original_value": original_value,
         "edited_value": edited_value,
         "status": "pending",
+        "source": source,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "applied_at": None,
     }
