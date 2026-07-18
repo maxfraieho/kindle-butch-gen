@@ -949,30 +949,30 @@
             <!-- Manage Books -->
             <div class="glass-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
-                    <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; min-width: 150px;">Manage Books</h2>
+                    <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; min-width: 150px;">Мої книги</h2>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                         <button class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openAddBookModal()">
-                            <span>➕</span> Add Book
+                            <span>➕</span> Додати книгу
                         </button>
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openModelsSelector()">
-                            <span>🤖</span> Models Manager
+                            <span>🤖</span> Моделі
                         </button>
                         <button class="btn-outline" id="selfUpdateBtn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="runSelfUpdate()">
-                            <span>🔄</span> Update
+                            <span>🔄</span> Оновити Vydra
                         </button>
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
-                            <span>⚙</span> Save Location
+                            <span>⚙</span> Куди зберігати
                         </button>
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openPasswordModal()">
-                            <span>🔑</span> Change Password
+                            <span>🔑</span> Пароль
                         </button>
                     </div>
                 </div>
                 <div class="save-location-info">
-                    <span>📁</span> <strong>Save Location:</strong> <span id="currentSaveLocation">Loading...</span>
+                    <span>📁</span> <strong>Тека збереження:</strong> <span id="currentSaveLocation">Завантаження...</span>
                 </div>
                 <div id="booksList" class="books-container">
-                    <p style="color: var(--text-secondary); text-align: center;">Loading books...</p>
+                    <p style="color: var(--text-secondary); text-align: center;">Завантажую список книг...</p>
                 </div>
             </div>
         </div>
@@ -1010,7 +1010,7 @@
     <div id="passwordModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>🔑 Change Password</h3>
+                <h3>🔑 Зміна пароля</h3>
                 <button class="modal-close" onclick="closePasswordModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1086,7 +1086,7 @@
     <div id="modelsModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 650px;">
             <div class="modal-header">
-                <h3>🤖 Models & Services Manager</h3>
+                <h3>🤖 Моделі та сервер перекладу</h3>
                 <button class="modal-close" onclick="closeModelsSelector()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1131,31 +1131,31 @@
     <div id="addBookModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
-                <h3>➕ Add New Book</h3>
+                <h3>➕ Нова книга</h3>
                 <button class="modal-close" onclick="closeAddBookModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <div id="uploadStatus" class="upload-status"></div>
                 <form id="addBookForm">
                     <div class="form-group">
-                        <label for="file_upload" id="fileUploadLabel">Upload File (PDF / EPUB / TXT / MD)</label>
+                        <label for="file_upload" id="fileUploadLabel">Завантажте файл (PDF / EPUB / TXT / MD)</label>
                         <input type="file" id="file_upload" class="form-control" accept=".pdf,.epub,.txt,.md">
                     </div>
                     <div class="form-group">
-                        <label for="pdf_path" id="pdfPathLabel">Or Enter Source PDF Path (on system)</label>
+                        <label for="pdf_path" id="pdfPathLabel">…або вкажіть шлях до файлу на пристрої</label>
                         <input type="text" id="pdf_path" class="form-control" placeholder="e.g. /path/to/book.pdf" autocomplete="off">
                     </div>
                     <input type="hidden" id="slug" required pattern="^[a-z0-9_-]+$">
                     <div class="form-group">
-                        <label for="title">Title</label>
+                        <label for="title">Назва книги</label>
                         <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off" oninput="document.getElementById('slug').value = slugify(this.value)">
                     </div>
                     <div class="form-group">
-                        <label for="authors">Authors</label>
+                        <label for="authors">Автор(и)</label>
                         <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
                     </div>
                     <div class="form-group">
-                        <label for="source_lang">Source Language</label>
+                        <label for="source_lang">Мова оригіналу</label>
                         <select id="source_lang" class="form-control" required>
                             <option value="auto">Auto-detect (EPUB only)</option>
                             <option value="en">English (en)</option>
@@ -1164,7 +1164,7 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="lang">Target Language (TTS & E-Book)</label>
+                        <label for="lang">Мова перекладу (озвучення та книга)</label>
                         <select id="lang" class="form-control" required>
                             <option value="uk">Ukrainian (uk)</option>
                             <option value="ru">Russian (ru)</option>
@@ -1173,16 +1173,16 @@
                     </div>
                     <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 1.5rem;">
                         <input type="checkbox" id="is_manga" style="width: auto; margin: 0; cursor: pointer;" onchange="updateSourcePathPlaceholder(this.checked)">
-                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Is Manga / Comic (Images)</label>
+                        <label for="is_manga" style="margin: 0; cursor: pointer; font-weight: bold; color: var(--text-primary);">Це манґа / комікс (зображення)</label>
                     </div>
-                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">Add Book</button>
+                    <button type="submit" id="addBookSubmit" class="btn btn-primary" style="width: 100%;">➕ Додати книгу</button>
                 </form>
             </div>
         </div>
     </div>
 
     <!-- Floating Action Button -->
-    <button class="fab" id="openAddBookBtn" onclick="openAddBookModal()" title="Add New Book">➕</button>
+    <button class="fab" id="openAddBookBtn" onclick="openAddBookModal()" title="Додати книгу">➕</button>
     <script>
         // Intercept fetch to prevent credential errors when document URL has basic auth details
         (function() {
@@ -1503,7 +1503,7 @@
                     alert(d.message);
                     btn.innerHTML = orig; btn.disabled = false;
                 } else if (d.status === 'updating') {
-                    btn.innerHTML = '🔄 Updating… restarting service';
+                    btn.innerHTML = '🔄 Оновлюємо… сервіс перезапускається';
                     const poll = setInterval(async () => {
                         try {
                             const c = await fetch('/api/settings', { cache: 'no-store' });
@@ -1584,13 +1584,13 @@
                 }
 
                 if (books.length === 0) {
-                    container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">No books configured yet.</p>';
+                    container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">Поки що немає книг — натисніть «➕ Додати книгу», щоб почати 🦦</p>';
                     return;
                 }
 
                 container.innerHTML = books.map((book, index) => {
                     const badgeClass = book.is_running ? 'badge-running' : 'badge-idle';
-                    const badgeText = book.is_running ? 'Running' : 'Idle';
+                    const badgeText = book.is_running ? 'Працює' : 'Очікує';
                     const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
                     
                     let speakerOptions = '';

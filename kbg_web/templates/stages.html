@@ -705,6 +705,31 @@
 
             async function renderAgentTab() {
                 if (_agentPollTimer) { clearInterval(_agentPollTimer); _agentPollTimer = null; }
+                // Friendly premium state instead of a 403 alert on the
+                // start button - the clumsiest user must never hit a
+                // dead-end error for a feature they simply don't have.
+                try {
+                    const pr = await fetch('/api/support/profile', { cache: 'no-store' });
+                    if (pr.ok) {
+                        const pd = await pr.json();
+                        if (!(pd.entitlements && pd.entitlements.length)) {
+                            mangaTabContent.innerHTML = `
+                                <div class="glass-card" style="padding:1.2rem; text-align:center;">
+                                    <div style="font-size:2rem;">💎</div>
+                                    <h3>Агент пошуку проблем — преміум-функція</h3>
+                                    <p style="color:var(--text-secondary); max-width:480px; margin:0.5rem auto;">
+                                        ШІ-агент сам знаходить проблемні місця перекладу манґи
+                                        (тексти, що накладаються; спотворені рамки) і пропонує
+                                        виправлення — а ви лише підтверджуєте.
+                                    </p>
+                                    <a href="https://t.me/GetVydraBot" target="_blank" class="nav-btn"
+                                       style="display:inline-block; margin-top:0.6rem; padding:0.5rem 1.2rem; background:var(--primary); color:#fff; text-decoration:none;">
+                                        Активувати в @GetVydraBot (/premium)</a>
+                                </div>`;
+                            return;
+                        }
+                    }
+                } catch (e) { /* on profile failure fall through to the normal tab */ }
                 mangaTabContent.innerHTML = `
                     <div class="glass-card" style="padding:1rem;">
                         <h3 style="margin-top:0;">🤖 Агент пошуку проблем перекладу (преміум)</h3>
