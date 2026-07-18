@@ -157,6 +157,28 @@ def main():
             log(f"missing required file: {p}")
             return 1
 
+    # RAM guard: the first live run OOM-killed the ENTIRE Termux session
+    # (Android low-memory killer) because Gemma vision (~3.3GB) was loaded
+    # on top of the resident llama-server translation model (~4.4GB).
+    # Refuse to start rather than take the whole phone environment down -
+    # and never silently kill the user's llama-server ourselves (it may be
+    # mid-translation on another book).
+    try:
+        meminfo = {l.split(":")[0]: int(l.split()[1])
+                   for l in open("/proc/meminfo") if ":" in l}
+        avail_gb = meminfo.get("MemAvailable", 0) / 1024 / 1024
+    except Exception:
+        avail_gb = None
+    if avail_gb is not None and avail_gb < 5.0:
+        llama_up = subprocess.run(["pgrep", "-f", "llama-server"],
+                                  capture_output=True).returncode == 0
+        log(f"ABORT: only {avail_gb:.1f}GB RAM available; the vision model needs ~5GB headroom "
+            f"or Android will OOM-kill all of Termux (happened on the first live run).")
+        if llama_up:
+            log("llama-server is holding the translation model - stop it first "
+                "(Models Manager -> Stop Server), then re-run the agent scan.")
+        return 1
+
     user = os.environ.get("KBG_WEB_USER", "admin")
     password = os.environ.get("KBG_WEB_PASSWORD", "")
     auth = (user, password)
