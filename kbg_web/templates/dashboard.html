@@ -1215,8 +1215,8 @@
 
         // Auto-detect metadata on file selection
         function titleFromFilename(name) {
-            // "Frieren - Beyond Journey's End v01 (2021) (Digital) [1r0n].cbz"
-            // -> "Frieren - Beyond Journey's End v01" - strip extension,
+            // "My Public Domain Comic v01 (Digital).cbz"
+            // -> "My Public Domain Comic v01" - strip extension,
             // bracketed release-scanner junk, and underscores.
             let t = name.replace(/\.[^.]+$/, '');
             t = t.replace(/[\[(][^\])]*[\])]/g, ' ');
@@ -2547,7 +2547,7 @@
             const fileInput = document.getElementById("file_upload");
             if (isMangaChecked) {
                 label.innerText = "Or Enter Source Directory/File Path (on system)";
-                input.placeholder = "e.g. /storage/emulated/0/Documents/Frieren";
+                input.placeholder = "напр. /storage/emulated/0/Documents/MyComic";
                 fileLabel.innerText = "Upload File (CBZ / CBR / CB7 / ZIP)";
                 fileInput.setAttribute("accept", ".cbz,.cbr,.cb7,.zip,.rar,.pdf");
             } else {
