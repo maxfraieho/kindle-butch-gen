@@ -789,7 +789,11 @@ def run_conversion_api(slug):
             cmd.append("--no-translate")
         if data.get("no_ebook"):
             cmd.append("--no-ebook")
-            
+        # "Clean Pages" (clean=true) for manga means: redo every page from
+        # scratch, ignoring the resume-skip of already-translated pages.
+        if data.get("clean"):
+            cmd.append("--force-retranslate")
+
         manga_resolution = data.get("manga_resolution", "1280x1920")
         max_width, max_height = 1280, 1920
         if manga_resolution == "original":

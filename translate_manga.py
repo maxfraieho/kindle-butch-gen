@@ -1765,6 +1765,7 @@ def main():
     parser.add_argument("--overrides-json", help="TASK-21: path to a JSON {original_ocr_text: edited_translation} map, used only with --regenerate-page")
     parser.add_argument("--bbox-overrides-json", help="TASK-36: path to a JSON {original_ocr_text: {bbox, ref_size, font_size}} map (any subset of fields), used only with --regenerate-page")
     parser.add_argument("--backfill-bubbles-meta", action="store_true", help="TASK-25: read-only backfill of bubbles_meta/ for a book translated before TASK-20/21 existed - never touches cleaned/translated PNGs or re-translates")
+    parser.add_argument("--force-retranslate", action="store_true", help="Ignore resume: re-translate every page from scratch even if a translated page already exists (the 'Clean Pages' option).")
     parser.add_argument("--backfill-box-overlap-flags", action="store_true", help="TASK-36: retroactively compute box_overlap quality flags for a book's existing bubbles_meta/ - no model loading, no re-detection, just reads/writes JSON")
     parser.add_argument("--slug", help="Book slug - required with --backfill-bubbles-meta / --backfill-box-overlap-flags")
     args = parser.parse_args()
@@ -1870,7 +1871,11 @@ def main():
                 possible_translated = os.path.join(translated_dir, basename)
                 if os.path.exists(possible_translated):
                     translated_path = possible_translated
-                    
+
+            if translated_path and args.force_retranslate:
+                log(f"Page {idx+1}: --force-retranslate — ігнорую наявний переклад, роблю з нуля.")
+                translated_path = None
+
             if translated_path:
                 log(f"Page {idx+1} already translated. Skipping.")
                 # Copy to temp_out
