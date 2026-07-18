@@ -35,7 +35,7 @@ def _save_edits(slug, edits):
 
 
 def add_edit(slug, mode, target_id, field, original_value, edited_value,
-             source="human"):
+             source="human", note=None):
     """Record a new non-destructive edit overlay. Does not touch any
     generated artifact (cache/markdown/audio) — that only happens on
     approve_edit().
@@ -54,6 +54,7 @@ def add_edit(slug, mode, target_id, field, original_value, edited_value,
         "edited_value": edited_value,
         "status": "pending",
         "source": source,
+        "note": note,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "applied_at": None,
     }

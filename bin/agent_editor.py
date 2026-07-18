@@ -105,6 +105,53 @@ def resolve_overlap(box, partners, W, H, min_gap=8):
     return [int(x1), int(y1), int(x2), int(y2)]
 
 
+def is_nonsense_text(text):
+    """OCR-garbage detector (Q's feedback on the real p173 case: a page-
+    tall column reading 'му ікі ?а ащ и 2 от @ << пат) ее іб 2 ей').
+    Counts tokens that look like real Ukrainian/Latin words (3+ letters,
+    vowel present) vs noise tokens (symbols, digits, 1-2 char shards,
+    vowelless clusters). Deterministic - no model call needed."""
+    if not text:
+        return False
+    tokens = re.findall(r"\S+", text)
+    if len(tokens) < 3:
+        return False
+    wordlike = 0
+    for t in tokens:
+        letters = re.sub(r"[^а-щьюяіїєґa-z]", "", t.lower())
+        if len(letters) >= 3 and re.search(r"[аеиіоуюяєїa-z]", letters) \
+                and re.search(r"[аеиіоуюяєї]|[aeiouy]", letters):
+            wordlike += 1
+    return wordlike / len(tokens) < 0.4
+
+
+def reformat_horizontal(box, partners, W, H, min_gap=8):
+    """Convert a page-tall vertical column into a horizontal box a
+    left-to-right reader can actually read (target-language ergonomics:
+    Ukrainian/European readers need horizontal lines; vertical stacking
+    is a Japanese-typography artifact). Keeps the top edge, shrinks
+    height hard, widens into whatever horizontal span is free. Returns
+    a new box (guaranteed non-overlapping) or None."""
+    x1, y1, x2, y2 = box
+    w, h = x2 - x1, y2 - y1
+    if w >= 0.6 * h:
+        return None  # already horizontal-ish
+    new_h = max(90, int(h * 0.22))
+    row_partners = [p for p in partners if p[3] > y1 and p[1] < y1 + new_h]
+    left_limit = max([0] + [p[2] + min_gap for p in row_partners if p[2] <= x1])
+    right_limit = min([W] + [p[0] - min_gap for p in row_partners if p[0] >= x2])
+    target_w = min(right_limit - left_limit, max(int(2.2 * new_h), int(w * 3)))
+    if target_w < int(w * 1.5):
+        return None
+    cx = (x1 + x2) // 2
+    nx1 = max(left_limit, min(cx - target_w // 2, right_limit - target_w))
+    nx2 = nx1 + target_w
+    cand = [int(nx1), int(y1), int(nx2), int(y1 + new_h)]
+    if _overlaps_any(cand, partners):
+        cand = resolve_overlap(cand, partners, W, H, min_gap)
+    return cand
+
+
 def widen_if_distorting(box, text, partners, W, H, min_gap=8):
     """A box much taller than wide squeezes text into a distorted
     one-character-per-line column. Widen it horizontally into free space
@@ -271,27 +318,49 @@ def main():
 
         # 1. GEOMETRY computes the actual fix (deterministic - the thing
         # a human would do: розвести рамки, розширити спотворену).
+        other_boxes = [b["bbox"] for b in bubbles
+                       if b["id"] != bubble_id and b.get("bbox")]
         new_box = None
         fix_kind = None
-        widened = widen_if_distorting(cur_box, bubble.get("translated_text"),
-                                      [b["bbox"] for b in bubbles
-                                       if b["id"] != bubble_id and b.get("bbox")],
-                                      width, height)
-        if widened and not _overlaps_any(widened, partners):
-            new_box, fix_kind = widened, "widen-distorted-box"
-        elif partners:
-            resolved = resolve_overlap(cur_box, partners, width, height)
-            if resolved and resolved != [int(v) for v in cur_box]:
-                new_box, fix_kind = resolved, "resolve-overlap"
+        note = None
+
+        # Nonsense-text branch first (Q's feedback): a page-tall column
+        # of OCR garbage isn't a "shift it sideways" problem - the human
+        # needs to know the TEXT itself is meaningless (likely decorative
+        # kanji / chapter title), and the box should become horizontal
+        # for a left-to-right reader.
+        if is_nonsense_text(bubble.get("translated_text")):
+            note = ("⚠️ Текст виглядає як OCR-шум без змісту (ймовірно "
+                    "декоративний напис/назва розділу в оригіналі). Рамку "
+                    "запропоновано переформатувати горизонтально - впишіть "
+                    "правильний текст вручну, звірившись з оригіналом.")
+            horiz = reformat_horizontal(cur_box, other_boxes, width, height)
+            if horiz:
+                new_box, fix_kind = horiz, "horizontal-reformat"
+            else:
+                # No room to reformat - still surface the finding: the
+                # note IS the value; box stays as-is so approve is a
+                # no-op geometrically but the flag reaches the human.
+                new_box, fix_kind = [int(v) for v in cur_box], "nonsense-flag-only"
+        else:
+            widened = widen_if_distorting(cur_box, bubble.get("translated_text"),
+                                          other_boxes, width, height)
+            if widened and not _overlaps_any(widened, partners):
+                new_box, fix_kind = widened, "widen-distorted-box"
+            elif partners:
+                resolved = resolve_overlap(cur_box, partners, width, height)
+                if resolved and resolved != [int(v) for v in cur_box]:
+                    new_box, fix_kind = resolved, "resolve-overlap"
 
         # Hard honesty gate: no computable real improvement -> NO proposal.
         # (v1 shipped +-10px tweaks and no-ops; better silence than noise.)
+        # A nonsense-flag proposal is exempt: its value is the note itself.
         if new_box is None:
             log(f"skip {bubble_id}: no real geometric improvement computable "
                 f"(box={cur_box}, partners={len(partners)})")
             skipped += 1
             continue
-        if partners and _overlaps_any(new_box, partners):
+        if partners and _overlaps_any(new_box, partners) and fix_kind != "nonsense-flag-only":
             log(f"skip {bubble_id}: computed box still overlaps - refusing to propose")
             skipped += 1
             continue
@@ -325,6 +394,8 @@ def main():
 
         body = {"bubble_id": bubble_id, "source": "gemma_agent",
                 "bbox": new_box, "ref_size": [width, height]}
+        if note:
+            body["note"] = note
         endpoint = f"/api/edit/manga-bbox/{args.book}/{page}"
         status, resp = api_call(args.api, auth, "PUT", endpoint, body)
         if status == 200:

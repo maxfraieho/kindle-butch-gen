@@ -2338,9 +2338,10 @@ def edit_manga_text(slug, page_filename):
     source = data.get("source", "human")
     if source not in ("human", "gemma_agent"):
         return jsonify({"status": "error", "message": "source must be 'human' or 'gemma_agent'"}), 400
+    note = (data.get("note") or "")[:500] or None
     edit = edit_store.add_edit(slug, mode="manga", target_id=f"{page_filename}#{bubble_id}",
                                 field="translated_text", original_value=bubble["translated_text"],
-                                edited_value=new_text, source=source)
+                                edited_value=new_text, source=source, note=note)
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/manga-bbox/<slug>/<page_filename>", methods=["PUT"])
@@ -2407,9 +2408,10 @@ def edit_manga_bbox(slug, page_filename):
     source = data.get("source", "human")
     if source not in ("human", "gemma_agent"):
         return jsonify({"status": "error", "message": "source must be 'human' or 'gemma_agent'"}), 400
+    note = (data.get("note") or "")[:500] or None
     edit = edit_store.add_edit(slug, mode="manga", target_id=f"{page_filename}#{bubble_id}",
                                 field="manual_bbox_override", original_value=original_value,
-                                edited_value=edited_value, source=source)
+                                edited_value=edited_value, source=source, note=note)
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/regenerate-manga-page/<slug>/<page_filename>", methods=["POST"])

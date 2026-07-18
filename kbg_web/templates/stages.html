@@ -1387,6 +1387,7 @@
                                 ${pageEdits.map(e => `
                                     <div style="border-top:1px dashed var(--border-color); padding-top:0.6rem; margin-top:0.6rem;">
                                         <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:0.4rem;">${e.target_id.split("#")[1]}${e.source === 'gemma_agent' ? ' <span style="background:rgba(139,92,246,.25); color:#c4b5fd; border-radius:6px; padding:0.1rem 0.45rem; font-size:0.72rem;">🤖 запропоновано агентом</span>' : ''}</div>
+                                        ${e.note ? `<div style="font-size:0.82rem; color:#fbbf24; background:rgba(251,191,36,.08); border:1px solid rgba(251,191,36,.3); border-radius:8px; padding:0.5rem 0.7rem; margin-bottom:0.5rem;">${htmlEscape(e.note)}</div>` : ''}
                                         ${typeof e.original_value === 'string' && typeof e.edited_value === 'string' ? `
                                         <div class="grid-stages">
                                             <div class="stage-box">
