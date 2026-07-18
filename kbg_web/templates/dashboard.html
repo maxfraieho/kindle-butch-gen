@@ -1150,9 +1150,11 @@
                         <label for="title">Назва книги</label>
                         <input type="text" id="title" class="form-control" placeholder="e.g. Clean Code" required autocomplete="off" oninput="document.getElementById('slug').value = slugify(this.value)">
                     </div>
+                    <details style="margin-bottom:1rem;">
+                    <summary style="cursor:pointer; color:var(--text-secondary); font-size:0.9rem; margin-bottom:0.6rem;">Детальніше (не обов'язково)</summary>
                     <div class="form-group">
                         <label for="authors">Автор(и)</label>
-                        <input type="text" id="authors" class="form-control" placeholder="e.g. Robert C. Martin" required autocomplete="off">
+                        <input type="text" id="authors" class="form-control" placeholder="можна лишити порожнім" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label for="source_lang">Мова оригіналу</label>
@@ -1212,7 +1214,33 @@
         }
 
         // Auto-detect metadata on file selection
+        function titleFromFilename(name) {
+            // "Frieren - Beyond Journey's End v01 (2021) (Digital) [1r0n].cbz"
+            // -> "Frieren - Beyond Journey's End v01" - strip extension,
+            // bracketed release-scanner junk, and underscores.
+            let t = name.replace(/\.[^.]+$/, '');
+            t = t.replace(/[\[(][^\])]*[\])]/g, ' ');
+            t = t.replace(/_/g, ' ').replace(/\s{2,}/g, ' ').trim();
+            return t;
+        }
+
         document.getElementById('file_upload').addEventListener('change', async function(e) {
+            // Simple mode (TASK-68): picking a file fills the form by
+            // itself - a non-technical user should only need Add after this.
+            const f0 = e.target.files && e.target.files[0];
+            if (f0) {
+                const titleEl = document.getElementById('title');
+                if (titleEl && !titleEl.value.trim()) {
+                    titleEl.value = titleFromFilename(f0.name);
+                    document.getElementById('slug').value = slugify(titleEl.value);
+                }
+                const isComic = /\.(cbz|cbr|cb7|zip|rar)$/i.test(f0.name);
+                const mangaEl = document.getElementById('is_manga');
+                if (mangaEl && isComic && !mangaEl.checked) {
+                    mangaEl.checked = true;
+                    updateSourcePathPlaceholder(true);
+                }
+            }
             if (this.files.length === 0) return;
             
             const file = this.files[0];
@@ -1257,7 +1285,7 @@
             e.preventDefault();
             const title = document.getElementById('title').value.trim();
             let baseSlug = document.getElementById('slug').value.trim() || slugify(title);
-            const authors = document.getElementById('authors').value.trim();
+            const authors = document.getElementById('authors').value.trim() || 'Невідомий автор';
             const lang = document.getElementById('lang').value;
             const source_lang = document.getElementById('source_lang').value;
             const fileInput = document.getElementById('file_upload');
@@ -1324,10 +1352,19 @@
                     break;
                 }
                 if (result.response.ok) {
-                    showUploadStatus('Book added successfully!', 'success');
+                    showUploadStatus('✅ Книгу додано!', 'success');
                     document.getElementById('addBookForm').reset();
                     fetchBooks();
-                    setTimeout(closeAddBookModal, 1000);
+                    const addedSlug = currentSlug;
+                    setTimeout(() => {
+                        closeAddBookModal();
+                        // Simple mode: the natural next step IS the next
+                        // question - don't make the user hunt for the
+                        // start button on the card.
+                        if (confirm('Книгу додано! Почати переклад зараз?')) {
+                            runConversion(addedSlug);
+                        }
+                    }, 600);
                     break;
                 }
                 if (result.response.status === 409 && i < 5) {
