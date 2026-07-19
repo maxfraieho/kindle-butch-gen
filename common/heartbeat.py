@@ -36,16 +36,24 @@ Requires (not yet provisioned by deploy.sh - manual setup):
     (appwrite/functions/heartbeat-watchdog/) deployed as
     SCHEDULE-TRIGGER ONLY (e.g. every 5 min), no HTTP execute
     permission granted.
-  - New attributes on the "users" collection: last_heartbeat_ts (int),
-    active_book_slug (string), active_book_progress (string),
-    last_stall_alert_ts (int), watchdog_paused (bool, TASK-70's /pause -
-    set only by tg-support-bot, never by this module) - all
-    optional/nullable.
+  - New attributes on the "users" collection: watchdog_paused (bool,
+    TASK-70's /pause - set only by tg-support-bot, never by this
+    module) - account-level, applies to every device.
+
+TASK-72 (multi-device, 2026-07-19): a single telegram_id can now have
+several devices heartbeating independently (phone + tablet) - per-device
+state (active_book_slug/progress/stage/last_heartbeat_ts) moved out of
+the singular "users" document into a new "device_sessions" collection,
+keyed by device_id (see common/device_identity.py), to avoid two devices
+overwriting each other's state on every heartbeat. Entitlements and
+watchdog_paused stay account-level on "users" - unaffected.
 """
 import json
 import os
 
 import requests
+
+from common.device_identity import get_or_create_device_id, get_device_alias
 
 _CFG = {"initialized": False, "url": None, "project": None, "secret": None, "tg_id": None}
 
@@ -90,6 +98,8 @@ def _post(book_slug, progress_label, stage):
                 "headers": {"x-vydra-heartbeat-secret": _CFG["secret"]},
                 "body": json.dumps({
                     "telegram_id": _CFG["tg_id"],
+                    "device_id": get_or_create_device_id(),
+                    "device_alias": get_device_alias(),
                     "book_slug": book_slug,
                     "progress": progress_label,
                     "stage": stage,

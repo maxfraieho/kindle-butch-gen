@@ -66,13 +66,24 @@ def _get_user(db, tg_id):
     return docs[0] if docs else None
 
 
+DEVICE_COLL_ID = "device_sessions"
+
+
+def _get_device_session(db, device_id):
+    res = db.list_documents(DB_ID, DEVICE_COLL_ID,
+                            queries=[Query.equal("device_id", device_id)])
+    docs = res.get("documents", [])
+    return docs[0] if docs else None
+
+
 def _heartbeat(context):
-    """Best-effort conversion heartbeat (TASK-68 follow-up). The phone
-    POSTs here periodically while a book is converting, carrying its own
-    telegram_id + progress. Written with its own dedicated secret header
-    (HEARTBEAT_SECRET) - deliberately NOT reusing TG_WEBHOOK_SECRET or the
-    phone's read-only entitlement key, so a leaked heartbeat secret can't
-    be used to forge Telegram webhook calls or vice versa.
+    """Best-effort conversion heartbeat (TASK-68 follow-up; TASK-72
+    multi-device). The phone POSTs here periodically while a book is
+    converting, carrying its own telegram_id + device_id + progress.
+    Written with its own dedicated secret header (HEARTBEAT_SECRET) -
+    deliberately NOT reusing TG_WEBHOOK_SECRET or the phone's read-only
+    entitlement key, so a leaked heartbeat secret can't be used to forge
+    Telegram webhook calls or vice versa.
 
     Deliberately narrow: this is the ONE write path the phone is allowed
     against Appwrite (see common/support_profile.py's docstring - the
@@ -80,6 +91,12 @@ def _heartbeat(context):
     Any failure here must never affect the phone's own translation loop,
     which is why the phone-side caller (translate_manga.py) treats this
     entire call as fire-and-forget with a short timeout.
+
+    TASK-72: per-device state lives in "device_sessions" (keyed by
+    device_id, unique index), NOT on the singular "users" document -
+    two devices under the same telegram_id must never overwrite each
+    other's active_book_slug/progress on every heartbeat. entitlements/
+    watchdog_paused stay on "users" (account-level, correctly shared).
     """
     req, res = context.req, context.res
     secret = os.environ.get("HEARTBEAT_SECRET", "")
@@ -91,11 +108,18 @@ def _heartbeat(context):
     except (json.JSONDecodeError, TypeError):
         return res.json({"ok": False, "error": "bad request"}, 400)
     tg_id = str(body.get("telegram_id", "")).strip()
+    device_id = str(body.get("device_id", "")).strip()
+    device_alias = str(body.get("device_alias", "")).strip()
     book_slug = str(body.get("book_slug", "")).strip()
     progress = str(body.get("progress", "")).strip()
     stage = str(body.get("stage", "")).strip()
-    if not tg_id:
-        return res.json({"ok": False, "error": "telegram_id required"}, 400)
+    if not tg_id or not device_id:
+        # device_id is required (unique index on device_sessions - an
+        # empty value from a not-yet-updated phone would collide across
+        # every legacy caller). Silent no-op, not an error the phone
+        # should see or retry over - matches the pre-existing contract
+        # for "nothing to attach this to".
+        return res.json({"ok": True})
 
     client = (Client()
               .set_endpoint(os.environ.get("APPWRITE_FUNCTION_API_ENDPOINT",
@@ -110,12 +134,22 @@ def _heartbeat(context):
         return res.json({"ok": True})
 
     from datetime import datetime, timezone
-    db.update_document(DB_ID, COLL_ID, user["$id"], data={
-        "last_heartbeat_ts": int(datetime.now(timezone.utc).timestamp()),
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    data = {
+        "telegram_id": tg_id,
+        "device_id": device_id,
+        "last_heartbeat_ts": now_ts,
         "active_book_slug": book_slug or None,
         "active_book_progress": progress or None,
         "active_book_stage": stage or None,
-    })
+    }
+    if device_alias:
+        data["device_alias"] = device_alias
+    session = _get_device_session(db, device_id)
+    if session:
+        db.update_document(DB_ID, DEVICE_COLL_ID, session["$id"], data=data)
+    else:
+        db.create_document(DB_ID, DEVICE_COLL_ID, ID.unique(), data=data)
     return res.json({"ok": True})
 
 

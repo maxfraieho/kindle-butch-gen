@@ -8,15 +8,24 @@ on the configured cron schedule, never from an arbitrary HTTP caller.
 Do not add an HTTP-callable path to this function without adding real
 request authentication first.
 
-Purpose: phones periodically heartbeat their active conversion via
+Purpose: devices periodically heartbeat their active conversion via
 tg-support-bot's /heartbeat path (see that function's `_heartbeat()`),
-writing `last_heartbeat_ts` + `active_book_slug` on their user document.
-Termux/Android can silently kill the whole phone-side process tree
-(confirmed live 2026-07-19 - twice in one session) with zero signal
+writing `last_heartbeat_ts` + `active_book_slug` on a `device_sessions`
+document. Termux/Android can silently kill the whole phone-side process
+tree (confirmed live 2026-07-19 - twice in one session) with zero signal
 reaching the user; auto-resume-on-restart handles recovery once the user
-reopens Termux, but nothing told them to. This function scans for users
-whose heartbeat has gone stale while a book was still marked active, and
-sends them a Telegram nudge to reopen Termux.
+reopens Termux, but nothing told them to. This function scans for
+device sessions whose heartbeat has gone stale while a book was still
+marked active, and sends a Telegram nudge to reopen Termux.
+
+TASK-72 (multi-device, 2026-07-19): a telegram_id can have several
+devices (phone + tablet) each with their own device_sessions row -
+notifications are sent as one per-account DIGEST covering every device's
+current state, not one message per stale device, following the same
+pattern established sync tools (Syncthing/Resilio) use for multi-node
+status: name the specific node that's down, but also show the rest of
+the fleet is fine, so the user isn't left guessing whether everything
+broke or just one device.
 
 Recommended schedule: every 5 minutes (`*/5 * * * *`).
 """
@@ -30,6 +39,7 @@ from appwrite.query import Query
 
 DB_ID = "kbg-support"
 COLL_ID = "users"
+DEVICE_COLL_ID = "device_sessions"
 NOTIFY_FUNCTION_ID = "kbg-tg-support-bot"
 
 # 5 min (Q's explicit call, 2026-07-19 - 15min felt too slow): still well
@@ -67,6 +77,53 @@ def _tg_send(endpoint, project, api_key, watchdog_secret, chat_id, text):
         pass  # best-effort; a missed nudge isn't worth failing the run over
 
 
+def _resume_note(stage):
+    """Every registered process type auto-resumes on Termux restart
+    (bin/resume_active_conversion.py), but what that means for the USER
+    differs: some genuinely finish unattended, others still need a human
+    step afterward. Keep this in sync with every send_heartbeat(...,
+    stage=...) call across the codebase."""
+    stage_l = (stage or "").lower()
+    if "агент" in stage_l:
+        # source="gemma_agent" edits always land pending, never
+        # auto-applied - resuming the scan doesn't apply anything by itself.
+        return "відкрийте вкладку «Агент» і натисніть запуск ще раз"
+    if "сканування персонажів" in stage_l:
+        return ("сканування продовжиться автоматично; перевірте нових "
+                "персонажів у вкладці «Cast & Context» після завершення")
+    # переклад / переклад книги / озвучення - all fully unattended resumes.
+    return "продовжиться з того ж місця автоматично"
+
+
+def _build_digest(sessions, stale_ids):
+    """One message per account covering every device's current state,
+    not one message per stale device - the whole point of the digest
+    pattern is answering "is this just one device, or is everything
+    down?" without the user having to guess or open the app."""
+    stale_blocks = []
+    status_lines = []
+    for s in sessions:
+        alias = s.get("device_alias") or "пристрій"
+        is_stale = s["$id"] in stale_ids
+        book = s.get("active_book_slug") or "книгу"
+        progress = s.get("active_book_progress") or ""
+        stage = s.get("active_book_stage") or "переклад"
+        progress_txt = f" ({progress})" if progress else ""
+        icon = "⏸️" if is_stale else "▶️"
+        status = "зупинився(-лася)" if is_stale else "працює"
+        status_lines.append(f"{icon} {alias}: {status}{progress_txt} — «{book}», етап: {stage}")
+        if is_stale:
+            stale_blocks.append(
+                f"⏸️ Схоже, {stage} книги «{book}»{progress_txt} на пристрої "
+                f"«{alias}» зупинився(-лася) — Termux на ньому міг закритися сам. "
+                f"Відкрийте застосунок Termux на цьому пристрої ще раз, "
+                f"{_resume_note(stage)}."
+            )
+    return ("\n\n".join(stale_blocks)
+            + "\n\n📊 Поточний стан ваших пристроїв:\n"
+            + "\n".join(status_lines))
+
+
 def main(context):
     res = context.res
     watchdog_secret = os.environ.get("WATCHDOG_SECRET", "")
@@ -81,57 +138,50 @@ def main(context):
     db = Databases(client)
 
     now = int(datetime.now(timezone.utc).timestamp())
-    users = db.list_documents(DB_ID, COLL_ID, queries=[
+    active_sessions = db.list_documents(DB_ID, DEVICE_COLL_ID, queries=[
         Query.is_not_null("active_book_slug"),
         Query.limit(100),
-    ])
+    ]).get("documents", [])
+
+    by_user = {}
+    for s in active_sessions:
+        by_user.setdefault(s.get("telegram_id", ""), []).append(s)
 
     nudged = 0
-    for user in users.get("documents", []):
-        # TASK-70: explicit user opt-out (/pause, /resume in tg-support-bot)
-        # for "I know I'm not actively working with Vydra right now" -
-        # skip entirely regardless of staleness, so a deliberate pause
-        # never gets treated as a crash.
+    for tg_id, sessions in by_user.items():
+        if not tg_id:
+            continue
+        stale_ids = set()
+        triggering_ids = set()
+        for s in sessions:
+            last_hb = int(s.get("last_heartbeat_ts") or 0)
+            if last_hb == 0 or now - last_hb < STALE_SECONDS:
+                continue
+            stale_ids.add(s["$id"])
+            last_alert = int(s.get("last_stall_alert_ts") or 0)
+            if now - last_alert >= REALERT_SECONDS:
+                triggering_ids.add(s["$id"])
+        if not triggering_ids:
+            continue  # nothing new to report for this account this tick
+
+        user_docs = db.list_documents(DB_ID, COLL_ID, queries=[
+            Query.equal("telegram_id", tg_id), Query.limit(1),
+        ]).get("documents", [])
+        if not user_docs:
+            continue
+        user = user_docs[0]
+        # TASK-70: explicit user opt-out (/pause, /resume in tg-support-bot),
+        # account-level - applies to every device under this telegram_id.
         if user.get("watchdog_paused"):
             continue
-        last_hb = int(user.get("last_heartbeat_ts") or 0)
-        if last_hb == 0:
-            continue
-        age = now - last_hb
-        if age < STALE_SECONDS:
-            continue
-        last_alert = int(user.get("last_stall_alert_ts") or 0)
-        if now - last_alert < REALERT_SECONDS:
-            continue
 
-        book = user.get("active_book_slug", "книгу")
-        progress = user.get("active_book_progress", "")
-        stage = user.get("active_book_stage", "") or "переклад"
-        progress_txt = f" ({progress})" if progress else ""
-        # Every registered process type auto-resumes on Termux restart
-        # (bin/resume_active_conversion.py), but what that means for the
-        # USER differs: some genuinely finish unattended, others still
-        # need a human step afterward. Keep this in sync with every
-        # send_heartbeat(..., stage=...) call across the codebase.
-        stage_l = stage.lower()
-        if "агент" in stage_l:
-            # source="gemma_agent" edits always land pending, never
-            # auto-applied - resuming the scan doesn't apply anything by
-            # itself.
-            resume_note = "відкрийте вкладку «Агент» і натисніть запуск ще раз"
-        elif "сканування персонажів" in stage_l:
-            resume_note = ("сканування продовжиться автоматично; перевірте нових "
-                           "персонажів у вкладці «Cast & Context» після завершення")
-        else:
-            # переклад / переклад книги / озвучення - all fully unattended resumes.
-            resume_note = "продовжиться з того ж місця автоматично"
-        _tg_send(endpoint, project, api_key, watchdog_secret, int(user["telegram_id"]),
-                 f"⏸️ Схоже, {stage} книги «{book}»{progress_txt} зупинився(-лася) — "
-                 f"Termux на телефоні міг закритися сам. Відкрийте застосунок "
-                 f"Termux ще раз, {resume_note}.")
-        db.update_document(DB_ID, COLL_ID, user["$id"],
-                           data={"last_stall_alert_ts": now})
+        text = _build_digest(sessions, stale_ids)
+        _tg_send(endpoint, project, api_key, watchdog_secret, int(tg_id), text)
+        for session_id in triggering_ids:
+            db.update_document(DB_ID, DEVICE_COLL_ID, session_id,
+                               data={"last_stall_alert_ts": now})
         nudged += 1
 
-    context.log(f"Checked {len(users.get('documents', []))} active users, nudged {nudged}.")
-    return res.json({"ok": True, "checked": len(users.get("documents", [])), "nudged": nudged})
+    context.log(f"Checked {len(active_sessions)} active device session(s) "
+               f"across {len(by_user)} account(s), nudged {nudged}.")
+    return res.json({"ok": True, "checked": len(active_sessions), "nudged": nudged})
