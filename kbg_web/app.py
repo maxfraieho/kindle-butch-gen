@@ -848,7 +848,19 @@ def run_conversion_api(slug):
         )
         
         active_processes[slug] = proc
-        _write_active_conversion_state(slug, cmd, repo_dir, log_path)
+        # Real incident, confirmed live 2026-07-19: Termux got killed mid a
+        # deliberate --force-retranslate run (three times in one session).
+        # Auto-resume replays the saved cmd VERBATIM, so the flag survived
+        # into every resume too - each restart wiped and redid pages that
+        # had already been genuinely retranslated in THIS SAME run, never
+        # making it past ~page 70 before the next kill undid the progress
+        # again. A resume should always behave like a normal resume (skip
+        # pages that already have real output on disk) regardless of how
+        # the original run was started - the destructive "wipe and start
+        # over" semantic only makes sense for the deliberate initial user
+        # action, never for an automatic crash-recovery relaunch.
+        resume_cmd = [arg for arg in cmd if arg not in ("--force-retranslate", "--clean")]
+        _write_active_conversion_state(slug, resume_cmd, repo_dir, log_path)
         return jsonify({"status": "success", "message": "Pipeline started in background"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
