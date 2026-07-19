@@ -5,6 +5,7 @@ import json
 import subprocess
 import shutil
 import signal
+import uuid
 from datetime import datetime, timedelta
 from flask import (Flask, jsonify, request, render_template_string, render_template,
                    send_file, session, redirect, url_for)
@@ -791,8 +792,15 @@ def run_conversion_api(slug):
             cmd.append("--no-ebook")
         # "Clean Pages" (clean=true) for manga means: redo every page from
         # scratch, ignoring the resume-skip of already-translated pages.
+        # --clean-run-id identifies THIS deliberate sweep across possibly-
+        # many Termux-restart/auto-resume cycles, so a crash-and-resume can
+        # keep --force-retranslate active without either re-doing pages
+        # already redone this sweep or (the real incident, 2026-07-19)
+        # silently falling back to unrelated stale files once the flag
+        # was stripped to stop endless full-restarts.
         if data.get("clean"):
             cmd.append("--force-retranslate")
+            cmd.extend(["--clean-run-id", uuid.uuid4().hex])
 
         manga_resolution = data.get("manga_resolution", "1280x1920")
         max_width, max_height = 1280, 1920
@@ -851,16 +859,21 @@ def run_conversion_api(slug):
         # Real incident, confirmed live 2026-07-19: Termux got killed mid a
         # deliberate --force-retranslate run (three times in one session).
         # Auto-resume replays the saved cmd VERBATIM, so the flag survived
-        # into every resume too - each restart wiped and redid pages that
-        # had already been genuinely retranslated in THIS SAME run, never
-        # making it past ~page 70 before the next kill undid the progress
-        # again. A resume should always behave like a normal resume (skip
-        # pages that already have real output on disk) regardless of how
-        # the original run was started - the destructive "wipe and start
-        # over" semantic only makes sense for the deliberate initial user
-        # action, never for an automatic crash-recovery relaunch.
-        resume_cmd = [arg for arg in cmd if arg not in ("--force-retranslate", "--clean")]
-        _write_active_conversion_state(slug, resume_cmd, repo_dir, log_path)
+        # into every resume too. An earlier fix here stripped the flag
+        # entirely from the saved resume state - which stopped the
+        # wasteful full-restarts, but had a worse side effect discovered
+        # later the SAME day: once the flag was gone, resume fell back to
+        # "does a translated file already exist", which for a page this
+        # sweep hadn't reached yet meant silently reusing a 3-day-old
+        # stale translation instead of the fresh one the user explicitly
+        # asked for (100+ of 187 pages in that run turned out to be
+        # stale). The real fix is --clean-run-id (see the flag's own
+        # argparse help in translate_manga.py): the flag now stays in the
+        # saved cmd unmodified, and per-page "already done THIS sweep"
+        # tracking (keyed by that id) is what makes a resumed clean run
+        # both non-destructive to its own progress AND still guaranteed
+        # to reach a genuinely fresh translation for every page.
+        _write_active_conversion_state(slug, cmd, repo_dir, log_path)
         return jsonify({"status": "success", "message": "Pipeline started in background"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500

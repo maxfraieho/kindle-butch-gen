@@ -808,6 +808,56 @@ _CAST_CACHE = {"initialized": False, "chars": None}
 _TONE_CFG = {"enabled": False}
 
 
+# Tracks which pages have already been force-retranslated under a given
+# --clean-run-id, so a crash-and-resume of the SAME deliberate clean sweep
+# can keep --force-retranslate active (correctly redoing pages it hasn't
+# reached yet) without re-doing pages it already redid THIS sweep, and
+# without falling back to unrelated stale files from a previous run - see
+# the --clean-run-id argparse help above for the full incident writeup.
+def _force_retranslate_progress_path(book_dir):
+    return os.path.join(book_dir, ".force_retranslate_progress.json")
+
+
+def load_clean_run_progress(book_dir, run_id):
+    """Returns the set of page basenames already completed under run_id.
+    A missing file, a different stored run_id, or any read error all mean
+    'nothing done yet for this run' - the safe default is to redo more,
+    never to skip a page that wasn't actually verified done this sweep."""
+    if not run_id:
+        return set()
+    try:
+        with open(_force_retranslate_progress_path(book_dir), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("run_id") == run_id:
+            return set(data.get("completed_pages") or [])
+    except Exception:
+        pass
+    return set()
+
+
+def record_clean_run_page(book_dir, run_id, basename):
+    if not run_id:
+        return
+    path = _force_retranslate_progress_path(book_dir)
+    try:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("run_id") != run_id:
+                data = {"run_id": run_id, "completed_pages": []}
+        except Exception:
+            data = {"run_id": run_id, "completed_pages": []}
+        pages = set(data.get("completed_pages") or [])
+        pages.add(basename)
+        data["completed_pages"] = sorted(pages)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        log(f"Warning: failed to record clean-run progress for {basename}: {e}")
+
+
 def init_bubble_tone(book_dir):
     try:
         cfg = json.load(open(os.path.join(book_dir, "config.json"), encoding="utf-8"))
@@ -1803,6 +1853,18 @@ def main():
     parser.add_argument("--bbox-overrides-json", help="TASK-36: path to a JSON {original_ocr_text: {bbox, ref_size, font_size}} map (any subset of fields), used only with --regenerate-page")
     parser.add_argument("--backfill-bubbles-meta", action="store_true", help="TASK-25: read-only backfill of bubbles_meta/ for a book translated before TASK-20/21 existed - never touches cleaned/translated PNGs or re-translates")
     parser.add_argument("--force-retranslate", action="store_true", help="Ignore resume: re-translate every page from scratch even if a translated page already exists (the 'Clean Pages' option).")
+    parser.add_argument("--clean-run-id", default=None,
+                        help="Identifies ONE deliberate --force-retranslate sweep across possibly-many "
+                             "Termux-restart/auto-resume cycles. Without this, a resumed force-retranslate "
+                             "run has no way to tell 'a page I already redid THIS sweep' apart from 'a page "
+                             "that merely has some old file on disk from a previous, unrelated run' - real "
+                             "incident 2026-07-19: an interrupted clean run's auto-resume state was patched "
+                             "to drop --force-retranslate entirely (to stop endless full-restarts), which "
+                             "then silently let 100+ pages fall back to 3-day-old stale translations instead "
+                             "of the intended fresh ones. Pages already completed under a given run-id are "
+                             "tracked in <book_dir>/.force_retranslate_progress.json and skipped on resume "
+                             "WITHOUT needing to drop the flag; a different/new run-id starts that tracking "
+                             "over from empty.")
     parser.add_argument("--backfill-box-overlap-flags", action="store_true", help="TASK-36: retroactively compute box_overlap quality flags for a book's existing bubbles_meta/ - no model loading, no re-detection, just reads/writes JSON")
     parser.add_argument("--slug", help="Book slug - required with --backfill-bubbles-meta / --backfill-box-overlap-flags")
     args = parser.parse_args()
@@ -1896,6 +1958,11 @@ def main():
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
         init_cast_registry(book_dir)
         init_bubble_tone(book_dir)
+        clean_run_done = load_clean_run_progress(book_dir, args.clean_run_id)
+        if args.force_retranslate and args.clean_run_id:
+            log(f"--clean-run-id {args.clean_run_id}: {len(clean_run_done)} page(s) already "
+                f"completed in this sweep (from a prior interrupted attempt) will be skipped; "
+                f"everything else is force-retranslated regardless of any existing file.")
 
         for idx, page_path in enumerate(pages_to_process):
             log(f"Page {idx+1}/{len(pages_to_process)}: {os.path.basename(page_path)}")
@@ -1911,8 +1978,11 @@ def main():
                     translated_path = possible_translated
 
             if translated_path and args.force_retranslate:
-                log(f"Page {idx+1}: --force-retranslate — ігнорую наявний переклад, роблю з нуля.")
-                translated_path = None
+                if args.clean_run_id and basename in clean_run_done:
+                    log(f"Page {idx+1}: already force-retranslated in this --clean-run-id sweep. Skipping.")
+                else:
+                    log(f"Page {idx+1}: --force-retranslate — ігнорую наявний переклад, роблю з нуля.")
+                    translated_path = None
 
             if translated_path:
                 log(f"Page {idx+1} already translated. Skipping.")
@@ -1946,6 +2016,9 @@ def main():
                 log("No text bubbles found/recognized. Copying original page.")
 
             cv2.imwrite(os.path.join(temp_out, basename), final_img)
+
+            if args.force_retranslate and args.clean_run_id:
+                record_clean_run_page(book_dir, args.clean_run_id, basename)
 
             if args.output.lower().endswith('.cbz'):
                 cleaned_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), "..", "cleaned"))
