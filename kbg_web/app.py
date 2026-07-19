@@ -1484,11 +1484,26 @@ def agent_editor_status_api(slug):
     running = subprocess.run(["pgrep", "-f", "agent_editor.py"],
                              capture_output=True).returncode == 0
     log_lines = []
+    case_total = None
+    case_done = 0
     log_path = os.path.join(book_dir, "edits", "agent_editor.log")
     if os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as f:
-                log_lines = f.read().splitlines()[-30:]
+                full_log = f.read()
+            log_lines = full_log.splitlines()[-30:]
+            # Live progress bar for the Agent tab (previously: only a raw
+            # scrolling log, no visible "how far along is this" signal -
+            # real complaint, 2026-07-19: "процес йде, але не видно
+            # прогресу"). agent_editor.py logs "N flagged case(s); limit
+            # M" once at start, then one "PROPOSED ..." or "skip ..." line
+            # per case processed - counted against the FULL log, not the
+            # 30-line display tail, so progress stays accurate on a long
+            # run even once the tail has scrolled past earlier cases.
+            m = re.search(r"(\d+) flagged case\(s\); limit (\d+)", full_log)
+            if m:
+                case_total = min(int(m.group(1)), int(m.group(2)))
+            case_done = len(re.findall(r"^(?:PROPOSED|skip) ", full_log, re.MULTILINE))
         except OSError:
             pass
     flagged = 0
@@ -1508,7 +1523,7 @@ def agent_editor_status_api(slug):
                                  capture_output=True).returncode == 0
     return jsonify({"running": running, "log": log_lines, "flagged": flagged,
                     "agent_pending": agent_pending, "llama_running": llama_running,
-                    "ner_running": ner_running})
+                    "ner_running": ner_running, "case_total": case_total, "case_done": case_done})
 
 @app.route("/api/agent-editor/stop/<slug>", methods=["POST"])
 def agent_editor_stop_api(slug):

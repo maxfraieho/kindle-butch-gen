@@ -734,6 +734,15 @@
                     <div class="glass-card" style="padding:1rem;">
                         <h3 style="margin-top:0;">🤖 Агент пошуку проблем перекладу (преміум)</h3>
                         <div id="agent-status-line" style="color:var(--text-secondary); margin-bottom:0.6rem;">Перевірка стану...</div>
+                        <div id="agent-progress-wrap" style="display:none; margin-bottom:0.8rem;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-secondary); margin-bottom:0.25rem;">
+                                <span>Опрацьовано кейсів</span>
+                                <span id="agent-progress-label">0 / 0</span>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.06); border-radius:6px; height:10px; overflow:hidden;">
+                                <div id="agent-progress-fill" style="background:var(--primary); height:100%; width:0%; transition:width 0.4s ease;"></div>
+                            </div>
+                        </div>
                         <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.8rem;">
                             Агент запускається <b>тільки цією кнопкою</b> - ніколи сам. Аналіз навантажує
                             процесор (рекомендоване активне охолодження) і потребує зупинки сервера
@@ -761,6 +770,19 @@
                     const startBtn = document.getElementById("agent-start-btn");
                     const stopBtn = document.getElementById("agent-stop-btn");
                     const logEl = document.getElementById("agent-log");
+                    const progWrap = document.getElementById("agent-progress-wrap");
+                    const progFill = document.getElementById("agent-progress-fill");
+                    const progLabel = document.getElementById("agent-progress-label");
+                    if (progWrap) {
+                        if (s.case_total) {
+                            progWrap.style.display = "";
+                            const pct = Math.min(100, Math.round((s.case_done / s.case_total) * 100));
+                            progFill.style.width = pct + "%";
+                            progLabel.textContent = `${s.case_done} / ${s.case_total}`;
+                        } else if (!s.running) {
+                            progWrap.style.display = "none";
+                        }
+                    }
                     line.innerHTML = (s.running
                         ? '<span style="color:#f0b429;">⏳ Агент працює - аналізує сторінки...</span>'
                         : '<span style="color:#22c55e;">🟢 Агент не запущений.</span>')
