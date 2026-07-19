@@ -1914,7 +1914,7 @@
                                         ? `<button onclick="rerunConversion('${book.slug}')" class="btn" style="background: linear-gradient(135deg, #f97316, #ea580c); color: white; border: none;">🔄 Перекласти заново</button>`
                                         : ''
                                     }
-                                    ${!primaryFile && !book.is_running ? `<a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none;">📖 Переглянути сторінки</a>` : ''}
+                                    ${!(book.output_files && book.output_files.length > 0) && !book.is_running ? `<a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none;">📖 Переглянути сторінки</a>` : ''}
                                     <button onclick="toggleBookTerminal('${book.slug}', '${book.title}')" class="btn btn-secondary">🧾 Технічний журнал</button>
                                     ${!book.is_running
                                         ? `<button onclick="deleteBook('${book.slug}', '${book.title.replace(/'/g, "\\'")}')" class="btn btn-danger" title="Видалити книгу назавжди">🗑️ Видалити</button>`
@@ -2011,7 +2011,7 @@
             } catch (err) {
                 console.error('Failed to fetch books:', err);
                 const container = document.getElementById('booksList');
-                if (container && container.innerHTML.includes('Loading books')) {
+                if (container && (container.innerHTML.includes('Loading books') || container.innerHTML.includes('Завантажую список книг'))) {
                     container.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">Не вдалося завантажити список книг. Сервер зайнятий або недоступний, повторюємо спробу...</p>';
                 }
             }
