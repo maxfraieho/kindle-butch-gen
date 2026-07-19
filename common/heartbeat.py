@@ -50,7 +50,7 @@ def _init():
         tg_id = str(aw.get("telegram_id", "")).strip()
         secret = (os.environ.get("KBG_HEARTBEAT_SECRET", "").strip()
                   or str(aw.get("heartbeat_secret", "")).strip())
-        function_id = aw.get("heartbeat_function_id", "tg-support-bot")
+        function_id = aw.get("heartbeat_function_id", "kbg-tg-support-bot")
         if not (endpoint and project and tg_id and secret):
             return
         _CFG.update({
