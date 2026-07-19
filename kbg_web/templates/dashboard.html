@@ -1575,7 +1575,8 @@
                 return `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">⏸ Зупинити переклад</button>`;
             } else if (primaryFile) {
                 return `<a class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem; text-decoration:none; text-align:center;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити готову книгу</a>
-                    <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; padding:0.8rem 1rem;">📖 Переглянути</a>`;
+                    <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; padding:0.8rem 1rem;">📖 Переглянути</a>
+                    <button onclick="rerunConversionClean('${book.slug}')" class="btn btn-secondary" title="Перекласти книгу повністю з нуля, без жодних кешованих даних" style="display:inline-flex; align-items:center; padding:0.8rem 1rem;">🔁 Перекласти з нуля</button>`;
             } else {
                 return `<button onclick="runConversion('${book.slug}')" class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">▶️ Почати переклад</button>`;
             }
@@ -2076,6 +2077,33 @@
                     selectBookForLogs(slug, slug);
                 } else {
                     alert('Error re-running conversion: ' + res.message);
+                }
+            } catch (err) {
+                alert('Request failed: ' + err.message);
+            }
+        }
+
+        // Q's explicit ask: "запустити чистий переклад з нуля... повинен
+        // мати можливість і користувач" - a fully visible, one-click,
+        // unambiguous "start over, ignore every cached page" action next
+        // to the download button, independent of any hidden checkbox
+        // state (unlike rerunConversion above, which reads clean-${slug}
+        // and can silently resume-skip everything if left unchecked -
+        // exactly the mistake that produced a fake "completed" run today).
+        async function rerunConversionClean(slug) {
+            if (!confirm(`Повністю перекласти "${slug}" з нуля?\n\nУСІ вже готові сторінки/розділи будуть ЗНИЩЕНІ і перекладені заново без жодних кешованих даних. Це довго (може зайняти кілька годин) і незворотно.\n\nПродовжити?`)) return;
+            try {
+                const response = await fetch(`/api/run/${slug}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: true, clean: true })
+                });
+                const res = await response.json();
+                if (response.ok) {
+                    fetchBooks();
+                    selectBookForLogs(slug, slug);
+                } else {
+                    alert('Не вдалося запустити: ' + res.message);
                 }
             } catch (err) {
                 alert('Request failed: ' + err.message);
