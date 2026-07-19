@@ -1428,8 +1428,6 @@ def _scale_bbox_overrides(raw_bbox_overrides, actual_img_shape):
 
 
 def regenerate_single_page(args, glossary, detector, mocr):
-    init_cast_registry(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
-    init_bubble_tone(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
     """TASK-21: re-runs the FULL A-E pipeline (process_page) on just one
     page, for a manual bubble-edit regen. Deliberately does NOT skip
     straight to typeset on the existing cleaned image - re-running
@@ -1446,6 +1444,8 @@ def regenerate_single_page(args, glossary, detector, mocr):
     "bubbles": [...new bubbles_meta entries...]} - kbg_web/app.py's
     regenerate-manga-page route parses this to reconcile pending edits
     (mark matched ones "regenerated", unmatched ones "orphaned")."""
+    init_cast_registry(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
+    init_bubble_tone(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
     page_filename = args.regenerate_page
 
     overrides = {}
