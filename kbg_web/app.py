@@ -1494,6 +1494,9 @@ def agent_editor_stop_api(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
     subprocess.run(["pkill", "-f", "agent_editor.py"], capture_output=True)
     subprocess.run(["pkill", "-f", "llama-mtmd-cli"], capture_output=True)
+    # Explicit user stop should not trigger auto-resume on next restart -
+    # same reasoning as the main conversion's stop handler.
+    _clear_active_conversion_state(slug)
     return jsonify({"status": "success", "message": "Агента зупинено."})
 
 @app.route("/api/agent-editor/scan/<slug>", methods=["POST"])
@@ -1541,12 +1544,21 @@ def agent_editor_scan_api(slug):
     log_path = os.path.join(book_dir, "edits", "agent_editor.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     env = dict(os.environ)
+    cmd = ["python3", os.path.join(repo_dir, "bin", "agent_editor.py"),
+           "--book", slug, "--limit", str(limit)]
     with open(log_path, "w") as lf:
         subprocess.Popen(
-            ["python3", os.path.join(repo_dir, "bin", "agent_editor.py"),
-             "--book", slug, "--limit", str(limit)],
-            stdout=lf, stderr=subprocess.STDOUT,
+            cmd, stdout=lf, stderr=subprocess.STDOUT,
             cwd=repo_dir, env=env, start_new_session=True)
+    # Register for auto-resume-on-restart (same mechanism as the main
+    # conversion pipeline, see ACTIVE_CONVERSION_STATE_PATH above) - a
+    # Termux kill mid-scan used to leave the agent silently not-resumed,
+    # unlike translate_manga.py/translate_epub.py. agent_editor.py clears
+    # its own entry on normal completion (see its main()); its per-case
+    # skip-if-already-pending-or-approved check means a re-launch of the
+    # identical command correctly resumes from the cases not yet
+    # processed, not from scratch.
+    _write_active_conversion_state(slug, cmd, repo_dir, log_path)
     return jsonify({"status": "started",
                     "message": "Агент аналізує позначені сторінки (vision, кілька хвилин "
                                "на випадок); пропозиції з'являться в Pending Edits."})

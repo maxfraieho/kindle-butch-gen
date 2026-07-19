@@ -1930,6 +1930,8 @@ def main():
                         json.dump({"current_page": idx + 1, "total_pages": len(pages)}, pf)
                 except Exception:
                     pass
+            from common.heartbeat import send_heartbeat
+            send_heartbeat(args.slug or os.path.basename(book_dir), f"{idx + 1}/{len(pages)}")
             img = cv2.imread(page_path)
             if img is None:
                 log(f"Warning: Failed to read page {page_path}")

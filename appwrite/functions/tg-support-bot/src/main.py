@@ -64,8 +64,64 @@ def _get_user(db, tg_id):
     return docs[0] if docs else None
 
 
+def _heartbeat(context):
+    """Best-effort conversion heartbeat (TASK-68 follow-up). The phone
+    POSTs here periodically while a book is converting, carrying its own
+    telegram_id + progress. Written with its own dedicated secret header
+    (HEARTBEAT_SECRET) - deliberately NOT reusing TG_WEBHOOK_SECRET or the
+    phone's read-only entitlement key, so a leaked heartbeat secret can't
+    be used to forge Telegram webhook calls or vice versa.
+
+    Deliberately narrow: this is the ONE write path the phone is allowed
+    against Appwrite (see common/support_profile.py's docstring - the
+    phone is read-only otherwise, by Q's explicit architectural choice).
+    Any failure here must never affect the phone's own translation loop,
+    which is why the phone-side caller (translate_manga.py) treats this
+    entire call as fire-and-forget with a short timeout.
+    """
+    req, res = context.req, context.res
+    secret = os.environ.get("HEARTBEAT_SECRET", "")
+    header = req.headers.get("x-vydra-heartbeat-secret", "")
+    if not secret or header != secret:
+        return res.json({"ok": False, "error": "unauthorized"}, 401)
+    try:
+        body = req.body if isinstance(req.body, dict) else json.loads(req.body_raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return res.json({"ok": False, "error": "bad request"}, 400)
+    tg_id = str(body.get("telegram_id", "")).strip()
+    book_slug = str(body.get("book_slug", "")).strip()
+    progress = str(body.get("progress", "")).strip()
+    stage = str(body.get("stage", "")).strip()
+    if not tg_id:
+        return res.json({"ok": False, "error": "telegram_id required"}, 400)
+
+    client = (Client()
+              .set_endpoint(os.environ.get("APPWRITE_FUNCTION_API_ENDPOINT",
+                                           "https://fra.cloud.appwrite.io/v1"))
+              .set_project(os.environ["APPWRITE_FUNCTION_PROJECT_ID"])
+              .set_key(req.headers.get("x-appwrite-key", "")))
+    db = Databases(client)
+    user = _get_user(db, tg_id)
+    if not user:
+        # Heartbeat from an unregistered phone - nothing to attach it to.
+        # Not an error the phone should ever see or retry over.
+        return res.json({"ok": True})
+
+    from datetime import datetime, timezone
+    db.update_document(DB_ID, COLL_ID, user["$id"], data={
+        "last_heartbeat_ts": int(datetime.now(timezone.utc).timestamp()),
+        "active_book_slug": book_slug or None,
+        "active_book_progress": progress or None,
+        "active_book_stage": stage or None,
+    })
+    return res.json({"ok": True})
+
+
 def main(context):
     req, res = context.req, context.res
+
+    if req.headers.get("x-vydra-heartbeat-secret", ""):
+        return _heartbeat(context)
 
     secret = os.environ.get("TG_WEBHOOK_SECRET", "")
     header = req.headers.get("x-telegram-bot-api-secret-token", "")

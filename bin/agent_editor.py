@@ -27,6 +27,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kbg_web import edit_store
+from common.heartbeat import send_heartbeat
 
 MODEL_DEFAULT = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
 MMPROJ_DEFAULT = os.path.expanduser("~/models/gemma3-4b/mmproj-model-f16.gguf")
@@ -399,9 +400,10 @@ def main():
                 if e["status"] in ("pending", "approved")}
 
     proposed = skipped = 0
-    for case in cases:
+    for case_idx, case in enumerate(cases):
         if proposed >= args.limit:
             break
+        send_heartbeat(args.book, f"{case_idx + 1}/{len(cases)}", stage="агент-редактор")
         page = case.get("page", "")
         bubble_id = case.get("bubble_id", "")
         target_id = f"{page}#{bubble_id}"
@@ -571,6 +573,20 @@ def main():
 
     log(f"done: {proposed} proposal(s) submitted as pending (source=gemma_agent), {skipped} skipped.")
     log("Nothing was applied - review in Pending Edits (Approve/Discard).")
+
+    # Clear auto-resume state on normal completion - mirrors kbg_web/
+    # app.py's handle_process_completion for the main pipeline. Only
+    # clear if it still refers to THIS run (a newer conversion may have
+    # started and overwritten it while this one was finishing).
+    try:
+        state_path = os.path.join(repo, ".active_conversion.json")
+        if os.path.exists(state_path):
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            if state.get("slug") == args.book:
+                os.remove(state_path)
+    except Exception:
+        pass
     return 0
 
 

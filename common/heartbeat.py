@@ -1,0 +1,93 @@
+"""Conversion/agent heartbeat (TASK-68 follow-up, 2026-07-19).
+
+Best-effort, fire-and-forget notice of "this long-running phone-side
+process is still alive and at what point" so a stalled/killed Termux can
+be detected externally and the user nudged via Telegram - nothing left
+running ON the phone can notify them once Termux itself is dead, so the
+signal has to reach an always-on service (Appwrite) instead.
+
+Deliberately the ONE write path the phone takes against Appwrite - see
+common/support_profile.py's docstring: the phone is read-only there by
+architectural choice (Q), so external-service downtime can never block
+generation. This module's contract preserves that: every failure here
+is silently swallowed and NEVER allowed to slow or interrupt the caller.
+
+Used by: translate_manga.py (per-page), bin/agent_editor.py (per-case).
+Not yet wired into: translate_stage.py / audio_stage.py /
+run_conversion_batches.py (the novel/epub pipeline's separate per-stage
+scripts) - left for a follow-up pass, see project memory.
+
+Requires (not yet provisioned by deploy.sh - manual setup):
+  - global_settings.json's "appwrite" section needs a new
+    "heartbeat_secret" field (matching HEARTBEAT_SECRET on the
+    tg-support-bot Appwrite Function's env).
+  - A separate "heartbeat-watchdog" Appwrite Function
+    (appwrite/functions/heartbeat-watchdog/) deployed as
+    SCHEDULE-TRIGGER ONLY (e.g. every 5 min), no HTTP execute
+    permission granted.
+  - New attributes on the "users" collection: last_heartbeat_ts (int),
+    active_book_slug (string), active_book_progress (string),
+    last_stall_alert_ts (int) - all optional/nullable.
+"""
+import json
+import os
+
+import requests
+
+_CFG = {"initialized": False, "url": None, "project": None, "secret": None, "tg_id": None}
+
+
+def _init():
+    if _CFG["initialized"]:
+        return
+    _CFG["initialized"] = True
+    try:
+        from common.support_banner import CONFIG_PATH
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            aw = (json.load(f) or {}).get("appwrite") or {}
+        endpoint = aw.get("endpoint", "").rstrip("/")
+        project = aw.get("project", "")
+        tg_id = str(aw.get("telegram_id", "")).strip()
+        secret = (os.environ.get("KBG_HEARTBEAT_SECRET", "").strip()
+                  or str(aw.get("heartbeat_secret", "")).strip())
+        function_id = aw.get("heartbeat_function_id", "tg-support-bot")
+        if not (endpoint and project and tg_id and secret):
+            return
+        _CFG.update({
+            "url": f"{endpoint}/functions/{function_id}/executions",
+            "project": project,
+            "secret": secret,
+            "tg_id": tg_id,
+        })
+    except Exception:
+        pass
+
+
+def send_heartbeat(slug, progress_label, stage="переклад"):
+    """progress_label: short human string, e.g. '42/194' or 'сторінка 7 з 12'.
+    stage: what kind of work this is, shown verbatim in the stall alert so
+    the user knows what to expect on restart - e.g. 'переклад',
+    'агент-редактор', 'озвучення'. Keep it a short Ukrainian noun phrase,
+    it's interpolated directly into the Telegram message."""
+    if not _CFG["initialized"]:
+        _init()
+    if not _CFG.get("url"):
+        return
+    try:
+        requests.post(
+            _CFG["url"],
+            headers={"X-Appwrite-Project": _CFG["project"]},
+            json={
+                "async": True,
+                "headers": {"x-vydra-heartbeat-secret": _CFG["secret"]},
+                "body": json.dumps({
+                    "telegram_id": _CFG["tg_id"],
+                    "book_slug": slug,
+                    "progress": progress_label,
+                    "stage": stage,
+                }),
+            },
+            timeout=3,
+        )
+    except Exception:
+        pass  # heartbeat is best-effort - never let it slow the caller
