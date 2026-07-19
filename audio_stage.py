@@ -446,7 +446,8 @@ def main():
                 "noise_scale": noise_scale,
                 "noise_w": noise_w,
                 "lang": target_lang,
-                "audio_priority_path": os.path.abspath(audio_priority_path)
+                "audio_priority_path": os.path.abspath(audio_priority_path),
+                "slug": slug
             }
             payload_json = json.dumps(payload, ensure_ascii=False)
 

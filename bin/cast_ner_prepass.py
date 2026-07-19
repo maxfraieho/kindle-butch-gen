@@ -18,6 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common.cast_registry import load_characters, save_characters, VALID_GENDERS
+from common.heartbeat import send_heartbeat
 
 MODEL_DEFAULT = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
 LLAMA_CLI = os.path.expanduser("~/llama.cpp/build/bin/llama-cli")
@@ -111,12 +112,27 @@ def main():
         print("No source text found to scan.", file=sys.stderr)
         sys.exit(1)
 
+    slug = os.path.basename(args.book_dir.rstrip("/"))
+    send_heartbeat(slug, "аналізує текст", stage="сканування персонажів")
     drafted = parse_characters(run_llm(text, args.model))
     existing = load_characters(args.book_dir)
     known = {n for ch in existing for n in (ch.get("name_source") or [])}
     added = [ch for ch in drafted
              if not any(n in known for n in ch["name_source"])]
     save_characters(args.book_dir, existing + added)
+
+    # Clear auto-resume state on normal completion - same pattern as
+    # agent_editor.py's own main().
+    try:
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        state_path = os.path.join(repo_dir, ".active_conversion.json")
+        if os.path.exists(state_path):
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            if state.get("slug") == slug:
+                os.remove(state_path)
+    except Exception:
+        pass
     print(f"NER pre-pass: {len(drafted)} candidates, {len(added)} new "
           f"drafted (existing entries untouched).")
 

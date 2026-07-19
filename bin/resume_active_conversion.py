@@ -66,13 +66,19 @@ def main():
     # restarts llama-server on every Termux boot too, so the resumed agent
     # immediately hit its own RAM guard ("only 3.1GB available... llama-
     # server is holding the translation model") and exited instantly,
-    # silently discarding the auto-resume attempt. Mirror the interactive
-    # flow's safety behavior here: stop llama-server first when what we're
-    # about to resume is the agent, give it a moment to release RAM, then
+    # silently discarding the auto-resume attempt. cast_ner_prepass.py
+    # loads the SAME gemma3-4b model (see its --model default and
+    # kbg_web/app.py's characters_scan_api heavy["llama_server"] check) so
+    # it has the identical conflict. Mirror the interactive flow's safety
+    # behavior here: stop llama-server first when what we're about to
+    # resume is one of these two, give it a moment to release RAM, then
     # proceed. Never do this for a translation resume - that pipeline
     # NEEDS llama-server running.
-    if any("agent_editor.py" in str(part) for part in cmd):
-        print("[AutoResume] Resuming agent_editor.py - stopping llama-server first "
+    NEEDS_LLAMA_STOPPED = ("agent_editor.py", "cast_ner_prepass.py")
+    resuming_name = next((n for n in NEEDS_LLAMA_STOPPED
+                          if any(n in str(part) for part in cmd)), None)
+    if resuming_name:
+        print(f"[AutoResume] Resuming {resuming_name} - stopping llama-server first "
               "(RAM guard would otherwise reject it immediately).")
         subprocess.run(["pkill", "-f", "llama-serve[r]"], capture_output=True)
         time.sleep(3)
@@ -107,7 +113,7 @@ def main():
     # it's step 3 in start-all-services.sh, this is step 4); a failure
     # here just leaves the translation server down until the next normal
     # restart flow notices, same as it already could before this fix.
-    if any("agent_editor.py" in str(part) for part in cmd):
+    if resuming_name:
         try:
             import requests
             web_user = os.environ.get("KBG_WEB_USER", "")
@@ -115,9 +121,9 @@ def main():
             requests.post("http://127.0.0.1:5000/api/models/start",
                           auth=(web_user, web_password) if web_user and web_password else None,
                           timeout=10)
-            print("[AutoResume] Restarted llama-server after the resumed agent run.")
+            print(f"[AutoResume] Restarted llama-server after the resumed {resuming_name} run.")
         except Exception as e:
-            print(f"[AutoResume] Could not restart llama-server after agent run: {e}")
+            print(f"[AutoResume] Could not restart llama-server after {resuming_name} run: {e}")
 
     # Guard: Flask may have started a brand-new conversion meanwhile and
     # written its own state file - only delete it if it still describes the

@@ -14,6 +14,7 @@ sys.path.insert(0, repo_dir)
 from common.book_paths import resolve_book_paths
 from common.epub_validate import validate_epub
 from common.edit_patch import patch_batch_translation
+from common.heartbeat import send_heartbeat
 from kbg_web import edit_store
 
 def log(message, log_path):
@@ -220,7 +221,9 @@ def main():
         success = True
         
         # 1. Run marker single-page extraction for each range
-        for start, end in page_ranges:
+        for batch_idx, (start, end) in enumerate(page_ranges):
+            send_heartbeat(slug, f"блок {batch_idx + 1}/{len(page_ranges)} (стор. {start}-{end})",
+                           stage="переклад книги")
             batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
             marker_out_subdir = os.path.join(batch_out_dir, pdf_basename)
             marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
@@ -415,6 +418,7 @@ def main():
     # 5. Audiobook generation
     if paths["generate_audiobook"] and not args.no_audio:
         log("Triggering audio stage synthesis...", log_path)
+        send_heartbeat(slug, "старт", stage="озвучення")
         cmd_audio = [
             "python3", os.path.join(repo_dir, "audio_stage.py"),
             "--book", slug

@@ -1387,12 +1387,19 @@ def characters_scan_api(slug):
                                    "Завантаження стартує з деплой-флоу преміуму."}), 409
     log_path = os.path.join(book_dir, "edits", "ner_scan.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    cmd = ["python3", os.path.join(repo_dir, "bin", "cast_ner_prepass.py"),
+           "--book-dir", book_dir]
     with open(log_path, "w") as lf:
         subprocess.Popen(
-            ["python3", os.path.join(repo_dir, "bin", "cast_ner_prepass.py"),
-             "--book-dir", book_dir],
-            stdout=lf, stderr=subprocess.STDOUT,
+            cmd, stdout=lf, stderr=subprocess.STDOUT,
             cwd=repo_dir, start_new_session=True)
+    # Auto-resume-on-restart, same mechanism/reasoning as agent_editor.py's
+    # registration above - a Termux kill mid-scan previously left NER
+    # scanning silently un-resumed. cast_ner_prepass.py's own de-dup
+    # against existing name_source entries (see that file) makes a
+    # re-launch of the identical command safe to simply redo, not just
+    # resumable in principle. Clears its own state on completion.
+    _write_active_conversion_state(slug, cmd, repo_dir, log_path)
     return jsonify({"status": "started",
                     "message": "Сканування персонажів запущено (кілька хвилин); "
                                "оновіть список згодом."})

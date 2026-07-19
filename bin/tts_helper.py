@@ -11,6 +11,7 @@ _repo_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file_
 if _repo_dir not in sys.path:
     sys.path.insert(0, _repo_dir)
 from common.file_lock import file_lock, LockTimeoutError
+from common.heartbeat import send_heartbeat
 
 
 def _splice_audio_priority(chunks, seen_hashes, audio_priority_path):
@@ -219,6 +220,7 @@ def run_supertonic3(payload):
 
     audio_priority_path = payload.get("audio_priority_path")
     seen_hashes = {c.get("hash") for c in chunks}
+    slug = payload.get("slug")
 
     for i, chunk in enumerate(chunks):
         chunk_hash = chunk.get("hash")
@@ -227,6 +229,8 @@ def run_supertonic3(payload):
         if not chunk_hash or not text:
             continue
 
+        if slug:
+            send_heartbeat(slug, f"{i + 1}/{total}", stage="озвучення")
         _splice_audio_priority(chunks, seen_hashes, audio_priority_path)
 
         # Transliterate English words and abbreviations
@@ -392,11 +396,14 @@ def run_styletts2(payload):
 
     audio_priority_path = payload.get("audio_priority_path")
     seen_hashes = {c.get("hash") for c in chunks}
+    slug = payload.get("slug")
 
     for i, chunk in enumerate(chunks):
         chunk_hash = chunk.get("hash")
         text = chunk.get("text", "").strip()
 
+        if slug:
+            send_heartbeat(slug, f"{i + 1}/{total}", stage="озвучення")
         if not chunk_hash or not text:
             continue
 
