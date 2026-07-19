@@ -33,7 +33,7 @@ TTS_ENGINES = {
 }
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB - 200MB blocked real manga volumes (high-res scan CBZ routinely exceeds 200MB)
 
 # TASK-62: persistent secret key (survives Flask restarts) - a key that
 # changes every restart would silently log everyone out constantly,
@@ -188,7 +188,7 @@ def require_login():
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
-    return jsonify({"status": "error", "message": "File is too large (maximum allowed size is 200MB)"}), 413
+    return jsonify({"status": "error", "message": "File is too large (maximum allowed size is 1GB)"}), 413
 
 # Registry of active background processes: {slug: subprocess.Popen}
 active_processes = {}
