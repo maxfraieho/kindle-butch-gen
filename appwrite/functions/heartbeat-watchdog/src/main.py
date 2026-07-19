@@ -39,9 +39,10 @@ NOTIFY_FUNCTION_ID = "kbg-tg-support-bot"
 # after it happens without false-firing on ordinary per-page variance.
 STALE_SECONDS = 5 * 60
 
-# Don't re-alert every 5-minute tick for a phone that's been dead for
-# hours - only nudge again after this much time since the last alert.
-REALERT_SECONDS = 30 * 60
+# Q's explicit call, 2026-07-19: 30min felt too long, matches STALE_SECONDS
+# now - re-nudge on essentially every schedule tick while still down,
+# rather than going quiet for half an hour.
+REALERT_SECONDS = 5 * 60
 
 
 def _tg_send(endpoint, project, api_key, watchdog_secret, chat_id, text):
