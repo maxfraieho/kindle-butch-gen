@@ -812,3 +812,22 @@ Recommended design constraint to keep this contained: add a **new, additive, pag
 - Vision (llama-mtmd-cli) на OnePlus 13: ТІЛЬКИ -t 4 і ТІЛЬКИ при зупиненому llama-server (RAM-guard в агенті це контролює).
 - Після кожного push: git pull клону ~/projects/kindle-butch-gen на dev-184 + docker exec gitnexus-server ... analyze (інакше індекс бреше).
 - GitNexus HTTP MCP: initialize→mcp-session-id→notifications/initialized→tools/call; готовий скрипт-патерн /tmp/gq3.sh на dev-184.
+
+## [x] TASK-69: [BUG][FIXED] heartbeat-watchdog хибно нуджив уже 100%-завершені книги (номер 57 зайнятий іншим закритим інцидентом - Pillow/Cyrillic - див. вище; 69 наступний вільний)
+
+**Симптом:** книга 194/194 (повністю дороблена) отримала від @GetVydraBot "⏸️ Схоже, переклад... зупинився" двічі поспіль.
+
+**Корінна причина (підтверджено читанням реального коду, не здогад):** `common/heartbeat.py`'s `send_heartbeat()` пише `active_book_slug` в Appwrite (`kbg-support/users`) на кожній сторінці/кейсі, але НІЧОГО не скидало це поле на успішному завершенні. `appwrite/functions/heartbeat-watchdog/src/main.py` перевіряє лише `active_book_slug IS NOT NULL` + вік `last_heartbeat_ts` (`STALE_SECONDS=300`) - явної completion-перевірки не існувало взагалі, тому щойно доробена книга рано чи пізно виглядала "зависла". Найгостріший repro: `bin/resume_active_conversion.py` перезапускає `translate_manga.py` після Termux-kill; якщо всі сторінки вже перекладені, skip-цикл жодного разу не викликає `send_heartbeat()`, тож старий (ще до-крашевий) `last_heartbeat_ts` взагалі ніколи не оновлюється - watchdog далі б'є по ньому, повторно на кожен 5-хв cron-тік (`REALERT_SECONDS=300`), звідси "двічі поспіль".
+
+**Фікс (`edff4c0`):** новий `common/heartbeat.clear_heartbeat()` (порожній `book_slug` → `tg-support-bot`'s `_heartbeat()` вже вмів перетворювати це на `None`) викликається РІВНО один раз - у справжній success-точці `translate_manga.py` (одразу після "Manga translation completed successfully!", всередині `try`, до `finally`) і `bin/agent_editor.py` (поруч із наявним коректним очищенням `.active_conversion.json`). Обидві точки недосяжні з жодного exception-шляху (жодного `except`, що ковтав би помилку, між циклом і цим викликом немає) - реальний крах і далі не викликає clear, тому watchdog і далі його побачить.
+
+**Тести (реально виконано, не лише прочитано):** написав `/tmp/test_watchdog_task57.py`, який завантажує РЕАЛЬНИЙ `heartbeat-watchdog/src/main.py` + `common/heartbeat.py` через `importlib`, підміняє лише Appwrite SDK (немає на dev-184) і `requests.post` (щоб не спамити реальний Telegram/Appwrite), і виконує справжню логіку функцій без мережі:
+- (a) `active_book_slug=None` (стан після фіксу) → 0 сповіщень.
+- (b) реальний завислий стан (slug ще стоїть, heartbeat старий) → рівно 1 сповіщення + `last_stall_alert_ts` оновлено.
+- (c1) негайний повторний прогін того самого стану → 0 (дедуп працює в межах вікна).
+- (c2) той самий незмінний завислий стан ПІСЛЯ `REALERT_SECONDS` → знову 1 (монітор НЕ став сліпим, реальний крах і далі детектується).
+- POST-тіла `send_heartbeat`/`clear_heartbeat` перевірені напряму: `clear_heartbeat()` шле `book_slug=""`, `send_heartbeat()` - реальний slug.
+Усі 6 перевірок - PASS. `translate_manga.py`/`bin/agent_editor.py` самі не запущені живцем (потребують cv2/torch/vision-модель, доступні лише в Termux) - безпека їхньої нової точки виклику перевірена структурно: жодного `except` між success-логом і `clear_heartbeat()`, Python гарантує недосяжність цього рядка при винятку.
+
+**Не зроблено (свідомо, поза скоупом цього фіксу):** дедуп і далі суто часовий (`REALERT_SECONDS`), не "по інциденту" - справжній незникаючий збій ре-нуджитиме кожні 5 хв, а не одноразово. Q запропонував окрему фічу - ручний toggle "працюю/не працюю" в боті, щоб watchdog не турбував поза активною сесією - заплановано як наступний TASK (номер 58 теж зайнятий закритим llama-mtmd-cli багом, отже теж 70+), окреме питання, не пов'язане з коренем цього бага.
+
