@@ -2,17 +2,14 @@
 import os
 import sys
 
-# CPU-contention guard (found live): OpenCV/torch's default "use every
-# core" behavior pegs an 8-core phone at 600%+ CPU / load avg 13+ during
-# manga OCR+detection, starving the phone's OWN browser of scheduling
-# time - the dashboard "Loading..." forever wasn't a JS bug, it was the
-# device having no CPU cycles left to render it (confirmed via `top`
-# while reproducing). Must be set before cv2/torch import. Same fix
-# class as the vision agent's `-t 4` (TASK-65) - leave headroom for
-# Android/the UI instead of claiming every core.
-os.environ.setdefault("OMP_NUM_THREADS", "4")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "4")
-os.environ.setdefault("MKL_NUM_THREADS", "4")
+# CPU cap for OCR/detection, must be set before cv2/torch import. The
+# earlier "Loading..." dashboard freeze was root-caused to an unrelated
+# JS ReferenceError (fixed separately), not CPU contention - the phone
+# now has a cooler and can sustain more cores. Cap at 6/8 to match
+# mapaki's own established precedent, leaving 2 cores of headroom.
+os.environ.setdefault("OMP_NUM_THREADS", "6")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "6")
+os.environ.setdefault("MKL_NUM_THREADS", "6")
 
 import re
 import argparse
@@ -26,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import requests
 import cv2
-cv2.setNumThreads(4)
+cv2.setNumThreads(6)
 
 repo_dir = os.path.dirname(os.path.abspath(__file__))
 if repo_dir not in sys.path:
