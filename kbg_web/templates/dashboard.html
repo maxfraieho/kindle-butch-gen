@@ -1674,10 +1674,20 @@
                         }
                         const pf = document.getElementById(`progressfill-${book.slug}`);
                         const pp = document.getElementById(`progresspct-${book.slug}`);
+                        const ps = document.getElementById(`progressstage-${book.slug}`);
+                        // Real bug, reported live: light-update only ever
+                        // touched the bar/percent, never the "Перекладаю
+                        // сторінки: X із Y" text - so starting a fresh run
+                        // right after a previous one finished (194/194)
+                        // left that text frozen at the OLD run's final
+                        // count while the percent correctly ticked back
+                        // down to ~0%, showing a nonsensical "194 із 194 /
+                        // 0.5%" combination.
                         if (book.progress.is_manga) {
                             const pct = book.progress.manga_percent || 0;
                             if (pf) pf.style.width = pct + '%';
                             if (pp) pp.textContent = pct + '%';
+                            if (ps) ps.innerHTML = `Перекладаю сторінки: <strong>${book.progress.manga_pages_completed || 0} із ${book.progress.manga_total_pages || 0}</strong>`;
                         } else {
                             const op = Math.round(((book.progress.marker_percent||0)+(book.progress.translation_percent||0)+(book.progress.stress_percent||0)+(book.progress.tts_percent||0))/4);
                             if (pf) pf.style.width = op + '%';
@@ -1759,7 +1769,7 @@
                         progressHtml = `
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
-                                    <span class="pipeline-active-stage">Перекладаю сторінки: <strong>${comp} із ${tot}</strong></span>
+                                    <span class="pipeline-active-stage" id="progressstage-${book.slug}">Перекладаю сторінки: <strong>${comp} із ${tot}</strong></span>
                                     <span class="pipeline-percent" id="progresspct-${book.slug}">${pct}%</span>
                                 </div>
                                 <div class="progress-bar-bg">
@@ -1795,7 +1805,7 @@
                         progressHtml = `
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
-                                    <span class="pipeline-active-stage"><strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
+                                    <span class="pipeline-active-stage" id="progressstage-${book.slug}"><strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
                                     <span class="pipeline-percent" id="progresspct-${book.slug}">${overall_p}%</span>
                                 </div>
                                 <div class="progress-bar-bg">
