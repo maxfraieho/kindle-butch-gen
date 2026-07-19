@@ -874,3 +874,24 @@ Recommended design constraint to keep this contained: add a **new, additive, pag
 
 **Не зроблено (свідомо, поза скоупом):** окремий вузько-скопований Appwrite-ключ (`documents.read` тільки) замість повноправного адмін-ключа на кожному телефоні клієнта - реальний ризик безпеки, задокументований, але не виправлений цієї сесії. `self-update.sh`/`git-remote-https died of signal 11` resilience - те саме, задокументовано, не виправлено.
 
+## [x] TASK-72: підтримка кількох пристроїв на один Telegram-акаунт (Q's ask - у сина з'явився планшет Samsung)
+
+**Реальний баг, знайдений ще до першого фактичного multi-device користувача:** heartbeat-стан (`active_book_slug`/`progress`/`stage`/`last_heartbeat_ts`) лежав ЄДИНИМ набором полів на документі `users`, ключ пошуку - лише `telegram_id`. Якщо два пристрої під одним акаунтом (телефон + планшет) конвертують РІЗНІ книги одночасно, кожен heartbeat одного пристрою перезаписував стан іншого - watchdog гарантовано плутав/пропускав пристрої.
+
+**Дослідження:** промпт для Gemini (`docs/promt/multidevice-gemini-prompt.md`) + повна відповідь у `Архітектура підтримки кількох пристроїв.txt` - рекомендувала нормалізовану модель (окрема колекція `device_sessions`, one-to-many до `users`), UUIDv4 device_id (без root/ADB/MAC-залежностей), watchdog у форматі "digest" (один диджест на акаунт, не спам по кожному пристрою) - патерн Syncthing/Resilio.
+
+**Реалізація (спрощена відносно чистих Appwrite Relationships - виправдано, деталі в коміті `31b34c0`):**
+- Нова колекція `device_sessions` (Appwrite): `device_id` (унікальний індекс), `telegram_id` (денормалізовано, індекс - обійшовся без формальних Relationships, вони не потрібні для наших запитів), `device_alias`, `last_heartbeat_ts` (індекс), `active_book_slug/stage/progress`, `last_stall_alert_ts`.
+- `common/device_identity.py` (новий) - `get_or_create_device_id()` (UUIDv4, atomic write, зберігається в Termux $HOME абсолютним шляхом - той самий bind-mount що й `.kbg_appwrite_key`, тому доступний і з-під proot); `get_device_alias()` через `getprop ro.product.model` (без root).
+- `common/heartbeat.py` - кожен heartbeat тепер несе `device_id`+`device_alias`.
+- `tg-support-bot/_heartbeat()` - upsert у `device_sessions` по `device_id`, більше НЕ пише в `users`.
+- `heartbeat-watchdog/main()` - групує stale-сесії по `telegram_id`, будує ОДИН digest на акаунт (усі пристрої в одному повідомленні, ⏸️/▶️ по кожному), account-level `watchdog_paused` глушить усі пристрої разом.
+
+**Тести (реально виконано, 14/14 PASS):** два різні `device_id` під одним `telegram_id` → два незалежні записи, стан не б'ється; повторний heartbeat того самого пристрою → update, не дублікат; один stale+один fresh → рівно один digest, що згадує обидва (перевірено текст); дедуп/re-alert/account-pause - усі регресії тримаються і з кількома пристроями; heartbeat без `device_id` (застарілий виклик) → тихий no-op, не створює запис-колізію на унікальному індексі.
+
+**Деплой (повністю завершено):** Appwrite-схема створена вживу (`device_sessions` + індекси, підтверджено `available`). Код запушено (`31b34c0`), обидві функції передеплоєні (`POST /deployments` тільки, `scopes`/`commands` перевірені цілими), живий крон-тик watchdog'а на новому деплої підтверджено (`20:25:15`, `status: completed`, без ручного тригера). Обидва наявні телефони (Q, син) оновлені й перевірені наживо: `git pull` (обидва мали реальний merge-конфлікт на `support_config.json` з TASK-71 - той самий патерн, вирішено ідентично: stash/pull/pop/ручне злиття), `python3 -m py_compile` чисто, `get_or_create_device_id()`/`get_device_alias()` реально виконані на кожному пристрої (Q: `CPH2653`, син: `CPH2747` - внутрішні модельні коди через `getprop`), Flask НЕ рестартовано на жодному з двох - не потрібно, ці файли не імпортуються в `kbg_web/app.py`.
+
+**Планшет Samsung сина:** ще не підключений (Q лише згадав, що має з'явитись у Tailscale) - жодних спеціальних кроків для нього не треба: щойно deploy.sh/git pull і перший heartbeat відбудуться, `device_identity.py` згенерує йому власний унікальний `device_id` автоматично, і він з'явиться в `device_sessions` як окремий рядок паралельно з телефоном, без жодної ручної реєстрації.
+
+**Побічна дрібниця:** зворотні лапки з `getprop ro.product.model` у тексті commit-message виконались як підстановка команди в shell (bash, без heredoc) - повідомлення коміту трохи "з'їло" ту фразу. Косметично, код не постраждав, не вартий переписування історії.
+
