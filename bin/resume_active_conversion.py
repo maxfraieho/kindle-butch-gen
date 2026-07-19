@@ -25,6 +25,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 STATE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -58,6 +59,24 @@ def main():
         log_file.write(f"\n\n--- Auto-resumed after Termux restart (interrupted run detected) ---\n")
         log_file.flush()
 
+    # Real incident, confirmed live 2026-07-19: resuming agent_editor.py
+    # (unlike the interactive start flow in stages.html's startAgentScan,
+    # which stops llama-server first) just relaunched the identical
+    # command blind - but start-all-services.sh's own step 2 unconditionally
+    # restarts llama-server on every Termux boot too, so the resumed agent
+    # immediately hit its own RAM guard ("only 3.1GB available... llama-
+    # server is holding the translation model") and exited instantly,
+    # silently discarding the auto-resume attempt. Mirror the interactive
+    # flow's safety behavior here: stop llama-server first when what we're
+    # about to resume is the agent, give it a moment to release RAM, then
+    # proceed. Never do this for a translation resume - that pipeline
+    # NEEDS llama-server running.
+    if any("agent_editor.py" in str(part) for part in cmd):
+        print("[AutoResume] Resuming agent_editor.py - stopping llama-server first "
+              "(RAM guard would otherwise reject it immediately).")
+        subprocess.run(["pkill", "-f", "llama-serve[r]"], capture_output=True)
+        time.sleep(3)
+
     # start_new_session=True: same reasoning as TASK-40's regen-timeout fix -
     # this process should survive independently of whatever shell/session
     # .bashrc itself is running under.
@@ -80,6 +99,25 @@ def main():
     # If the ENVIRONMENT itself dies again mid-run, this watcher dies with
     # it and the file correctly remains for the next boot's resume.
     proc.wait()
+
+    # Symmetric with the stop above: bring llama-server back once the
+    # resumed agent run is done, mirroring stages.html's
+    # _agentWeStoppedLlama restart-after-finish behavior in the
+    # interactive flow. Best-effort via the local Flask API (up by now -
+    # it's step 3 in start-all-services.sh, this is step 4); a failure
+    # here just leaves the translation server down until the next normal
+    # restart flow notices, same as it already could before this fix.
+    if any("agent_editor.py" in str(part) for part in cmd):
+        try:
+            import requests
+            web_user = os.environ.get("KBG_WEB_USER", "")
+            web_password = os.environ.get("KBG_WEB_PASSWORD", "")
+            requests.post("http://127.0.0.1:5000/api/models/start",
+                          auth=(web_user, web_password) if web_user and web_password else None,
+                          timeout=10)
+            print("[AutoResume] Restarted llama-server after the resumed agent run.")
+        except Exception as e:
+            print(f"[AutoResume] Could not restart llama-server after agent run: {e}")
 
     # Guard: Flask may have started a brand-new conversion meanwhile and
     # written its own state file - only delete it if it still describes the
