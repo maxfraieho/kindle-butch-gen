@@ -100,13 +100,23 @@ def main(context):
         progress = user.get("active_book_progress", "")
         stage = user.get("active_book_stage", "") or "переклад"
         progress_txt = f" ({progress})" if progress else ""
-        # Agent-editor proposals require explicit human review even after
-        # resume (source="gemma_agent" edits always land pending, never
-        # auto-applied) - the resume note differs so the user isn't told
-        # "продовжиться автоматично" for a step that still needs them.
-        resume_note = ("відкрийте вкладку «Агент» і натисніть запуск ще раз"
-                        if "агент" in stage.lower()
-                        else "переклад продовжиться з того ж місця автоматично")
+        # Every registered process type auto-resumes on Termux restart
+        # (bin/resume_active_conversion.py), but what that means for the
+        # USER differs: some genuinely finish unattended, others still
+        # need a human step afterward. Keep this in sync with every
+        # send_heartbeat(..., stage=...) call across the codebase.
+        stage_l = stage.lower()
+        if "агент" in stage_l:
+            # source="gemma_agent" edits always land pending, never
+            # auto-applied - resuming the scan doesn't apply anything by
+            # itself.
+            resume_note = "відкрийте вкладку «Агент» і натисніть запуск ще раз"
+        elif "сканування персонажів" in stage_l:
+            resume_note = ("сканування продовжиться автоматично; перевірте нових "
+                           "персонажів у вкладці «Cast & Context» після завершення")
+        else:
+            # переклад / переклад книги / озвучення - all fully unattended resumes.
+            resume_note = "продовжиться з того ж місця автоматично"
         _tg_send(endpoint, project, api_key, watchdog_secret, int(user["telegram_id"]),
                  f"⏸️ Схоже, {stage} книги «{book}»{progress_txt} зупинився(-лася) — "
                  f"Termux на телефоні міг закритися сам. Відкрийте застосунок "
