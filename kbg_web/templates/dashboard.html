@@ -1567,6 +1567,20 @@
             }
         }
 
+        function renderPrimaryAction(book) {
+            const files = book.output_files || [];
+            const pick = (exts) => { for (const e of exts) { const f = files.find(x => x.endsWith(e)); if (f) return f; } return null; };
+            const primaryFile = pick(['.azw3', '.epub', '.cbz', '.mp3', '.md']);
+            if (book.is_running) {
+                return `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">⏸ Зупинити переклад</button>`;
+            } else if (primaryFile) {
+                return `<a class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem; text-decoration:none; text-align:center;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити готову книгу</a>
+                    <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; padding:0.8rem 1rem;">📖 Переглянути</a>`;
+            } else {
+                return `<button onclick="runConversion('${book.slug}')" class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">▶️ Почати переклад</button>`;
+            }
+        }
+
         async function fetchBooks() {
             try {
                 const openDetails = {};
@@ -1667,6 +1681,18 @@
                             const op = Math.round(((book.progress.marker_percent||0)+(book.progress.translation_percent||0)+(book.progress.stress_percent||0)+(book.progress.tts_percent||0))/4);
                             if (pf) pf.style.width = op + '%';
                             if (pp) pp.textContent = op + '%';
+                        }
+                        // Головна дія (Почати/Зупинити/Завантажити) мусить
+                        // теж стежити за is_running, інакше при легкому
+                        // оновленні лишається застарілою кнопкою "Почати"
+                        // навіть коли переклад уже йде (реальний баг: Q
+                        // отримав "почати", хоч конверсія була на 1.5%).
+                        const primaryEl = document.getElementById(`primary-${book.slug}`);
+                        if (primaryEl) {
+                            const newHtml = renderPrimaryAction(book);
+                            if (primaryEl.innerHTML.trim() !== newHtml.trim()) {
+                                primaryEl.innerHTML = newHtml;
+                            }
                         }
                     });
                     if (currentLogsSlug) pollLogs();
@@ -1856,18 +1882,7 @@
                     // Simple-mode primary action (TASK-68 UX): one big
                     // obvious next step per state - the reference user is
                     // a non-technical manga reader.
-                    const files = book.output_files || [];
-                    const pick = (exts) => { for (const e of exts) { const f = files.find(x => x.endsWith(e)); if (f) return f; } return null; };
-                    const primaryFile = pick(['.azw3', '.epub', '.cbz', '.mp3', '.md']);
-                    let primaryHtml = '';
-                    if (book.is_running) {
-                        primaryHtml = `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">⏸ Зупинити переклад</button>`;
-                    } else if (primaryFile) {
-                        primaryHtml = `<a class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem; text-decoration:none; text-align:center;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити готову книгу</a>
-                            <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; padding:0.8rem 1rem;">📖 Переглянути</a>`;
-                    } else {
-                        primaryHtml = `<button onclick="runConversion('${book.slug}')" class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">▶️ Почати переклад</button>`;
-                    }
+                    const primaryHtml = renderPrimaryAction(book);
 
                     const cardStyle = isFirstLoad
                         ? `style="animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${index * 50}ms; opacity: 0; animation-fill-mode: forwards;"`
@@ -1885,7 +1900,7 @@
 
                             ${progressHtml}
 
-                            <div class="controls" style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+                            <div class="controls" id="primary-${book.slug}" style="display:flex; gap:0.6rem; flex-wrap:wrap;">
                                 ${primaryHtml}
                             </div>
 
