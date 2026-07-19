@@ -2017,7 +2017,14 @@
         }
 
         async function runConversion(slug) {
-            const clean = document.getElementById(`clean-${slug}`)?.checked || false;
+            // Real incident (TASK-68): this is the big primary "▶️ Почати
+            // переклад" button - the safe, resume-friendly action. It must
+            // NEVER honor a stale "Повторно очистити сторінки" checkbox
+            // left checked in the hidden Advanced panel - that silently
+            // wiped and redid 12 already-translated frieren pages when Q
+            // just wanted to resume/start normally. Only the explicit
+            // "🔄 Перекласти заново" button (rerunConversion, with its own
+            // confirm dialog) is allowed to send clean=true.
             const translate = document.getElementById(`translate-${slug}`)?.checked ?? true;
             const ebook = document.getElementById(`ebook-${slug}`)?.checked ?? true;
             const audio = document.getElementById(`audio-${slug}`)?.checked ?? true;
@@ -2031,7 +2038,7 @@
                 const response = await fetch(`/api/run/${slug}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clean, no_translate, no_ebook, no_audio, manga_resolution: mangaRes })
+                    body: JSON.stringify({ clean: false, no_translate, no_ebook, no_audio, manga_resolution: mangaRes })
                 });
                 const res = await response.json();
                 if (response.ok) {
@@ -2046,8 +2053,11 @@
         }
 
         async function rerunConversion(slug) {
-            if (!confirm(`Re-run full conversion for "${slug}"? This will restart the pipeline from scratch (translation cache is preserved).`)) return;
             const clean = document.getElementById(`clean-${slug}`)?.checked || false;
+            const warn = clean
+                ? `«Повторно очистити сторінки» увімкнено: усі вже перекладені сторінки книги "${slug}" будуть ЗНИЩЕНІ і перероблені з нуля. Це може зайняти багато часу. Продовжити?`
+                : `Перезапустити переклад "${slug}" з нуля? (готові сторінки будуть пропущені й лишаться як є)`;
+            if (!confirm(warn)) return;
             const translate = document.getElementById(`translate-${slug}`)?.checked ?? true;
             const ebook = document.getElementById(`ebook-${slug}`)?.checked ?? true;
             const audio = document.getElementById(`audio-${slug}`)?.checked ?? true;
