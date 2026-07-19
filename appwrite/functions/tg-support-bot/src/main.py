@@ -117,8 +117,37 @@ def _heartbeat(context):
     return res.json({"ok": True})
 
 
+def _send_notification(context):
+    """Trusted send-on-behalf-of, called by the heartbeat-watchdog
+    function (own dedicated WATCHDOG_SECRET - never the same secret as
+    the phone's HEARTBEAT_SECRET or the Telegram webhook's). Lets the
+    watchdog send a Telegram message without ever holding its own copy
+    of TELEGRAM_BOT_TOKEN - one less place a sensitive token lives."""
+    req, res = context.req, context.res
+    secret = os.environ.get("WATCHDOG_SECRET", "")
+    header = req.headers.get("x-vydra-watchdog-secret", "")
+    if not secret or header != secret:
+        return res.json({"ok": False, "error": "unauthorized"}, 401)
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        return res.json({"ok": False, "error": "bot token not configured"}, 500)
+    try:
+        body = req.body if isinstance(req.body, dict) else json.loads(req.body_raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return res.json({"ok": False, "error": "bad request"}, 400)
+    chat_id = body.get("chat_id")
+    text = str(body.get("text", "")).strip()
+    if not chat_id or not text:
+        return res.json({"ok": False, "error": "chat_id and text required"}, 400)
+    _tg_send(token, chat_id, text)
+    return res.json({"ok": True})
+
+
 def main(context):
     req, res = context.req, context.res
+
+    if req.headers.get("x-vydra-watchdog-secret", ""):
+        return _send_notification(context)
 
     if req.headers.get("x-vydra-heartbeat-secret", ""):
         return _heartbeat(context)

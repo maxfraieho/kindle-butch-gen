@@ -30,6 +30,7 @@ from appwrite.query import Query
 
 DB_ID = "kbg-support"
 COLL_ID = "users"
+NOTIFY_FUNCTION_ID = "kbg-tg-support-bot"
 
 # 15 min: comfortably above the phone's own per-page heartbeat cadence
 # (roughly one heartbeat every 20-40s during active translation), so a
@@ -42,11 +43,22 @@ STALE_SECONDS = 15 * 60
 REALERT_SECONDS = 30 * 60
 
 
-def _tg_send(token, chat_id, text):
+def _tg_send(endpoint, project, api_key, watchdog_secret, chat_id, text):
+    """Routed through tg-support-bot's own _send_notification handler
+    instead of holding a TELEGRAM_BOT_TOKEN here directly - one less
+    place that sensitive value lives. Uses the Functions execution API,
+    the same mechanism (and the SAME account API key this function's own
+    x-appwrite-key already grants) used to test this path manually."""
     try:
         requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            f"{endpoint}/functions/{NOTIFY_FUNCTION_ID}/executions",
+            headers={"X-Appwrite-Project": project, "X-Appwrite-Key": api_key,
+                     "Content-Type": "application/json"},
+            json={
+                "async": True,
+                "headers": {"x-vydra-watchdog-secret": watchdog_secret},
+                "body": __import__("json").dumps({"chat_id": chat_id, "text": text}),
+            },
             timeout=10,
         )
     except requests.RequestException:
@@ -55,16 +67,15 @@ def _tg_send(token, chat_id, text):
 
 def main(context):
     res = context.res
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if not token:
-        context.log("TELEGRAM_BOT_TOKEN not configured - nothing to do.")
-        return res.json({"ok": False, "error": "bot token not configured"})
+    watchdog_secret = os.environ.get("WATCHDOG_SECRET", "")
+    if not watchdog_secret:
+        context.log("WATCHDOG_SECRET not configured - nothing to do.")
+        return res.json({"ok": False, "error": "watchdog secret not configured"})
+    endpoint = os.environ.get("APPWRITE_FUNCTION_API_ENDPOINT", "https://fra.cloud.appwrite.io/v1")
+    project = os.environ["APPWRITE_FUNCTION_PROJECT_ID"]
+    api_key = context.req.headers.get("x-appwrite-key", "")
 
-    client = (Client()
-              .set_endpoint(os.environ.get("APPWRITE_FUNCTION_API_ENDPOINT",
-                                           "https://fra.cloud.appwrite.io/v1"))
-              .set_project(os.environ["APPWRITE_FUNCTION_PROJECT_ID"])
-              .set_key(context.req.headers.get("x-appwrite-key", "")))
+    client = Client().set_endpoint(endpoint).set_project(project).set_key(api_key)
     db = Databases(client)
 
     now = int(datetime.now(timezone.utc).timestamp())
@@ -96,7 +107,7 @@ def main(context):
         resume_note = ("відкрийте вкладку «Агент» і натисніть запуск ще раз"
                         if "агент" in stage.lower()
                         else "переклад продовжиться з того ж місця автоматично")
-        _tg_send(token, int(user["telegram_id"]),
+        _tg_send(endpoint, project, api_key, watchdog_secret, int(user["telegram_id"]),
                  f"⏸️ Схоже, {stage} книги «{book}»{progress_txt} зупинився(-лася) — "
                  f"Termux на телефоні міг закритися сам. Відкрийте застосунок "
                  f"Termux ще раз, {resume_note}.")
