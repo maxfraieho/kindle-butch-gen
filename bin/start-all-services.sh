@@ -49,6 +49,25 @@ if [ -f "$KBG_HOME/.active_conversion.json" ]; then
         echo "Autostart: conversion state file present but a conversion is already running - not resuming a duplicate."
     else
         echo "Autostart: Detected an interrupted conversion, resuming..."
-        nohup python3 "$KBG_HOME/bin/resume_active_conversion.py" > "$HOME/kbg-autoresume.log" 2>&1 &
+        # Step 2 backgrounds its ENTIRE script (including that script's own
+        # health-check wait loop) with a single outer '&', so this step has
+        # no visibility into whether llama-server has actually finished
+        # loading the model yet. Observed live: translate_manga.py started
+        # hitting the API within ~1s of boot, got 503 "Loading model" on
+        # the first couple of pages, and (before translate_manga.py itself
+        # gained retry logic) silently kept the original English text for
+        # those pages forever. Gate the resume on the same /health probe
+        # start-translation-server.sh uses, capped at 2 minutes; if it's
+        # still not ready by then, proceed anyway - translate_manga.py's
+        # own retry-with-backoff is the second line of defense.
+        (
+            for i in $(seq 1 60); do
+                if LD_LIBRARY_PATH="" curl -s -m 3 http://127.0.0.1:8081/health 2>/dev/null | grep -q "ok\|healthy"; then
+                    break
+                fi
+                sleep 2
+            done
+            python3 "$KBG_HOME/bin/resume_active_conversion.py"
+        ) > "$HOME/kbg-autoresume.log" 2>&1 &
     fi
 fi

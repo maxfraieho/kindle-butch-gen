@@ -17,6 +17,7 @@ import json
 import shutil
 import tempfile
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -894,47 +895,68 @@ The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting 
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
 {glossary_rules}{cast_rules}{tone_rules}"""
 
-    try:
-        response = requests.post(
-            api_url,
-            json={
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt_list}
-                ],
-                "temperature": 0.2
-            },
-            timeout=300
-        )
-        if response.status_code == 200:
-            res_json = response.json()
-            content = res_json["choices"][0]["message"]["content"].strip()
-            lines = content.split("\n")
+    # Retry with backoff on transient failures - notably 503 "Loading
+    # model", which fires reliably when translate_manga.py starts (e.g.
+    # via the auto-resume-on-restart path) before llama-server has
+    # finished loading the GGUF into memory. Without this, the first few
+    # pages of every auto-resumed run silently kept their original
+    # English text forever with zero indication anything went wrong.
+    max_attempts = 6
+    backoff = [2, 4, 8, 15, 30]
+    for attempt in range(max_attempts):
+        try:
+            response = requests.post(
+                api_url,
+                json={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt_list}
+                    ],
+                    "temperature": 0.2
+                },
+                timeout=300
+            )
+            if response.status_code == 200:
+                res_json = response.json()
+                content = res_json["choices"][0]["message"]["content"].strip()
+                lines = content.split("\n")
 
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                if "." in line:
-                    parts = line.split(".", 1)
-                    try:
-                        idx = int(parts[0].strip()) - 1
-                        val = _normalize_sentence_case(parts[1].strip(), glossary)
-                        if 0 <= idx < len(remaining):
-                            result[remaining[idx]] = val
-                    except ValueError:
+                for line in lines:
+                    line = line.strip()
+                    if not line:
                         continue
+                    if "." in line:
+                        parts = line.split(".", 1)
+                        try:
+                            idx = int(parts[0].strip()) - 1
+                            val = _normalize_sentence_case(parts[1].strip(), glossary)
+                            if 0 <= idx < len(remaining):
+                                result[remaining[idx]] = val
+                        except ValueError:
+                            continue
 
-            # Fill missing translations with original text
-            for txt in remaining:
-                if txt not in result:
-                    result[txt] = txt
+                # Fill missing translations with original text
+                for txt in remaining:
+                    if txt not in result:
+                        result[txt] = txt
 
-            return result
-        else:
-            log(f"Error: API returned status code {response.status_code}: {response.text}")
-    except Exception as e:
-        log(f"Translation API request failed: {e}")
+                return result
+            elif response.status_code == 503 and attempt < max_attempts - 1:
+                log(f"API 503 (model still loading), retrying in {backoff[attempt]}s "
+                    f"(attempt {attempt+1}/{max_attempts})...")
+                time.sleep(backoff[attempt])
+                continue
+            else:
+                log(f"Error: API returned status code {response.status_code}: {response.text}")
+                break
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                log(f"Translation API request failed: {e}; retrying in {backoff[attempt]}s "
+                    f"(attempt {attempt+1}/{max_attempts})...")
+                time.sleep(backoff[attempt])
+                continue
+            log(f"Translation API request failed: {e}")
+            break
 
     # Fallback to returning original text if translation fails
     for txt in remaining:
