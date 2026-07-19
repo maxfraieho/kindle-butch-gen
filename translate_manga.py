@@ -2218,7 +2218,14 @@ def main():
             except Exception:
                 pass
         log("Manga translation completed successfully!")
-        
+        # TASK-57: tell Appwrite this book's heartbeat tracking is over -
+        # runs even when the loop above made zero send_heartbeat() calls
+        # (a resumed run where every page was already done), which is the
+        # exact scenario that used to leave heartbeat-watchdog alerting on
+        # a 100%-finished book.
+        from common.heartbeat import clear_heartbeat
+        clear_heartbeat()
+
     finally:
         # Clean temporary directories
         shutil.rmtree(temp_in, ignore_errors=True)

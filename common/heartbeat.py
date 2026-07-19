@@ -17,6 +17,17 @@ Not yet wired into: translate_stage.py / audio_stage.py /
 run_conversion_batches.py (the novel/epub pipeline's separate per-stage
 scripts) - left for a follow-up pass, see project memory.
 
+TASK-57 (2026-07-19): send_heartbeat() alone left active_book_slug set
+in Appwrite forever once the last page/case was processed - nothing ever
+told the DB "this book is done". heartbeat-watchdog only checks
+last_heartbeat_ts staleness, not completion, so every finished book
+eventually tripped a false "stopped" nudge (confirmed live: a 194/194
+book, twice in a row - REALERT_SECONDS re-fires every schedule tick
+since the state never clears). clear_heartbeat() is the fix: call it
+once at the true success point of each pipeline, after the loop that
+calls send_heartbeat() (even if that loop made zero calls, e.g. a
+resumed run where every page was already done).
+
 Requires (not yet provisioned by deploy.sh - manual setup):
   - global_settings.json's "appwrite" section needs a new
     "heartbeat_secret" field (matching HEARTBEAT_SECRET on the
@@ -63,12 +74,7 @@ def _init():
         pass
 
 
-def send_heartbeat(slug, progress_label, stage="переклад"):
-    """progress_label: short human string, e.g. '42/194' or 'сторінка 7 з 12'.
-    stage: what kind of work this is, shown verbatim in the stall alert so
-    the user knows what to expect on restart - e.g. 'переклад',
-    'агент-редактор', 'озвучення'. Keep it a short Ukrainian noun phrase,
-    it's interpolated directly into the Telegram message."""
+def _post(book_slug, progress_label, stage):
     if not _CFG["initialized"]:
         _init()
     if not _CFG.get("url"):
@@ -82,7 +88,7 @@ def send_heartbeat(slug, progress_label, stage="переклад"):
                 "headers": {"x-vydra-heartbeat-secret": _CFG["secret"]},
                 "body": json.dumps({
                     "telegram_id": _CFG["tg_id"],
-                    "book_slug": slug,
+                    "book_slug": book_slug,
                     "progress": progress_label,
                     "stage": stage,
                 }),
@@ -91,3 +97,23 @@ def send_heartbeat(slug, progress_label, stage="переклад"):
         )
     except Exception:
         pass  # heartbeat is best-effort - never let it slow the caller
+
+
+def send_heartbeat(slug, progress_label, stage="переклад"):
+    """progress_label: short human string, e.g. '42/194' or 'сторінка 7 з 12'.
+    stage: what kind of work this is, shown verbatim in the stall alert so
+    the user knows what to expect on restart - e.g. 'переклад',
+    'агент-редактор', 'озвучення'. Keep it a short Ukrainian noun phrase,
+    it's interpolated directly into the Telegram message."""
+    _post(slug, progress_label, stage)
+
+
+def clear_heartbeat():
+    """Counterpart to send_heartbeat(): tells Appwrite this book's run is
+    over so heartbeat-watchdog stops waiting for further heartbeats on it
+    (empty book_slug -> tg-support-bot's _heartbeat() stores it as None,
+    which drops the user out of the watchdog's active-book query). Call
+    exactly once, at the pipeline's genuine success point - never from an
+    except/failure path, or a real stall would go undetected (TASK-57
+    test scenario: real crash must still alert)."""
+    _post("", "", "")

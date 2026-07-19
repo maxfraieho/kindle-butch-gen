@@ -27,7 +27,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kbg_web import edit_store
-from common.heartbeat import send_heartbeat
+from common.heartbeat import send_heartbeat, clear_heartbeat
 
 MODEL_DEFAULT = os.path.expanduser("~/models/gemma3-4b/gemma-3-4b-it-Q4_K_M.gguf")
 MMPROJ_DEFAULT = os.path.expanduser("~/models/gemma3-4b/mmproj-model-f16.gguf")
@@ -573,6 +573,12 @@ def main():
 
     log(f"done: {proposed} proposal(s) submitted as pending (source=gemma_agent), {skipped} skipped.")
     log("Nothing was applied - review in Pending Edits (Approve/Discard).")
+
+    # TASK-57: same false-stall bug as translate_manga.py - a resumed scan
+    # where every case was already pending/approved skips the loop above
+    # entirely (zero send_heartbeat() calls), so nothing else would ever
+    # tell Appwrite this run is over.
+    clear_heartbeat()
 
     # Clear auto-resume state on normal completion - mirrors kbg_web/
     # app.py's handle_process_completion for the main pipeline. Only
