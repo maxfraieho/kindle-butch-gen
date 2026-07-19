@@ -901,8 +901,13 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
     # finished loading the GGUF into memory. Without this, the first few
     # pages of every auto-resumed run silently kept their original
     # English text forever with zero indication anything went wrong.
-    max_attempts = 6
-    backoff = [2, 4, 8, 15, 30]
+    # Total budget matches the established convention elsewhere in this
+    # codebase (common/utils.py's wait_for_server_ready: max_wait=300) -
+    # found via GitNexus impact analysis on this function, which flagged
+    # this file's original 6-attempt/~60s cap as undershooting the
+    # precedent other pipelines already rely on for the same 503 case.
+    max_attempts = 20
+    backoff = [2, 4, 8, 15] + [15] * 15
     for attempt in range(max_attempts):
         try:
             response = requests.post(
