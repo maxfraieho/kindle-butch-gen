@@ -1503,7 +1503,12 @@ def agent_editor_status_api(slug):
             m = re.search(r"(\d+) flagged case\(s\); limit (\d+)", full_log)
             if m:
                 case_total = min(int(m.group(1)), int(m.group(2)))
-            case_done = len(re.findall(r"^(?:PROPOSED|skip) ", full_log, re.MULTILINE))
+            # Every real log() line is prefixed "[agent_editor] " (see
+            # bin/agent_editor.py's log()) - the anchor must account for
+            # that or it never matches anything, which is exactly what
+            # shipped first: progress stuck at 0/N forever regardless of
+            # real completed cases, confirmed live by Q immediately.
+            case_done = len(re.findall(r"^\[agent_editor\] (?:PROPOSED|skip) ", full_log, re.MULTILINE))
         except OSError:
             pass
     flagged = 0
