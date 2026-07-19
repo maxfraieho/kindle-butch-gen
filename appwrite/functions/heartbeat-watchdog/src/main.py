@@ -32,11 +32,12 @@ DB_ID = "kbg-support"
 COLL_ID = "users"
 NOTIFY_FUNCTION_ID = "kbg-tg-support-bot"
 
-# 15 min: comfortably above the phone's own per-page heartbeat cadence
-# (roughly one heartbeat every 20-40s during active translation), so a
-# real stall reliably crosses this well before the timer wrongly fires
-# during ordinary variance (a single slow page, a brief network drop).
-STALE_SECONDS = 15 * 60
+# 5 min (Q's explicit call, 2026-07-19 - 15min felt too slow): still well
+# above the phone's own per-page heartbeat cadence (roughly one heartbeat
+# every 20-40s during active translation) and above the 5-minute schedule
+# interval itself, so a real stall is caught on close to the first check
+# after it happens without false-firing on ordinary per-page variance.
+STALE_SECONDS = 5 * 60
 
 # Don't re-alert every 5-minute tick for a phone that's been dead for
 # hours - only nudge again after this much time since the last alert.
