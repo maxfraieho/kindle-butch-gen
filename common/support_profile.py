@@ -175,3 +175,46 @@ def is_entitled(feature):
     except Exception:
         pass
     return False
+
+
+# --- Multi-device count (TASK-73) ----------------------------------------
+# Display-only - the actual free-tier limit is enforced server-side (in
+# tg-support-bot's _heartbeat(), which stamps over_limit on any device
+# beyond MAX_FREE_DEVICES). This just tells THIS device's dashboard how
+# many devices its own account currently has, so the UI can show a
+# "you're at N/3, unlock more" note without needing to guess.
+MAX_FREE_DEVICES = 3
+
+
+def get_device_status():
+    """Return {'count': int, 'limit': int, 'over_limit': bool}. Same
+    fail-safe contract as the rest of this module - any problem reads as
+    'nothing to report' (count=0), never blocks the dashboard."""
+    safe = {"count": 0, "limit": MAX_FREE_DEVICES, "over_limit": False}
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            aw = (json.load(f) or {}).get("appwrite") or {}
+        endpoint = aw.get("endpoint", "").rstrip("/")
+        project = aw.get("project", "")
+        tg_id = str(aw.get("telegram_id", "")).strip()
+        key = _read_key()
+        if not (endpoint and project and tg_id and key):
+            return safe
+        r = requests.get(
+            f"{endpoint}/databases/{aw.get('database', 'kbg-support')}"
+            f"/collections/device_sessions/documents",
+            headers={"X-Appwrite-Project": project, "X-Appwrite-Key": key},
+            params={"queries[]": json.dumps(
+                {"method": "equal", "attribute": "telegram_id",
+                 "values": [tg_id]})},
+            timeout=_TIMEOUT_S,
+        )
+        r.raise_for_status()
+        docs = r.json().get("documents", [])
+        return {
+            "count": len(docs),
+            "limit": MAX_FREE_DEVICES,
+            "over_limit": any(d.get("over_limit") for d in docs),
+        }
+    except Exception:
+        return safe

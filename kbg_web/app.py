@@ -1787,6 +1787,15 @@ def support_profile():
         linked_telegram_id = str((raw_cfg.get("appwrite") or {}).get("telegram_id") or "").strip()
     except Exception:
         linked_telegram_id = ""
+    # TASK-73: free tier caps devices per account at MAX_FREE_DEVICES -
+    # this is display-only (enforcement is server-side, see tg-support-bot's
+    # _heartbeat()), but the dashboard is where a family user actually
+    # looks, not a Telegram push, so surface it here.
+    try:
+        from common.support_profile import get_device_status
+        device_status = get_device_status()
+    except Exception:
+        device_status = {"count": 0, "limit": 3, "over_limit": False}
     return jsonify({
         "config_enabled": cfg_enabled,
         "entitlements": entitlements,
@@ -1796,6 +1805,9 @@ def support_profile():
         "effective_disabled": local_disabled or bool(remote.get("banner_disabled")),
         "bot_link": "https://t.me/GetVydraBot",
         "telegram_id": linked_telegram_id,
+        "device_count": device_status["count"],
+        "device_limit": device_status["limit"],
+        "device_over_limit": device_status["over_limit"],
     })
 
 @app.route("/api/support/local-optout", methods=["POST"])

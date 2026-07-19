@@ -138,10 +138,17 @@ def main(context):
     db = Databases(client)
 
     now = int(datetime.now(timezone.utc).timestamp())
-    active_sessions = db.list_documents(DB_ID, DEVICE_COLL_ID, queries=[
+    all_sessions = db.list_documents(DB_ID, DEVICE_COLL_ID, queries=[
         Query.is_not_null("active_book_slug"),
         Query.limit(100),
     ]).get("documents", [])
+    # TASK-73: a device beyond the free per-account limit is marked
+    # over_limit at creation (see tg-support-bot's _heartbeat()) and is
+    # excluded from watchdog coverage entirely - no stall detection, no
+    # digest mention. The dashboard (/api/support/profile) is where the
+    # user learns about it instead - a spammy per-tick Telegram nudge
+    # about a paywall isn't the right channel for that message.
+    active_sessions = [s for s in all_sessions if not s.get("over_limit")]
 
     by_user = {}
     for s in active_sessions:

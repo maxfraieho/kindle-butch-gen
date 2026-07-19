@@ -28,6 +28,9 @@ from appwrite.id import ID
 DB_ID = "kbg-support"
 COLL_ID = "users"
 
+# TASK-73: free devices per account before cast_registry is required.
+MAX_FREE_DEVICES = 3
+
 
 def _tg_send(token, chat_id, text, keyboard=None):
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
@@ -149,6 +152,22 @@ def _heartbeat(context):
     if session:
         db.update_document(DB_ID, DEVICE_COLL_ID, session["$id"], data=data)
     else:
+        # TASK-73: free tier caps distinct devices per account at
+        # MAX_FREE_DEVICES; cast_registry (the same single entitlement
+        # that unlocks every other premium feature, TASK-56) lifts it.
+        # Deliberately does NOT block the heartbeat write itself -
+        # generation is fully local/offline and was never gated by
+        # Appwrite reachability by design (Q's architecture split), so
+        # the only thing a device limit can meaningfully restrict is
+        # watchdog crash-notification coverage, not usage. A device over
+        # the limit is marked, not refused - the dashboard surfaces it
+        # (see /api/support/profile's device_count/device_limit fields).
+        existing = db.list_documents(DB_ID, DEVICE_COLL_ID, queries=[
+            Query.equal("telegram_id", tg_id), Query.limit(100),
+        ])
+        entitlements = [e for e in (user.get("entitlements") or "").split(",") if e]
+        if len(existing.get("documents", [])) >= MAX_FREE_DEVICES and "cast_registry" not in entitlements:
+            data["over_limit"] = True
         db.create_document(DB_ID, DEVICE_COLL_ID, ID.unique(), data=data)
     return res.json({"ok": True})
 
@@ -443,7 +462,11 @@ def main(context):
                  "🧬 <b>Cast Registry</b> — правильний граматичний рід "
                  "персонажів у перекладі (вона зробила, а не він зробив)\n"
                  "👁 <b>Агент-редактор</b> — візуальна перевірка й виправлення "
-                 "проблемних сторінок манґи\n\n"
+                 "проблемних сторінок манґи\n"
+                 f"📱 <b>Більше {MAX_FREE_DEVICES} пристроїв</b> — безкоштовно "
+                 f"можна прив'язати до {MAX_FREE_DEVICES} пристроїв на один акаунт "
+                 "(телефон, планшет тощо), кожен наступний потребує розширених "
+                 "можливостей\n\n"
                  "Як відкрити: підтримайте проєкт донатом (кнопка "
                  "☕ Підтримати розробника — сервіс оплати вже підключається), "
                  "надішліть сюди підтвердження — і функції буде активовано "
