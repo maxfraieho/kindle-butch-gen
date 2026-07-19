@@ -966,6 +966,9 @@
                         <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openPasswordModal()">
                             <span>🔑</span> Пароль
                         </button>
+                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openAppSettings()">
+                            <span>⚙️</span> Налаштування
+                        </button>
                     </div>
                 </div>
                 <div class="save-location-info">
@@ -978,6 +981,40 @@
         </div>
     </div>
 
+
+    <!-- Book Settings Modal (TASK-56) -->
+    <div id="bookSettingsModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3>⚙️ Налаштування книги</h3>
+                <button class="modal-close" onclick="closeBookSettings()">&times;</button>
+            </div>
+            <div class="modal-body" id="bookSettingsBody" style="font-size: 0.92rem;">
+                <p style="color: var(--text-secondary); text-align: center;">Завантаження...</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeBookSettings()"
+                        style="background: var(--primary); border:none; color:#fff; padding:0.625rem 1.25rem; border-radius:8px; font-weight:500; cursor:pointer;">Готово</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App-level Settings Modal (TASK-56) -->
+    <div id="appSettingsModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3>⚙️ Налаштування</h3>
+                <button class="modal-close" onclick="closeAppSettings()">&times;</button>
+            </div>
+            <div class="modal-body" id="appSettingsBody" style="font-size: 0.92rem;">
+                <p style="color: var(--text-secondary); text-align: center;">Завантаження...</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeAppSettings()"
+                        style="background: var(--primary); border:none; color:#fff; padding:0.625rem 1.25rem; border-radius:8px; font-weight:500; cursor:pointer;">Готово</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Folder Selector Modal -->
     <div id="folderModal" class="modal-overlay">
@@ -1785,21 +1822,9 @@
                                 <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Книга для Kindle (AZW3)</label>
                             </div>
                             
-                            <div class="form-group" style="margin-top:0.75rem; margin-bottom:0.75rem;">
-                                <label for="manga-res-${book.slug}" style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.25rem;">Пристрій для читання (роздільність)</label>
-                                <select id="manga-res-${book.slug}" class="form-control" style="padding: 0.4rem 0.5rem; font-size: 0.85rem; width: 100%;">
-                                    <option value="1280x1920" selected>Safe Default (1280x1920)</option>
-                                    <option value="1860x2480">Kindle Scribe (1860x2480)</option>
-                                    <option value="1264x1680">Paperwhite 6 / 2024 (1264x1680)</option>
-                                    <option value="1236x1648">Paperwhite 5 / Oasis 3 (1236x1648)</option>
-                                    <option value="1072x1448">Paperwhite 3/4 / Voyage / Basic 11 (1072x1448)</option>
-                                    <option value="600x800">Kindle Basic / Older (600x800)</option>
-                                    <option value="original">Original (No resizing)</option>
-                                </select>
-                            </div>
-
                             <div style="font-size: 0.8rem; color: var(--text-secondary); padding: 0.5rem 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
                                 📖 Режим манґи: сторінки пакуються у CBZ і збираються в AZW3 для Kindle (читання справа наліво).
+                                Роздільність і решта налаштувань — у ⚙️ Налаштування книги.
                             </div>
                         `;
                     } else {
@@ -1828,7 +1853,7 @@
                                 <label class="option-checkbox"><input type="checkbox" id="clean-${book.slug}"> Повторне очищення</label>
                                 <label class="option-checkbox"><input type="checkbox" id="translate-${book.slug}" checked> Переклад</label>
                                 <label class="option-checkbox"><input type="checkbox" id="ebook-${book.slug}" checked> Електронна книга</label>
-                                <label class="option-checkbox"><input type="checkbox" id="audio-${book.slug}" checked> Аудіокнига</label>
+                                <label class="option-checkbox"><input type="checkbox" id="audio-${book.slug}" ${book.generate_audiobook !== false ? 'checked' : ''} onchange="saveAudiobookDefault('${book.slug}', this.checked)"> Аудіокнига</label>
                             </div>
                         `;
                     }
@@ -1907,7 +1932,11 @@
                                     <h3>${book.title}</h3>
                                     ${book.authors && book.authors !== 'Unknown' ? `<p>${book.authors}</p>` : ''}
                                 </div>
-                                <span id="badge-${book.slug}" class="badge ${badgeClass}">${badgeText}</span>
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <button onclick="openBookSettings('${book.slug}')" class="btn-icon" title="Налаштування книги"
+                                            style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:1.1rem; padding:0.3rem; min-width:36px; min-height:36px;">⚙️</button>
+                                    <span id="badge-${book.slug}" class="badge ${badgeClass}">${badgeText}</span>
+                                </div>
                             </div>
 
                             ${progressHtml}
@@ -2028,6 +2057,19 @@
             }
         }
 
+        // TASK-56: Q's explicit instruction - make the EXISTING one-time
+        // "Аудіокнига" checkbox itself remember its state per book,
+        // rather than adding a second persistent-default toggle
+        // alongside it in the settings modal.
+        async function saveAudiobookDefault(slug, checked) {
+            try {
+                await fetch(`/api/book-settings/${slug}`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ generate_audiobook: checked })
+                });
+            } catch (e) { /* best-effort */ }
+        }
+
         async function runConversion(slug) {
             // Real incident (TASK-68): this is the big primary "▶️ Почати
             // переклад" button - the safe, resume-friendly action. It must
@@ -2044,13 +2086,16 @@
             const no_ebook = !ebook;
             const no_audio = !audio;
 
-            const mangaRes = document.getElementById(`manga-res-${slug}`)?.value || '1280x1920';
-
+            // TASK-56: the resolution picker moved to the per-book ⚙️
+            // settings modal (persisted server-side) - not sending it
+            // here at all lets /api/run's own config.json fallback be
+            // authoritative, instead of this button silently overriding
+            // the saved default with a hardcoded literal every time.
             try {
                 const response = await fetch(`/api/run/${slug}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clean: false, no_translate, no_ebook, no_audio, manga_resolution: mangaRes })
+                    body: JSON.stringify({ clean: false, no_translate, no_ebook, no_audio })
                 });
                 const res = await response.json();
                 if (response.ok) {
@@ -2330,6 +2375,159 @@
                     el.textContent = 'Помилка завантаження';
                 }
             }
+        }
+
+        // TASK-56: app-level settings modal. Deliberately additive, not a
+        // replacement for the existing always-visible supportCard widget
+        // or the standalone Моделі/Куди зберігати/Пароль buttons - this
+        // late in a large change, duplicating a fresh fetch here is safer
+        // than risking a regression by rewiring already-working elements.
+        async function openAppSettings() {
+            const modal = document.getElementById("appSettingsModal");
+            const body = document.getElementById("appSettingsBody");
+            modal.classList.add("active");
+            body.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">Завантаження...</p>';
+            let d;
+            try {
+                const r = await fetch('/api/support/profile', { cache: 'no-store' });
+                d = await r.json();
+            } catch (e) {
+                body.innerHTML = `<p style="color: var(--danger); text-align: center;">Не вдалося завантажити.</p>`;
+                return;
+            }
+            const statusTxt = d.effective_disabled
+                ? (d.remote_disabled ? 'вимкнено (через Telegram-бот)' : 'вимкнено (локально)')
+                : 'увімкнено — дякуємо, що лишаєте 💙💛';
+            const btnTxt = d.local_disabled ? 'Увімкнути локально' : 'Вимкнути локально';
+            body.innerHTML = `
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
+                    <b>🦥 Примітки підтримки в книгах:</b> <span id="appSupportStatus">${statusTxt}</span>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.6rem;">
+                        <a href="https://t.me/GetVydraBot" target="_blank" class="btn btn-primary"
+                           style="text-decoration:none; padding:0.5rem 1rem; font-size:0.85rem; border-radius:8px;">
+                            🤖 Керувати в Telegram (донат / вимкнення)
+                        </a>
+                        <button id="appSupportLocalBtn" class="btn-outline"
+                                style="padding:0.5rem 1rem; font-size:0.85rem; border-radius:8px; cursor:pointer;"
+                                onclick="toggleLocalBannerFromSettings()">${btnTxt}</button>
+                    </div>
+                </div>
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem;">
+                    <b>🤖 Моделі та сервер перекладу</b>
+                    <div style="margin-top:0.5rem;">
+                        <button class="btn-outline" style="padding:0.5rem 1rem; font-size:0.85rem; border-radius:8px; cursor:pointer;"
+                                onclick="closeAppSettings(); openModelsSelector();">Відкрити Models Manager →</button>
+                    </div>
+                </div>`;
+        }
+
+        function closeAppSettings() {
+            document.getElementById("appSettingsModal").classList.remove("active");
+        }
+
+        async function toggleLocalBannerFromSettings() {
+            await toggleLocalBanner();
+            const r = await fetch('/api/support/profile', { cache: 'no-store' });
+            const d = await r.json();
+            const statusEl = document.getElementById('appSupportStatus');
+            const btnEl = document.getElementById('appSupportLocalBtn');
+            if (statusEl) statusEl.textContent = d.effective_disabled
+                ? (d.remote_disabled ? 'вимкнено (через Telegram-бот)' : 'вимкнено (локально)')
+                : 'увімкнено — дякуємо, що лишаєте 💙💛';
+            if (btnEl) btnEl.textContent = d.local_disabled ? 'Увімкнути локально' : 'Вимкнути локально';
+        }
+
+        // TASK-56: per-book settings modal - Cast Registry stays a LINK to
+        // the "Cast & Context" tab (its own dedicated UI already exists
+        // there, deliberately not duplicated here), everything else
+        // that previously had zero UI (enable_agent_editor - manual.html
+        // used to literally tell users to hand-edit config.json) or lived
+        // as a per-run-only checkbox now lives in one persistent place.
+        async function openBookSettings(slug) {
+            const modal = document.getElementById("bookSettingsModal");
+            const body = document.getElementById("bookSettingsBody");
+            modal.classList.add("active");
+            body.innerHTML = '<p style="color: var(--text-secondary); text-align: center;">Завантаження...</p>';
+            let s;
+            try {
+                const r = await fetch(`/api/book-settings/${slug}`, { cache: "no-store" });
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                s = await r.json();
+            } catch (e) {
+                body.innerHTML = `<p style="color: var(--danger); text-align: center;">Не вдалося завантажити налаштування.</p>`;
+                return;
+            }
+
+            const lockLine = s.entitled
+                ? `<span style="color:#22c55e;">✓ Розблоковано</span>`
+                : `<span style="color:#f0b429;">🔒 Потребує підтримки проєкту — <a href="https://t.me/GetVydraBot" target="_blank" style="color:var(--primary);">@GetVydraBot</a></span>`;
+
+            let html = '';
+            if (s.is_manga) {
+                html += `
+                    <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
+                        <b>🧬 Cast Registry</b> — граматичний рід персонажів у перекладі.
+                        <div style="margin-top:0.4rem;">
+                            <a href="/view/${slug}#cast" style="color:var(--primary);">Відкрити «Cast & Context» →</a>
+                        </div>
+                    </div>
+                    <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
+                        <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                            <input type="checkbox" id="bs-agent" ${s.enable_agent_editor ? 'checked' : ''} ${s.entitled ? '' : 'disabled'}
+                                   style="width:20px; height:20px; margin-top:0.1rem;">
+                            <span><b>🤖 Агент-редактор</b> — візуально перевіряє й пропонує виправлення
+                            проблемних сторінок манґи (кожна пропозиція чекає вашого підтвердження).</span>
+                        </label>
+                        <div style="margin-top:0.4rem; font-size:0.82rem;">${lockLine}</div>
+                    </div>
+                    <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
+                        <label style="font-size:0.85rem; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">📖 Пристрій для читання (роздільність) — типово для цієї книги</label>
+                        <select id="bs-resolution" class="form-control" style="padding: 0.5rem; font-size: 0.9rem; width: 100%;">
+                            <option value="1280x1920" ${s.manga_resolution === '1280x1920' ? 'selected' : ''}>Safe Default (1280x1920)</option>
+                            <option value="1860x2480" ${s.manga_resolution === '1860x2480' ? 'selected' : ''}>Kindle Scribe (1860x2480)</option>
+                            <option value="1264x1680" ${s.manga_resolution === '1264x1680' ? 'selected' : ''}>Paperwhite 6 / 2024 (1264x1680)</option>
+                            <option value="1236x1648" ${s.manga_resolution === '1236x1648' ? 'selected' : ''}>Paperwhite 5 / Oasis 3 (1236x1648)</option>
+                            <option value="1072x1448" ${s.manga_resolution === '1072x1448' ? 'selected' : ''}>Paperwhite 3/4 / Voyage / Basic 11 (1072x1448)</option>
+                            <option value="600x800" ${s.manga_resolution === '600x800' ? 'selected' : ''}>Kindle Basic / Older (600x800)</option>
+                            <option value="original" ${s.manga_resolution === 'original' ? 'selected' : ''}>Original (без зміни розміру)</option>
+                        </select>
+                    </div>`;
+            } else {
+                html += `
+                    <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem; font-size:0.85rem; color:var(--text-secondary);">
+                        🎧 Чекбокс "Аудіокнига" у Додаткових налаштуваннях картки тепер сам
+                        запам'ятовує стан для цієї книги — окремого перемикача тут немає.
+                    </div>`;
+            }
+            html += `
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem;">
+                    <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                        <input type="checkbox" id="bs-honorifics" ${s.keep_honorifics ? 'checked' : ''}
+                               style="width:20px; height:20px; margin-top:0.1rem;">
+                        <span><b>🈂️ Зберігати гоноративи</b> — не перекладати суфікси на кшталт
+                        -сан, -чан, -кун, залишати як у оригіналі.</span>
+                    </label>
+                </div>`;
+            body.innerHTML = html;
+
+            const save = async (field, value) => {
+                try {
+                    await fetch(`/api/book-settings/${slug}`, {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ [field]: value })
+                    });
+                } catch (e) { /* best-effort - user can retry by reopening */ }
+            };
+            const agentEl = document.getElementById("bs-agent");
+            if (agentEl) agentEl.addEventListener("change", () => save("enable_agent_editor", agentEl.checked));
+            const resEl = document.getElementById("bs-resolution");
+            if (resEl) resEl.addEventListener("change", () => save("manga_resolution", resEl.value));
+            const honEl = document.getElementById("bs-honorifics");
+            if (honEl) honEl.addEventListener("change", () => save("keep_honorifics", honEl.checked));
+        }
+
+        function closeBookSettings() {
+            document.getElementById("bookSettingsModal").classList.remove("active");
         }
 
         async function openFolderSelector() {

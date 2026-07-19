@@ -807,6 +807,9 @@ _CAST_CACHE = {"initialized": False, "chars": None}
 # flag-gated until a live retranslate A/B confirms no regressions.
 _TONE_CFG = {"enabled": False}
 
+# TASK-56: keep_honorifics prompt-injection gate, same pattern as _TONE_CFG.
+_HONORIFICS_CFG = {"enabled": False}
+
 
 # Tracks which pages have already been force-retranslated under a given
 # --clean-run-id, so a crash-and-resume of the SAME deliberate clean sweep
@@ -866,6 +869,16 @@ def init_bubble_tone(book_dir):
             log("Bubble-tone prompt injection: ENABLED for this book")
     except Exception:
         _TONE_CFG["enabled"] = False
+
+
+def init_honorifics(book_dir):
+    try:
+        cfg = json.load(open(os.path.join(book_dir, "config.json"), encoding="utf-8"))
+        _HONORIFICS_CFG["enabled"] = bool(cfg.get("keep_honorifics"))
+        if _HONORIFICS_CFG["enabled"]:
+            log("Honorific-suffix preservation: ENABLED for this book")
+    except Exception:
+        _HONORIFICS_CFG["enabled"] = False
 
 
 def init_cast_registry(book_dir):
@@ -938,12 +951,23 @@ def translate_batch_llm(texts, source_lang, glossary, api_url, overrides=None,
                       "[ДУМКА] - an inner-thought cloud: reflective, softer inner voice.\n"
                       "[НАРАЦІЯ] - a narration caption: literary register, third person.\n")
 
+    # TASK-56: opt-in preservation of Japanese/Korean honorific suffixes
+    # (-san/-chan/-kun/-sama/-nim etc.) that the source OCR may already
+    # carry romanized (scanlations commonly keep them). Off by default -
+    # empty string means byte-identical prompt to pre-feature, same
+    # guarantee as every other optional rule block here.
+    honorific_rule = ""
+    if _HONORIFICS_CFG["enabled"]:
+        honorific_rule = ("Preserve Japanese/Korean honorific suffixes exactly as they appear in the "
+                          "source (e.g. -san, -chan, -kun, -sama, -senpai, -nim) - do NOT translate, "
+                          "drop, or localize them into a Ukrainian equivalent.\n")
+
     system_prompt = f"""You are a professional manga translator. Translate the following numbered list of texts from {source_lang.upper()} to Ukrainian.
 Preserve context, sound effects (if present), informal spoken registers, character personalities, and sentence fragments.
 Do NOT translate characters names if they are part of the glossary.
 The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting entirely. Output your translation in normal Ukrainian sentence case: capitalize only the first letter of each sentence and proper nouns, everything else lowercase. Never output an entire line in capital letters unless it is a genuine sound effect (onomatopoeia) or the character is explicitly shouting/emphasizing that specific word.
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
-{glossary_rules}{cast_rules}{tone_rules}"""
+{glossary_rules}{cast_rules}{tone_rules}{honorific_rule}"""
 
     # Retry with backoff on transient failures - notably 503 "Loading
     # model", which fires reliably when translate_manga.py starts (e.g.
@@ -1496,6 +1520,7 @@ def regenerate_single_page(args, glossary, detector, mocr):
     (mark matched ones "regenerated", unmatched ones "orphaned")."""
     init_cast_registry(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
     init_bubble_tone(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
+    init_honorifics(os.path.abspath(os.path.join(os.path.dirname(args.output), "..")))
     page_filename = args.regenerate_page
 
     overrides = {}
@@ -1958,6 +1983,7 @@ def main():
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
         init_cast_registry(book_dir)
         init_bubble_tone(book_dir)
+        init_honorifics(book_dir)
         clean_run_done = load_clean_run_progress(book_dir, args.clean_run_id)
         if args.force_retranslate and args.clean_run_id:
             log(f"--clean-run-id {args.clean_run_id}: {len(clean_run_done)} page(s) already "

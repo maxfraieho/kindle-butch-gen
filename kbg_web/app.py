@@ -367,7 +367,8 @@ def list_books():
                 "tts_speed": float(cfg.get("tts_speed", 1.0)),
                 "tts_noise_scale": float(cfg.get("tts_noise_scale", 0.667)),
                 "tts_noise_w": float(cfg.get("tts_noise_w", 0.8)),
-                "tts_engine": cfg.get("tts_engine", "supertonic3")
+                "tts_engine": cfg.get("tts_engine", "supertonic3"),
+                "generate_audiobook": bool(cfg.get("generate_audiobook", True))
             })
             
     return jsonify(books)
@@ -802,7 +803,11 @@ def run_conversion_api(slug):
             cmd.append("--force-retranslate")
             cmd.extend(["--clean-run-id", uuid.uuid4().hex])
 
-        manga_resolution = data.get("manga_resolution", "1280x1920")
+        # TASK-56: the resolution dropdown moved off the card into the
+        # per-book ⚙️ settings modal (persisted to config.json), so the
+        # per-run request body won't normally send this anymore - fall
+        # back to the book's saved default instead of a hardcoded literal.
+        manga_resolution = data.get("manga_resolution", cfg.get("manga_resolution", "1280x1920"))
         max_width, max_height = 1280, 1920
         if manga_resolution == "original":
             max_width, max_height = 0, 0
@@ -1358,6 +1363,74 @@ def set_bubble_tone_api(slug):
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return jsonify({"status": "success", "enable_bubble_tone": enable})
+
+@app.route("/api/book-settings/<slug>", methods=["GET"])
+def get_book_settings_api(slug):
+    """TASK-56: consolidated per-book settings for the new ⚙️ modal -
+    reads straight from config.json, no separate storage. Returns the
+    live entitlement state too so the frontend can show a locked/
+    unlocked indicator without a second round-trip."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    cfg_path = os.path.join(repo_dir, "books", slug, "config.json")
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "Book config not found"}), 404
+    try:
+        from common.support_profile import is_entitled
+        entitled = is_entitled("cast_registry")
+    except Exception:
+        entitled = False
+    return jsonify({
+        "is_manga": bool(cfg.get("is_manga")),
+        "enable_agent_editor": bool(cfg.get("enable_agent_editor")),
+        "generate_audiobook": bool(cfg.get("generate_audiobook")),
+        "keep_honorifics": bool(cfg.get("keep_honorifics")),
+        "manga_resolution": cfg.get("manga_resolution", "1280x1920"),
+        "entitled": entitled,
+    })
+
+@app.route("/api/book-settings/<slug>", methods=["POST"])
+def set_book_settings_api(slug):
+    """TASK-56: write-back for the per-book settings modal. Only
+    enable_agent_editor is entitlement-gated (same "cast_registry"
+    entitlement the scan endpoint already checks - see TASK-56's
+    reconciliation note removing the unused "vision_qa" duplicate name);
+    the rest are free for every user, matching enable_bubble_tone's own
+    precedent above."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    data = request.get_json() or {}
+    cfg_path = os.path.join(repo_dir, "books", slug, "config.json")
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "Book config not found"}), 404
+
+    if "enable_agent_editor" in data:
+        enable_agent = bool(data["enable_agent_editor"])
+        if enable_agent:
+            try:
+                from common.support_profile import is_entitled
+                if not is_entitled("cast_registry"):
+                    return jsonify({"status": "error",
+                                    "message": "Розширена можливість: активуйте через @GetVydraBot (/premium)."}), 403
+            except Exception:
+                return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+        cfg["enable_agent_editor"] = enable_agent
+    if "generate_audiobook" in data:
+        cfg["generate_audiobook"] = bool(data["generate_audiobook"])
+    if "keep_honorifics" in data:
+        cfg["keep_honorifics"] = bool(data["keep_honorifics"])
+    if "manga_resolution" in data:
+        cfg["manga_resolution"] = str(data["manga_resolution"])
+
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"status": "success"})
 
 @app.route("/api/characters/<slug>/scan", methods=["POST"])
 def characters_scan_api(slug):
