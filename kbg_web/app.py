@@ -1281,7 +1281,7 @@ def put_characters_api(slug):
         from common.support_profile import is_entitled
         if not is_entitled("cast_registry"):
             return jsonify({"status": "error",
-                            "message": "Cast Registry — преміум-функція. Активуйте через @GetVydraBot (/premium)."}), 403
+                            "message": "Cast Registry — розширена можливість. Активуйте через @GetVydraBot (/premium)."}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
     data = request.get_json() or {}
@@ -1309,7 +1309,7 @@ def characters_settings_api(slug):
             from common.support_profile import is_entitled
             if not is_entitled("cast_registry"):
                 return jsonify({"status": "error",
-                                "message": "Преміум-функція: активуйте через @GetVydraBot (/premium)."}), 403
+                                "message": "Розширена можливість: активуйте через @GetVydraBot (/premium)."}), 403
         except Exception:
             return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
     cfg_path = os.path.join(repo_dir, "books", slug, "config.json")
@@ -1362,14 +1362,14 @@ def set_bubble_tone_api(slug):
 @app.route("/api/characters/<slug>/scan", methods=["POST"])
 def characters_scan_api(slug):
     """Launch the NER auto-draft pre-pass (TASK-54) detached; drafts land
-    in characters.json as auto_drafted. Premium-gated like the rest."""
+    in characters.json as auto_drafted. Entitlement-gated like the rest."""
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
     try:
         from common.support_profile import is_entitled
         if not is_entitled("cast_registry"):
             return jsonify({"status": "error",
-                            "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
+                            "message": "Розширена можливість: /premium у @GetVydraBot"}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
     heavy = _heavy_state()
@@ -1384,7 +1384,7 @@ def characters_scan_api(slug):
     if not os.path.exists(model):
         return jsonify({"status": "error", "model_missing": True,
                         "message": "Модель аналізу (~3.3GB) ще не завантажена. "
-                                   "Завантаження стартує з деплой-флоу преміуму."}), 409
+                                   "Завантаження стартує з деплой-флоу розширених можливостей."}), 409
     log_path = os.path.join(book_dir, "edits", "ner_scan.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     cmd = ["python3", os.path.join(repo_dir, "bin", "cast_ner_prepass.py"),
@@ -1434,7 +1434,7 @@ def premium_download_models_api():
         from common.support_profile import is_entitled
         if not is_entitled("cast_registry"):
             return jsonify({"status": "error",
-                            "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
+                            "message": "Розширена можливість: /premium у @GetVydraBot"}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
     # Gemma Terms consent must be explicitly given in the onboarding
@@ -1565,7 +1565,7 @@ def agent_editor_scan_api(slug):
         from common.support_profile import is_entitled
         if not is_entitled("cast_registry"):
             return jsonify({"status": "error",
-                            "message": "Преміум-функція: /premium у @GetVydraBot"}), 403
+                            "message": "Розширена можливість: /premium у @GetVydraBot"}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
     book_dir = os.path.join(repo_dir, "books", slug)

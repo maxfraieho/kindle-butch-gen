@@ -53,7 +53,7 @@ def _main_keyboard():
          {"text": "🔕 Вимкнути банер", "callback_data": "nobanner"}],
         [{"text": "🇺🇦 Донат фонду (офіційно)", "url": "https://savelife.in.ua/donate/"}],
         [{"text": "☕ Підтримати розробника", "callback_data": "donate_dev"},
-         {"text": "💳 Преміум / оплата", "callback_data": "premium"}],
+         {"text": "💳 Розширені можливості / оплата", "callback_data": "premium"}],
     ]
 
 
@@ -253,7 +253,7 @@ def main(context):
                  "🔒 <b>Політика приватності Vydra</b>\n\n"
                  "<b>Хто збирає:</b> команда розробників Vydra.\n"
                  "<b>Що збираємо:</b> лише через цього бота — ваш Telegram ID, "
-                 "згенерований реферальний код і перелік увімкнених преміум-функцій.\n"
+                 "згенерований реферальний код і перелік увімкнених розширених можливостей.\n"
                  "<b>Навіщо:</b> автентифікація вашого застосунку, керування чергою "
                  "генерації та синхронізація налаштувань.\n"
                  "<b>Де:</b> база Appwrite у Франкфурті (ЄС).\n"
@@ -358,20 +358,22 @@ def main(context):
 
     if cmd == "/premium":
         # TASK-53: premium features = donation-gated entitlements
-        # (cast_registry, vision_qa). Payments service not integrated yet -
+        # (cast_registry - unlocks both Cast Registry and the agent-editor;
+        # TASK-56 removed vision_qa as a stale duplicate name for the same
+        # thing). Payments service not integrated yet -
         # unlock flow is manual admin /grant after a confirmed donation.
         user = _get_user(db, tg_id)
         ents = (user.get("entitlements") or "") if user else ""
         have = [e for e in ents.split(",") if e]
-        status = ("✅ Активні преміум-функції: " + ", ".join(have)) if have \
-            else "Преміум-функції поки не активовані."
+        status = ("✅ Активні розширені можливості: " + ", ".join(have)) if have \
+            else "Розширені можливості поки не активовані."
         _tg_send(token, chat_id,
-                 "💳 <b>Преміум-функції Vydra</b>\n\n"
+                 "💳 <b>Розширені можливості Vydra</b>\n\n"
                  f"{status}\n\n"
                  "🧬 <b>Cast Registry</b> — правильний граматичний рід "
                  "персонажів у перекладі (вона зробила, а не він зробив)\n"
-                 "👁 <b>Vision-QA</b> — додаткова візуальна перевірка якості "
-                 "манґи\n\n"
+                 "👁 <b>Агент-редактор</b> — візуальна перевірка й виправлення "
+                 "проблемних сторінок манґи\n\n"
                  "Як відкрити: підтримайте проєкт донатом (кнопка "
                  "☕ Підтримати розробника — сервіс оплати вже підключається), "
                  "надішліть сюди підтвердження — і функції буде активовано "
@@ -391,7 +393,7 @@ def main(context):
         if len(parts) != 2:
             _tg_send(token, chat_id,
                      "Формат: /grant &lt;tg_id або referral_code&gt; "
-                     "&lt;cast_registry,vision_qa&gt;")
+                     "&lt;cast_registry&gt;")
             return res.json({"ok": True})
         who, ents = parts
         target = None
@@ -409,7 +411,7 @@ def main(context):
         _tg_send(token, chat_id,
                  f"✅ Активовано для {target['telegram_id']}: {ents}")
         _tg_send(token, int(target["telegram_id"]),
-                 f"🎉 Вам активовано преміум-функції: {ents}. Дякуємо за "
+                 f"🎉 Вам активовано розширені можливості: {ents}. Дякуємо за "
                  "підтримку!\n\nПеремикачі з'являться в налаштуваннях книги. "
                  "⚠️ При першому вмиканні Cast Registry на пристрій "
                  "завантажиться додаткова модель аналізу (~3–4 GB) — "

@@ -1035,11 +1035,11 @@
         </div>
     </div>
 
-    <!-- Premium Onboarding Modal (TASK-65) -->
+    <!-- Extended Capabilities Onboarding Modal (TASK-65) -->
     <div id="premiumOnboardModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 560px;">
             <div class="modal-header">
-                <h3>💎 Преміум активовано — налаштуймо все за хвилину</h3>
+                <h3>💎 Розширені можливості активовано — налаштуймо все за хвилину</h3>
                 <button class="modal-close" onclick="closePremiumOnboarding(false)">&times;</button>
             </div>
             <div class="modal-body" style="font-size: 0.92rem;">
@@ -1448,11 +1448,12 @@
                 btn.textContent = d.local_disabled
                     ? 'Увімкнути локально' : 'Вимкнути локально';
                 const prem = document.getElementById('premiumStatus');
-                const names = { cast_registry: 'Cast Registry (рід персонажів)',
-                                vision_qa: 'Vision-QA (візуальна перевірка манґи)' };
+                // Single entitlement unlocks both features - see support_config.json's
+                // premium_features (vision_qa removed as a stale duplicate, TASK-56).
+                const names = { cast_registry: 'Cast Registry + Агент-редактор' };
                 if (d.entitlements && d.entitlements.length) {
                     prem.style.display = '';
-                    prem.textContent = '💎 Преміум активовано: ' +
+                    prem.textContent = '💎 Розширені можливості активовано: ' +
                         d.entitlements.map(e => names[e] || e).join(', ') +
                         ' — перемикачі з\'являться в налаштуваннях книги з наступним оновленням';
                     // TASK-65: first-time premium onboarding dialog -
