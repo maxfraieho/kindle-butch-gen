@@ -51,6 +51,8 @@ def _main_keyboard():
         [{"text": "📲 Встановити Vydra", "callback_data": "install"}],
         [{"text": "👥 Реферальний код", "callback_data": "referral"},
          {"text": "🔕 Вимкнути банер", "callback_data": "nobanner"}],
+        [{"text": "⏸️ Призупинити сповіщення", "callback_data": "pause"},
+         {"text": "▶️ Відновити сповіщення", "callback_data": "resume"}],
         [{"text": "🇺🇦 Донат фонду (офіційно)", "url": "https://savelife.in.ua/donate/"}],
         [{"text": "☕ Підтримати розробника", "callback_data": "donate_dev"},
          {"text": "💳 Розширені можливості / оплата", "callback_data": "premium"}],
@@ -180,7 +182,8 @@ def main(context):
         tg_id = (cb.get("from") or {}).get("id")
         text = {"install": "/install", "referral": "/referral",
                 "nobanner": "/no_support_banner", "donate_dev": "/donate_dev",
-                "premium": "/premium"}.get(data, "")
+                "premium": "/premium", "pause": "/pause",
+                "resume": "/resume"}.get(data, "")
         if not chat_id or not tg_id or not text:
             return res.json({"ok": True})
     else:
