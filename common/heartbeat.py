@@ -38,7 +38,9 @@ Requires (not yet provisioned by deploy.sh - manual setup):
     permission granted.
   - New attributes on the "users" collection: last_heartbeat_ts (int),
     active_book_slug (string), active_book_progress (string),
-    last_stall_alert_ts (int) - all optional/nullable.
+    last_stall_alert_ts (int), watchdog_paused (bool, TASK-70's /pause -
+    set only by tg-support-bot, never by this module) - all
+    optional/nullable.
 """
 import json
 import os

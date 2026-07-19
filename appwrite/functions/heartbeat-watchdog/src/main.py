@@ -88,6 +88,12 @@ def main(context):
 
     nudged = 0
     for user in users.get("documents", []):
+        # TASK-70: explicit user opt-out (/pause, /resume in tg-support-bot)
+        # for "I know I'm not actively working with Vydra right now" -
+        # skip entirely regardless of staleness, so a deliberate pause
+        # never gets treated as a crash.
+        if user.get("watchdog_paused"):
+            continue
         last_hb = int(user.get("last_heartbeat_ts") or 0)
         if last_hb == 0:
             continue

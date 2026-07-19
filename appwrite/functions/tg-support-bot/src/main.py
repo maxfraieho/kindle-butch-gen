@@ -306,6 +306,37 @@ def main(context):
         _tg_send(token, chat_id, "Готово, більше не показуватимемо ✅")
         return res.json({"ok": True})
 
+    if cmd == "/pause":
+        # TASK-70 (Q's ask, 2026-07-19): heartbeat-watchdog can't tell
+        # "Q silently stepped away" from "Q's phone silently died" - both
+        # look identical (stale last_heartbeat_ts). Give an explicit
+        # opt-out instead of guessing: while paused, heartbeat-watchdog
+        # skips this user entirely regardless of staleness (see its own
+        # main() loop). Does NOT stop the phone from sending heartbeats -
+        # this only gates whether the watchdog nudges, so resuming a
+        # conversion later still reports fresh progress once /resume'd.
+        user = _get_user(db, tg_id)
+        if not user:
+            _tg_send(token, chat_id, "Спершу зареєструйтесь: /start")
+            return res.json({"ok": True})
+        db.update_document(DB_ID, COLL_ID, user["$id"],
+                           data={"watchdog_paused": True})
+        _tg_send(token, chat_id,
+                 "⏸️ Сповіщення про \"зупинку\" вимкнено, поки ви не напишете "
+                 "/resume. Якщо конверсія й справді зависне цей час, ви про "
+                 "це не дізнаєтесь звідси.")
+        return res.json({"ok": True})
+
+    if cmd == "/resume":
+        user = _get_user(db, tg_id)
+        if not user:
+            _tg_send(token, chat_id, "Спершу зареєструйтесь: /start")
+            return res.json({"ok": True})
+        db.update_document(DB_ID, COLL_ID, user["$id"],
+                           data={"watchdog_paused": False})
+        _tg_send(token, chat_id, "▶️ Сповіщення про зупинку знову увімкнено ✅")
+        return res.json({"ok": True})
+
     if cmd == "/install":
         _tg_send(token, chat_id,
                  "🦦 <b>Встановлення Vydra на ваш Android</b>\n\n"
