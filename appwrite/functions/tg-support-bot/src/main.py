@@ -211,6 +211,7 @@ def main(context):
             _tg_send(token, chat_id,
                      "Ви вже зареєстровані ✅\n"
                      f"Ваш реферальний код: <code>{user['referral_code']}</code>\n"
+                     f"Ваш Telegram ID (для прив'язки телефону в застосунку): <code>{tg_id}</code>\n"
                      "Оберіть дію кнопками нижче 👇",
                      keyboard=_main_keyboard())
             return res.json({"ok": True})
@@ -247,6 +248,7 @@ def main(context):
                  "НІКОЛИ не потрапляють на наші сервери. Політика приватності: "
                  "/privacy. Видалити свої дані будь-коли: /delete_my_data.\n\n"
                  f"Ваш реферальний код: <code>{code}</code>{bonus}\n\n"
+                 f"Ваш Telegram ID (для прив'язки телефону в застосунку): <code>{tg_id}</code>\n\n"
                  "Оберіть дію кнопками нижче 👇",
                  keyboard=_main_keyboard())
         return res.json({"ok": True})

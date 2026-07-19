@@ -1776,6 +1776,17 @@ def support_profile():
         entitlements = get_entitlements()
     except Exception:
         entitlements = []
+    # TASK-71: every fresh deploy.sh clone ships support_config.json with
+    # an empty appwrite.telegram_id (safe-by-default - see that file's own
+    # comment) - the dashboard needs to know whether THIS installation has
+    # been linked yet, to show the one-time linking prompt.
+    try:
+        from common.support_banner import CONFIG_PATH
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            raw_cfg = json.load(f)
+        linked_telegram_id = str((raw_cfg.get("appwrite") or {}).get("telegram_id") or "").strip()
+    except Exception:
+        linked_telegram_id = ""
     return jsonify({
         "config_enabled": cfg_enabled,
         "entitlements": entitlements,
@@ -1784,6 +1795,7 @@ def support_profile():
         "priority_tier": int(remote.get("priority_tier") or 0),
         "effective_disabled": local_disabled or bool(remote.get("banner_disabled")),
         "bot_link": "https://t.me/GetVydraBot",
+        "telegram_id": linked_telegram_id,
     })
 
 @app.route("/api/support/local-optout", methods=["POST"])
@@ -1798,6 +1810,32 @@ def support_local_optout():
     save_global_settings(settings)
     return jsonify({"status": "success",
                     "local_disabled": settings["no_support_banner"]})
+
+@app.route("/api/support/link-telegram", methods=["POST"])
+def support_link_telegram():
+    """Bind this installation to its owner's real Telegram account
+    (TASK-71). Every fresh deploy.sh clone inherits support_config.json
+    with an intentionally EMPTY appwrite.telegram_id (real incident,
+    2026-07-19: it used to ship with the original developer's own ID
+    baked in, so every new install's support/entitlement checks silently
+    queried - and could overwrite the heartbeat state of - the wrong
+    Appwrite user). Real fix is one-time, local, explicit: the user pastes
+    the numeric ID the bot shows them after /start."""
+    data = request.get_json() or {}
+    tg_id = str(data.get("telegram_id", "")).strip()
+    if not tg_id.isdigit():
+        return jsonify({"status": "error",
+                        "message": "Telegram ID має складатись лише з цифр - скопіюйте його з повідомлення бота після /start."}), 400
+    from common.support_banner import CONFIG_PATH
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        cfg = {}
+    cfg.setdefault("appwrite", {})["telegram_id"] = tg_id
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"status": "success", "telegram_id": tg_id})
 
 @app.route("/api/update", methods=["POST"])
 def self_update():

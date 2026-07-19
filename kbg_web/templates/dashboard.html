@@ -944,6 +944,20 @@
                                 onclick="toggleLocalBanner()">…</button>
                     </div>
                 </div>
+                <!-- TASK-71: fresh installs ship with an unlinked telegram_id
+                     by design (safe default) - prompt once until the user
+                     links their own account, otherwise premium/support
+                     status silently never activates with no visible error. -->
+                <div id="telegramLinkRow" style="display:none; margin-top:0.7rem; padding-top:0.7rem; border-top:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; align-items:center; gap:0.5rem;">
+                    <span style="font-size:0.85rem; color:var(--text-secondary);">
+                        🔗 Телефон ще не прив'язаний до вашого Telegram-акаунту - без цього розширені можливості й статус підтримки не працюватимуть.
+                        Напишіть <code>/start</code> боту, скопіюйте свій ID з відповіді і вставте нижче:
+                    </span>
+                    <input type="text" id="telegramLinkInput" placeholder="напр. 123456789"
+                           style="padding:0.4rem 0.6rem; font-size:0.85rem; border-radius:8px; width:150px;">
+                    <button class="btn btn-primary" style="padding:0.4rem 0.8rem; font-size:0.85rem; border-radius:8px;"
+                            onclick="linkTelegramId()">Прив'язати</button>
+                </div>
             </div>
 
             <!-- Manage Books -->
@@ -1499,7 +1513,32 @@
                         openPremiumOnboarding();
                     }
                 } else { prem.style.display = 'none'; }
+                // TASK-71: no linked telegram_id = premium/support checks
+                // silently never activate (fail-closed by design) - show
+                // the one-time prompt until it's set.
+                const linkRow = document.getElementById('telegramLinkRow');
+                if (linkRow) linkRow.style.display = d.telegram_id ? 'none' : 'flex';
             } catch (e) { /* card simply stays hidden */ }
+        }
+
+        async function linkTelegramId() {
+            const input = document.getElementById('telegramLinkInput');
+            const tgId = (input.value || '').trim();
+            if (!/^\d+$/.test(tgId)) {
+                alert("Telegram ID має складатись лише з цифр - скопіюйте його з повідомлення бота після /start.");
+                return;
+            }
+            try {
+                const r = await fetch('/api/support/link-telegram', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: tgId }),
+                });
+                const d = await r.json();
+                if (!r.ok) { alert(d.message || 'Не вдалося прив\'язати.'); return; }
+                input.value = '';
+                refreshSupportCard();
+            } catch (e) { alert('Помилка мережі, спробуйте ще раз.'); }
         }
 
         async function openPremiumOnboarding() {
