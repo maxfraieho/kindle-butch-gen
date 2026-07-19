@@ -28,10 +28,17 @@ def _load_edits(slug):
 
 
 def _save_edits(slug, edits):
+    # Atomic write (tmp+os.replace) - same pattern already correct in
+    # common/cast_registry.py's save_characters(). Without it, a crash or
+    # concurrent write mid-json.dump (this file is read-mutate-write with
+    # no locking) could leave edits.json truncated/corrupt, losing every
+    # pending/approved edit for the book, not just the one being added.
     path = _edits_path(slug)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(edits, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def add_edit(slug, mode, target_id, field, original_value, edited_value,

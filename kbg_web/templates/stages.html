@@ -827,6 +827,7 @@
             let editingBubbleBox = null;      // {x1, y1, x2, y2}
             let editingBubbleRefSize = null;  // [w, h]
             let editingFontSize = null;       // int px, or null = auto
+            let editingPanelSnapshot = null;  // {text, box, fontSize} at open time - unsaved-edit guard
 
             function renderMangaViewerTab() {
                 mangaTabContent.innerHTML = `
@@ -1120,17 +1121,41 @@
                 const liveFs = document.getElementById("bbox-field-font-size");
                 if (liveFs) liveFs.addEventListener("input", renderLiveTextPreview);
                 panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+                // Real incident risk: closeBubblePanel() used to discard
+                // in-progress edits with zero warning (typed translation
+                // text or a dragged bbox, closed by mis-tap or navigating
+                // away). Snapshot the opening state here so close can diff
+                // against it and confirm before throwing work away.
+                editingPanelSnapshot = {
+                    text: liveTa ? liveTa.value : null,
+                    box: editingBubbleBox ? { ...editingBubbleBox } : null,
+                    fontSize: editingFontSize,
+                };
             }
 
             function tgtFileForPanel() {
                 return bookData.translated_pages[currentMangaPage];
             }
 
-            window.closeBubblePanel = () => {
+            window.closeBubblePanel = (skipConfirm) => {
+                if (!skipConfirm && editingPanelSnapshot) {
+                    const liveTa = document.getElementById("bubble-edit-textarea");
+                    const curText = liveTa ? liveTa.value : null;
+                    const boxChanged = JSON.stringify(editingBubbleBox) !== JSON.stringify(editingPanelSnapshot.box);
+                    const fontChanged = editingFontSize !== editingPanelSnapshot.fontSize;
+                    const textChanged = curText !== editingPanelSnapshot.text;
+                    if (boxChanged || fontChanged || textChanged) {
+                        if (!confirm("Є незбережені зміни (переклад, позиція або розмір шрифта) — закрити без збереження?")) {
+                            return;
+                        }
+                    }
+                }
                 selectedBubbleId = null;
                 editingBubbleBox = null;
                 editingBubbleRefSize = null;
                 editingFontSize = null;
+                editingPanelSnapshot = null;
                 clearResizeHandles();
                 const panel = document.getElementById("manga-bubble-panel");
                 if (panel) { panel.style.display = "none"; panel.innerHTML = ""; }
@@ -1348,6 +1373,11 @@
                     if (!res.ok) throw new Error(data.message);
                     statusEl.textContent = "Saved as pending edit.";
                     refreshRegenerateButton();
+                    // Reset the unsaved-changes baseline to what was just
+                    // persisted, so closing right after a successful save
+                    // doesn't falsely warn about "unsaved changes".
+                    if (editingPanelSnapshot) editingPanelSnapshot.box = editingBubbleBox ? { ...editingBubbleBox } : null;
+                    if (editingPanelSnapshot) editingPanelSnapshot.fontSize = editingFontSize;
                 } catch (err) {
                     statusEl.textContent = "Error: " + err.message;
                 }
@@ -1369,6 +1399,8 @@
                     if (!res.ok) throw new Error(data.message);
                     statusEl.textContent = "Saved as pending edit.";
                     refreshRegenerateButton();
+                    // Same baseline-reset as saveBubbleGeometry above.
+                    if (editingPanelSnapshot) editingPanelSnapshot.text = newText;
                 } catch (err) {
                     statusEl.textContent = "Error: " + err.message;
                 }
@@ -1407,7 +1439,10 @@
                         const res = await fetch(`/api/edit/regenerate-manga-page/${slug}/${tgtFile}`, { method: "POST" });
                         const data = await res.json();
                         if (!res.ok) throw new Error(data.message);
-                        closeBubblePanel();
+                        // skipConfirm=true: the regenerate call above just
+                        // persisted everything server-side, so there is
+                        // nothing unsaved to warn about here.
+                        closeBubblePanel(true);
                         // Cache-bust the <img> src since the file changed
                         // but the filename didn't.
                         showPage(currentMangaPage);

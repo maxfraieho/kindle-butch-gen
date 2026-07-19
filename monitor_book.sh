@@ -2,7 +2,14 @@
 # monitor_book.sh - Monitors book conversion progress and restarts if stuck
 # Usage: bash monitor_book.sh three-days-of-happiness
 SLUG="${1:-three-days-of-happiness}"
-AUTH="vokov:0523"
+# Credentials must never be hardcoded here (this script is public git
+# history) - read the same env vars app.py itself uses, matching
+# whatever the current live web login actually is instead of a stale
+# baked-in value that silently stops working (or leaks an old secret)
+# the moment the password is rotated.
+WEB_USER="${KBG_WEB_USER:-admin}"
+WEB_PASSWORD="${KBG_WEB_PASSWORD:?Set KBG_WEB_PASSWORD before running monitor_book.sh}"
+AUTH="${WEB_USER}:${WEB_PASSWORD}"
 BASE_URL="http://localhost:5000"
 LLAMA_URL="http://localhost:8081"
 LLAMA_MODEL="/data/data/com.termux/files/home/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf"
@@ -26,7 +33,7 @@ except: print('fail')
 
 restart_llama() {
     log "Restarting llama-server..."
-    pkill -f "llama-server" 2>/dev/null
+    pkill -f "llama-serve[r]" 2>/dev/null
     sleep 3
     nohup /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server \
         -m "$LLAMA_MODEL" -c 4096 -ngl 99 -t 8 \
@@ -41,7 +48,7 @@ restart_conversion() {
     python3 -c "
 import requests
 from requests.auth import HTTPBasicAuth
-auth = HTTPBasicAuth('vokov', '0523')
+auth = HTTPBasicAuth('${WEB_USER}', '${WEB_PASSWORD}')
 r = requests.post('${BASE_URL}/api/run/${SLUG}',
     auth=auth, headers={'Content-Type': 'application/json'}, json={}, timeout=15)
 print(r.status_code, r.text[:100])
@@ -56,7 +63,7 @@ while true; do
 import requests, json
 from requests.auth import HTTPBasicAuth
 try:
-    auth = HTTPBasicAuth('vokov', '0523')
+    auth = HTTPBasicAuth('${WEB_USER}', '${WEB_PASSWORD}')
     r = requests.get('${BASE_URL}/api/status/${SLUG}', auth=auth, timeout=10)
     d = r.json()
     p = d.get('progress', {})
@@ -83,10 +90,10 @@ except Exception as ex:
     if (( $(echo "$tts >= 99.9" | python3 -c "import sys; print(int(eval(sys.stdin.read())))") )); then
         log "=== ALL STAGES COMPLETE! TTS at ${tts}% ==="
         log "Shutting down services..."
-        pkill -f "llama-server"
-        pkill -f "kbg_web/app.py"
-        pkill -f "translate_epub.py"
-        pkill -f "run_conversion"
+        pkill -f "llama-serve[r]"
+        pkill -f "kbg_web/app[.]py"
+        pkill -f "translate_epub[.]py"
+        pkill -f "run_conversio[n]"
         log "Done. All services stopped."
         exit 0
     fi
@@ -115,7 +122,7 @@ except Exception as ex:
             log "No progress change. Stall count: $stall_count/$STALL_LIMIT"
             if [[ $stall_count -ge $STALL_LIMIT ]]; then
                 log "Progress stalled! Restarting..."
-                pkill -f "translate_epub.py" 2>/dev/null
+                pkill -f "translate_epub[.]py" 2>/dev/null
                 sleep 2
                 restart_conversion
                 stall_count=0

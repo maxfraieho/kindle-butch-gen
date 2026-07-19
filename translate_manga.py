@@ -1493,7 +1493,6 @@ def regenerate_single_page(args, glossary, detector, mocr):
         )
 
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
-        init_cast_registry(book_dir)
         id_mapping, _ = _persist_regenerated_page(book_dir, page_filename, final_img, cleaned_img, page_flags, new_bubbles)
 
         log(f"Regenerated page '{page_filename}': {len(new_bubbles)} bubble(s), {len(page_flags)} quality flag(s).")
@@ -1895,6 +1894,7 @@ def main():
                     shutil.copy2(page_path, os.path.join(temp_out, basename))
 
         book_dir = os.path.abspath(os.path.join(os.path.dirname(args.output), ".."))
+        init_cast_registry(book_dir)
         init_bubble_tone(book_dir)
 
         for idx, page_path in enumerate(pages_to_process):

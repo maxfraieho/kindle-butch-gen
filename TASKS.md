@@ -792,7 +792,7 @@ Recommended design constraint to keep this contained: add a **new, additive, pag
 
 ### Пастки (щоб не наступати повторно)
 - pkill -f "<ім'я скрипта>" вбиває ВЛАСНИЙ ssh-шелл → завжди bracket-regex: `pkill -f "app[.]py"`.
-- Flask рестарт на телефоні: kill і launch РІЗНИМИ ssh-сесіями, launch з setsid nohup + явні KBG_WEB_USER/KBG_WEB_PASSWORD (Q: vokov/[REDACTED - see support_config.json / private notes]).
+- Flask рестарт на телефоні: kill і launch РІЗНИМИ ssh-сесіями, launch з setsid nohup + явні KBG_WEB_USER/KBG_WEB_PASSWORD (значення — у приватному ~/.kbg_appwrite_key / config, НЕ тут — цей файл публічний).
 - Шаблони Flask кешуються - після зміни templates/ потрібен рестарт.
 - Термукс /tmp нередоступний для запису; heredoc з кирилицею через подвійний ssh ламається → Write локально + scp.
 - Vision (llama-mtmd-cli) на OnePlus 13: ТІЛЬКИ -t 4 і ТІЛЬКИ при зупиненому llama-server (RAM-guard в агенті це контролює).
