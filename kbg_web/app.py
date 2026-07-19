@@ -1298,6 +1298,42 @@ def characters_settings_api(slug):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return jsonify({"status": "success", "enable_cast_registry": enable})
 
+@app.route("/api/manga/<slug>/bubble-tone", methods=["GET"])
+def get_bubble_tone_api(slug):
+    """TASK-67: per-book enable_bubble_tone read. NOT premium-gated - the
+    geometric bubble classification itself always runs for every user
+    (free or paid) and lands in bubbles_meta; this flag only decides
+    whether those [КРИК]/[ДУМКА]/[НАРАЦІЯ] tags feed the translation
+    prompt, so it belongs in both tiers, not behind an entitlement."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    cfg_path = os.path.join(repo_dir, "books", slug, "config.json")
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "Book config not found"}), 404
+    return jsonify({"enable_bubble_tone": bool(cfg.get("enable_bubble_tone"))})
+
+@app.route("/api/manga/<slug>/bubble-tone", methods=["POST"])
+def set_bubble_tone_api(slug):
+    """TASK-67: per-book enable_bubble_tone toggle - see GET above for why
+    this is deliberately not entitlement-gated."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    data = request.get_json() or {}
+    enable = bool(data.get("enable_bubble_tone"))
+    cfg_path = os.path.join(repo_dir, "books", slug, "config.json")
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "Book config not found"}), 404
+    cfg["enable_bubble_tone"] = enable
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"status": "success", "enable_bubble_tone": enable})
+
 @app.route("/api/characters/<slug>/scan", methods=["POST"])
 def characters_scan_api(slug):
     """Launch the NER auto-draft pre-pass (TASK-54) detached; drafts land

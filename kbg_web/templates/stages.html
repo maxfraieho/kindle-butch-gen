@@ -2411,13 +2411,32 @@
             const r = await fetch(`/api/characters/${slug}`);
             const d = await r.json();
             const chars = d.characters || [];
-            let head = '';
+
+            // TASK-67: bubble-tone toggle - deliberately NOT wrapped in the
+            // d.entitled check below. Classification of bubble shape
+            // (крик/думка/наратив) always runs for every book regardless of
+            // premium status; this only decides whether it's allowed to
+            // influence the translation prompt, so it's free for everyone.
+            const toneR = await fetch(`/api/manga/${slug}/bubble-tone`);
+            const toneD = await toneR.json();
+            let toneHead = `<div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem 1rem; margin-bottom:1rem;">
+                <label style="display:flex; align-items:center; gap:0.4rem;">
+                    <input type="checkbox" id="bubble-tone-enable" ${toneD.enable_bubble_tone ? 'checked' : ''}>
+                    Враховувати тип бульбашки (крик / думка / наратив) у перекладі
+                </label>
+                <p style="color:var(--text-secondary); font-size:0.85rem; margin:0.4rem 0 0;">
+                    Форма бульбашки автоматично визначається для кожного тексту (безкоштовно,
+                    для всіх книг). Тут — чи повинен переклад враховувати цей тип: гучніше й
+                    експресивніше для крику, м'якше для думок, книжковий стиль для наративу.</p>
+            </div>`;
+
+            let head = toneHead;
             if (!d.entitled) {
-                head = `<div style="border:1px solid #f0b429; border-radius:10px; padding:0.8rem 1rem; margin-bottom:1rem;">
+                head += `<div style="border:1px solid #f0b429; border-radius:10px; padding:0.8rem 1rem; margin-bottom:1rem;">
                     🔒 <b>Cast Registry — преміум-функція.</b> Активуйте через
                     <a href="https://t.me/GetVydraBot" target="_blank">@GetVydraBot</a> (/premium).</div>`;
             } else {
-                head = `<div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem;">
+                head += `<div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem;">
                     <label style="display:flex; align-items:center; gap:0.4rem;">
                         <input type="checkbox" id="cast-enable" ${d.enabled ? 'checked' : ''}>
                         Застосовувати правила персонажів у перекладі цієї книги
@@ -2485,6 +2504,13 @@
                     headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({enable_cast_registry: en.checked})});
                 if (!res.ok) { const j = await res.json(); alert(j.message); en.checked = !en.checked; }
+            });
+            const tone = document.getElementById('bubble-tone-enable');
+            if (tone) tone.addEventListener('change', async () => {
+                const res = await fetch(`/api/manga/${slug}/bubble-tone`, {method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({enable_bubble_tone: tone.checked})});
+                if (!res.ok) { const j = await res.json(); alert(j.message); tone.checked = !tone.checked; }
             });
             const sc = document.getElementById('cast-scan');
             if (sc) sc.addEventListener('click', async () => {
