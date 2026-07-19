@@ -264,7 +264,7 @@ def main(context):
             _tg_send(token, chat_id,
                      "Ви вже зареєстровані ✅\n"
                      f"Ваш реферальний код: <code>{user['referral_code']}</code>\n"
-                     f"Ваш Telegram ID (для прив'язки телефону в застосунку): <code>{tg_id}</code>\n"
+                     f"Ваш Telegram ID (для прив'язки пристрою в застосунку): <code>{tg_id}</code>\n"
                      "Оберіть дію кнопками нижче 👇",
                      keyboard=_main_keyboard())
             return res.json({"ok": True})
@@ -301,7 +301,7 @@ def main(context):
                  "НІКОЛИ не потрапляють на наші сервери. Політика приватності: "
                  "/privacy. Видалити свої дані будь-коли: /delete_my_data.\n\n"
                  f"Ваш реферальний код: <code>{code}</code>{bonus}\n\n"
-                 f"Ваш Telegram ID (для прив'язки телефону в застосунку): <code>{tg_id}</code>\n\n"
+                 f"Ваш Telegram ID (для прив'язки пристрою в застосунку): <code>{tg_id}</code>\n\n"
                  "Оберіть дію кнопками нижче 👇",
                  keyboard=_main_keyboard())
         return res.json({"ok": True})
@@ -328,10 +328,24 @@ def main(context):
             _tg_send(token, chat_id, "У нас немає ваших даних. Нічого видаляти ✅")
             return res.json({"ok": True})
         try:
+            # TASK-74 (code review, orphaned-records finding): the users
+            # document alone isn't the whole footprint since TASK-72 -
+            # every linked device has its own device_sessions row
+            # (telegram_id, progress, heartbeat history). Deleting only
+            # the profile left these behind indefinitely - a real GDPR
+            # gap for a command whose entire point is "delete everything".
+            sessions = db.list_documents(DB_ID, DEVICE_COLL_ID,
+                                         queries=[Query.equal("telegram_id", str(tg_id))])
+            for s in sessions.get("documents", []):
+                try:
+                    db.delete_document(DB_ID, DEVICE_COLL_ID, s["$id"])
+                except Exception:
+                    pass  # best-effort - the user document delete below is the one that must not silently fail
             db.delete_document(DB_ID, COLL_ID, user["$id"])
             _tg_send(token, chat_id,
                      "✅ Ваш запис повністю видалено з наших серверів "
-                     "(ID, реферальний код, статуси). Дякуємо, що були з нами.\n"
+                     "(ID, реферальний код, статуси, дані всіх привʼязаних пристроїв). "
+                     "Дякуємо, що були з нами.\n"
                      "Застосунок на вашому пристрої продовжує працювати локально.")
         except Exception as e:
             _tg_send(token, chat_id, f"Не вдалося видалити зараз: {e}. Напишіть /start і спробуйте ще раз.")

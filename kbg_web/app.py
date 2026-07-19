@@ -230,22 +230,54 @@ def _clear_active_conversion_state(slug=None):
     except Exception as e:
         print(f"[AutoResume] Warning: failed to clear active-conversion state: {e}")
 
-def is_book_process_running(slug):
-    # Scan /proc for running python processes that match this book slug
-    import os
+_CONVERSION_SCRIPTS = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py")
+
+
+def _find_book_process_pids(slug):
+    """PIDs of running conversion processes for THIS book. Bare `slug in
+    cmdline` (the substring check this replaced) false-matched any slug
+    that happened to be a substring of an unrelated running book's own
+    path/args - e.g. slug "home" or "manga" would match every conversion
+    process, since those words appear in every cmdline via the fixed
+    "/kindle-butch-gen/translate_manga.py" script path alone. The two
+    callers of this (status display AND force-kill) both need the exact
+    match - a false positive on the kill path could SIGKILL an unrelated
+    book's live conversion.
+
+    Every real invocation embeds the slug either as an exact `--book`
+    argument (translate_epub.py, run_conversion_batches.py) or as a
+    `/books/<slug>/` path segment / `<slug>_translated_...` filename
+    (translate_manga.py, which has no --book flag). Deliberately anchored
+    to "/books/<slug>" specifically, NOT a bare `/<slug>/` anywhere in
+    cmdline - every real invocation's own fixed path
+    (.../files/home/kindle-butch-gen/...) contains a genuine "/home/"
+    segment, which would itself false-match any slug literally named
+    "home" under a naive any-`/`-boundary rule (caught by a real test,
+    not guessed)."""
+    slug_re = re.escape(slug)
+    pattern = re.compile(
+        r'\x00--book\x00' + slug_re + r'(?:\x00|$)'
+        r'|/books/' + slug_re + r'(?:/|\x00|_|\.|$)'
+    )
+    pids = []
     try:
         for pid_str in os.listdir("/proc"):
             if pid_str.isdigit():
                 try:
                     with open(f"/proc/{pid_str}/cmdline", "r") as f:
                         cmdline = f.read()
-                    if slug in cmdline and ("translate_epub.py" in cmdline or "translate_manga.py" in cmdline or "run_conversion_batches.py" in cmdline):
-                        return True
+                    if (any(s in cmdline for s in _CONVERSION_SCRIPTS)
+                            and pattern.search(cmdline)):
+                        pids.append(int(pid_str))
                 except Exception:
                     pass
     except Exception:
         pass
-    return False
+    return pids
+
+
+def is_book_process_running(slug):
+    return bool(_find_book_process_pids(slug))
 
 def handle_process_completion(slug, proc):
     # Flask observed this process end (success OR failure) while it was
@@ -698,16 +730,14 @@ def run_conversion_api(slug):
             if slug in active_processes:
                 active_processes[slug].kill()
                 del active_processes[slug]
-            import signal
-            for pid_str in os.listdir("/proc"):
-                if pid_str.isdigit():
-                    try:
-                        with open(f"/proc/{pid_str}/cmdline", "r") as _f:
-                            cmdline = _f.read()
-                        if slug in cmdline and ("translate_epub.py" in cmdline or "translate_manga.py" in cmdline or "run_conversion_batches.py" in cmdline):
-                            os.kill(int(pid_str), signal.SIGKILL)
-                    except Exception:
-                        pass
+            # Boundary-checked match (_find_book_process_pids) - a bare
+            # substring here would SIGKILL an unrelated book's live
+            # conversion if its cmdline happened to contain this slug.
+            for pid in _find_book_process_pids(slug):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except Exception:
+                    pass
         except Exception:
             pass
         import time as _time
@@ -1085,9 +1115,8 @@ def update_tts_settings(slug):
         config["tts_noise_w"] = tts_noise_w
         
         # Write back
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-            
+        _atomic_write_json(config_path, config, ensure_ascii=False, indent=2)
+
         return jsonify({"status": "success", "message": "TTS settings saved successfully"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -1187,11 +1216,25 @@ def load_global_settings():
             pass
     return {"output_root": "/storage/emulated/0/Documents/kindle-butch-gen/library"}
 
+def _atomic_write_json(path, data, **dump_kwargs):
+    """write(tmp) + fsync + os.replace() - a plain open(path, "w") first
+    truncates the file, so a Termux kill mid-write (common on Android,
+    low memory) leaves it empty/corrupt rather than just stale. TASK-74
+    (code review): this exact pattern already existed ad-hoc in
+    common/device_identity.py and change_password_api - centralized here
+    instead of copy-pasting a fourth time."""
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, **dump_kwargs)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
+
+
 def save_global_settings(settings):
     path = os.path.join(repo_dir, "global_settings.json")
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2)
+        _atomic_write_json(path, settings, indent=2)
     except Exception as e:
         print(f"Failed to save global settings: {e}")
 
@@ -1428,8 +1471,7 @@ def set_book_settings_api(slug):
     if "manga_resolution" in data:
         cfg["manga_resolution"] = str(data["manga_resolution"])
 
-    with open(cfg_path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(cfg_path, cfg, ensure_ascii=False, indent=2)
     return jsonify({"status": "success"})
 
 @app.route("/api/characters/<slug>/scan", methods=["POST"])
@@ -1694,9 +1736,18 @@ def change_password_api():
     this was hand-editing ~/.bashrc, exactly the friction a non-specialist
     user can't clear alone (real incident: Q forgot the printed password
     within the same session). Updates the running process's auth
-    immediately (no restart needed) AND persists via KBG_WEB_PASSWORD in
-    ~/.bashrc for future restarts - the same mechanism deploy.sh itself
-    uses, kept as the single source of truth."""
+    immediately (no restart needed) AND persists TWO ways for future
+    restarts: KBG_WEB_PASSWORD in ~/.bashrc (deploy.sh's own mechanism -
+    kept as-is since "reopen the Termux app" sources it fine), AND
+    web_credentials.json directly (TASK-74: found by code review that
+    ~/.termux/boot/start-services.sh - the REAL device-reboot autostart
+    path, distinct from "user reopens Termux" - execs bash directly with
+    its own shebang and never sources ~/.bashrc, so KBG_WEB_PASSWORD is
+    never set on a genuine reboot; startup then silently fell back to
+    whatever was in web_credentials.json, which this endpoint never
+    updated - a real, previously-undetected lockout-after-reboot bug).
+    Writing both paths makes password persistence not depend on which
+    autostart trigger actually fires."""
     data = request.get_json() or {}
     new_password = (data.get("new_password") or "").strip()
     if len(new_password) < 6:
@@ -1706,6 +1757,19 @@ def change_password_api():
 
     username = next(iter(users_data), env_username)
     users_data[username] = generate_password_hash(new_password)
+
+    # web_credentials.json is the fallback startup source when
+    # KBG_WEB_PASSWORD isn't set (see the reboot-path bug explained
+    # above) - atomic write so a Termux kill mid-write can't corrupt it
+    # into a second way to get locked out.
+    try:
+        _atomic_write_json(credentials_file, users_data)
+    except OSError as e:
+        return jsonify({
+            "status": "partial",
+            "message": f"Пароль змінено для поточного сеансу, але не вдалося зберегти "
+                       f"назавжди ({e}) - після перезапуску діятиме старий.",
+        }), 200
 
     bashrc_path = os.path.expanduser("~/.bashrc")
     new_line = f"export KBG_WEB_PASSWORD='{new_password}'\n"
@@ -1736,10 +1800,15 @@ def change_password_api():
         with open(bashrc_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
     except OSError as e:
+        # web_credentials.json already has the new password at this point
+        # (see above) - a genuine reboot will still pick it up correctly.
+        # Only "reopen Termux app" (which relies on .bashrc) is at risk.
         return jsonify({
             "status": "partial",
-            "message": f"Пароль змінено для поточного сеансу, але не вдалося зберегти "
-                       f"назавжди ({e}) - після перезапуску діятиме старий.",
+            "message": f"Пароль змінено та збережено на випадок перезавантаження, "
+                       f"але не вдалося оновити ~/.bashrc ({e}) - при простому "
+                       f"повторному відкритті Termux (без перезавантаження) може "
+                       f"знадобитись новий пароль ще раз.",
         }), 200
 
     return jsonify({"status": "success",
@@ -1845,8 +1914,7 @@ def support_link_telegram():
     except (FileNotFoundError, json.JSONDecodeError):
         cfg = {}
     cfg.setdefault("appwrite", {})["telegram_id"] = tg_id
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(CONFIG_PATH, cfg, ensure_ascii=False, indent=2)
     return jsonify({"status": "success", "telegram_id": tg_id})
 
 @app.route("/api/update", methods=["POST"])
