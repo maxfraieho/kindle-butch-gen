@@ -1500,10 +1500,20 @@ def characters_scan_api(slug):
         return jsonify({"status": "error", "model_missing": True,
                         "message": "Модель аналізу (~3.3GB) ще не завантажена. "
                                    "Завантаження стартує з деплой-флоу розширених можливостей."}), 409
+    data = request.get_json(silent=True) or {}
+    page_start = data.get("page_start")
+    page_end = data.get("page_end")
     log_path = os.path.join(book_dir, "edits", "ner_scan.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     cmd = ["python3", os.path.join(repo_dir, "bin", "cast_ner_prepass.py"),
            "--book-dir", book_dir]
+    try:
+        if page_start is not None:
+            cmd.extend(["--page-start", str(int(page_start))])
+        if page_end is not None:
+            cmd.extend(["--page-end", str(int(page_end))])
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "Неправильний формат сторінок"}), 400
     with open(log_path, "w") as lf:
         subprocess.Popen(
             cmd, stdout=lf, stderr=subprocess.STDOUT,
@@ -1979,11 +1989,20 @@ def agent_editor_scan_api(slug):
                         "message": "Vision-модель ще не завантажена."}), 409
     data = request.get_json() or {}
     limit = min(int(data.get("limit", 5) or 5), 20)
+    page_start = data.get("page_start")
+    page_end = data.get("page_end")
     log_path = os.path.join(book_dir, "edits", "agent_editor.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     env = dict(os.environ)
     cmd = ["python3", os.path.join(repo_dir, "bin", "agent_editor.py"),
            "--book", slug, "--limit", str(limit)]
+    try:
+        if page_start is not None:
+            cmd.extend(["--page-start", str(int(page_start))])
+        if page_end is not None:
+            cmd.extend(["--page-end", str(int(page_end))])
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "Неправильний формат сторінок"}), 400
     with open(log_path, "w") as lf:
         subprocess.Popen(
             cmd, stdout=lf, stderr=subprocess.STDOUT,

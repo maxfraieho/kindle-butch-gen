@@ -336,6 +336,8 @@ def main():
     ap.add_argument("--model", default=MODEL_DEFAULT)
     ap.add_argument("--mmproj", default=MMPROJ_DEFAULT)
     ap.add_argument("--api", default="http://127.0.0.1:5000")
+    ap.add_argument("--page-start", type=int, default=None)
+    ap.add_argument("--page-end", type=int, default=None)
     args = ap.parse_args()
 
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -394,6 +396,38 @@ def main():
         log(f"cannot read quality_flags.json: {e}")
         return 1
     cases = [f for f in flags if f.get("reason") in FLAG_REASONS]
+    
+    if args.page_start is not None or args.page_end is not None:
+        import glob
+        from natsort import natsorted
+        # natsorted, not plain sorted() - must match preview_manga()'s
+        # source_pages ordering (kbg_web/app.py) and cast_ner_prepass.py's
+        # own page_start/page_end indexing, or the viewer's "run on this
+        # page" button could silently target the wrong physical page on
+        # any book with non-zero-padded page filenames.
+        meta = natsorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
+        page_stems = [os.path.splitext(os.path.basename(p))[0] for p in meta]
+        
+        def get_page_number(page_name, page_stems):
+            stem = os.path.splitext(page_name)[0]
+            if stem in page_stems:
+                return page_stems.index(stem) + 1
+            m = re.search(r'\d+', stem)
+            if m:
+                return int(m.group(0))
+            return 1
+            
+        filtered = []
+        for c in cases:
+            pg = c.get("page", "")
+            pg_num = get_page_number(pg, page_stems)
+            if args.page_start is not None and pg_num < args.page_start:
+                continue
+            if args.page_end is not None and pg_num > args.page_end:
+                continue
+            filtered.append(c)
+        cases = filtered
+
     log(f"{len(cases)} flagged case(s); limit {args.limit}")
 
     existing = {e["target_id"] for e in edit_store.list_edits(args.book)
