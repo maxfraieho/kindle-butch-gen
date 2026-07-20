@@ -21,6 +21,8 @@ import subprocess
 import sys
 import time
 
+from natsort import natsorted
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common.cast_registry import load_characters, save_characters, VALID_GENDERS
 from common.heartbeat import send_heartbeat
@@ -73,7 +75,17 @@ def save_progress(book_dir, stage, percent, log_tail=None, error=None, done=Fals
 
 
 def collect_text(book_dir, pages, page_start=None, page_end=None):
-    meta = sorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
+    # natsorted, NOT plain sorted() - TASK-80's page_start/page_end (and
+    # the viewer's "run on this page" button) assume this list's order
+    # matches preview_manga()'s source_pages list (kbg_web/app.py), which
+    # is natsorted. Filenames here happen to be zero-padded on every book
+    # tested so far (both sorts agree), but a book with e.g. "page1.png"
+    # .. "page10.png" would silently diverge under plain sorted() -
+    # "page1" would target a different physical page than the viewer's
+    # page 1. Found during TASK-80 review, not exercised by any real
+    # book yet, but the whole point of a page-range feature is targeting
+    # the RIGHT page.
+    meta = natsorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
     page_pairs = []
     if meta:
         chunks = []

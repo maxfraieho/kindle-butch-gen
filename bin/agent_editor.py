@@ -399,7 +399,13 @@ def main():
     
     if args.page_start is not None or args.page_end is not None:
         import glob
-        meta = sorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
+        from natsort import natsorted
+        # natsorted, not plain sorted() - must match preview_manga()'s
+        # source_pages ordering (kbg_web/app.py) and cast_ner_prepass.py's
+        # own page_start/page_end indexing, or the viewer's "run on this
+        # page" button could silently target the wrong physical page on
+        # any book with non-zero-padded page filenames.
+        meta = natsorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
         page_stems = [os.path.splitext(os.path.basename(p))[0] for p in meta]
         
         def get_page_number(page_name, page_stems):
