@@ -374,7 +374,7 @@ def list_books():
             # Calculate progress
             prog = calculate_progress(entry)
             if "error" in prog:
-                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
+                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0, "overall_percent": 0.0}
                 
             # Scan output files
             output_dir = os.path.join(entry_path, "output")
@@ -384,6 +384,12 @@ def list_books():
                     if f.endswith((".epub", ".azw3", ".mp3", ".md", ".cbz", ".cbr", ".cb7", ".zip")):
                         output_files.append(f)
                         
+            from common.support_profile import is_entitled
+            try:
+                entitled = is_entitled("cast_registry")
+            except Exception:
+                entitled = False
+
             books.append({
                 "slug": entry,
                 "title": title,
@@ -400,7 +406,10 @@ def list_books():
                 "tts_noise_scale": float(cfg.get("tts_noise_scale", 0.667)),
                 "tts_noise_w": float(cfg.get("tts_noise_w", 0.8)),
                 "tts_engine": cfg.get("tts_engine", "supertonic3"),
-                "generate_audiobook": bool(cfg.get("generate_audiobook", True))
+                "generate_audiobook": bool(cfg.get("generate_audiobook", True)),
+                "enable_cast_registry": bool(cfg.get("enable_cast_registry", False)) and entitled,
+                "enable_agent_editor": bool(cfg.get("enable_agent_editor", False)) and entitled,
+                "enable_bubble_tone": bool(cfg.get("enable_bubble_tone", False))
             })
             
     return jsonify(books)
@@ -1015,6 +1024,7 @@ def status_api(slug):
         "translation_percent": prog["translation_percent"],
         "stress_percent": prog["stress_percent"],
         "tts_percent": prog["tts_percent"],
+        "overall_percent": prog.get("overall_percent", 0.0),
         "logs": log_lines
     })
 
