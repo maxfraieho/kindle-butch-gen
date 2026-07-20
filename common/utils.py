@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 import requests
 import time
@@ -288,12 +289,45 @@ def validate_translation_segment(original, translated):
         return False
     return True
 
+def _maybe_mqm_review(segment, result, api_url, source_lang, target_lang, book_dir):
+    """Best-effort MQM quality review, opt-in via config.json's
+    enable_mqm_review (default False - roughly doubles per-segment LLM
+    time, so it must never silently turn on for existing books/users).
+    Never raises, never mutates the translation - purely a side-channel
+    write to translation_quality_flags.json for later human review."""
+    if not book_dir or not result:
+        return
+    try:
+        import json as _json
+        cfg_path = os.path.join(book_dir, "config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            if not (_json.load(f) or {}).get("enable_mqm_review"):
+                return
+    except Exception:
+        return
+    try:
+        from common.mqm_review import review_and_record
+        segment_id = hashlib.sha256(segment.encode("utf-8")).hexdigest()[:16]
+        flags_path = os.path.join(book_dir, "translation_quality_flags.json")
+        review_and_record(
+            segment_id=segment_id,
+            original=segment,
+            translated=result,
+            api_url=api_url,
+            flags_path=flags_path,
+            source_lang=source_lang,
+            target_lang=target_lang,
+        )
+    except Exception as e:
+        print(f"[Translation] Warning: MQM review failed (non-blocking): {e}", flush=True)
+
+
 def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3, source_lang="ru", book_dir=None):
     temp = 0.7
     xml_segment = to_xml_format(segment)
     orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", segment))
     last_translated = None
-    
+
     # Try to load cast registry if book_dir is provided
     cast_rules = ""
     if book_dir:
@@ -307,44 +341,46 @@ def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_ret
                         print(f"[Translation] Injected cast registry rules for segment:\n{cast_rules}", flush=True)
         except Exception as e:
             print(f"[Translation] Warning: Failed to generate cast rules: {e}", flush=True)
-            
+
     for attempt in range(max_retries):
         if attempt > 0:
             temp = 0.1
             print(f"[Translation] Retrying segment (attempt {attempt+1}/{max_retries}) with temperature {temp}...", flush=True)
-            
+
         translated = translate_text(xml_segment, api_url, target_lang=target_lang, temperature=temp, source_lang=source_lang, cast_rules=cast_rules)
         if not translated:
             continue
-            
+
         translated = to_prefix_format(translated, pm)
         translated = pm.normalize_placeholders(translated)
-        
+
         last_translated = translated
-            
+
         if validate_translation_segment(segment, translated):
+            _maybe_mqm_review(segment, translated, api_url, source_lang, target_lang, book_dir)
             return translated
         else:
             print(f"[Translation] Segment validation failed on attempt {attempt+1}.", flush=True)
-            
+
     # If all attempts failed, rescue by adjusting missing/extra placeholders
     if last_translated:
         trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", last_translated))
         missing = orig_placeholders - trans_placeholders
         extra = trans_placeholders - orig_placeholders
-        
+
         rescued = last_translated
         if extra:
             print(f"[Translation] Stripping extra placeholders from translation: {extra}", flush=True)
             for ex in extra:
                 rescued = rescued.replace(ex, "")
-                
+
         if missing:
             print(f"[Translation] Appending missing placeholders to translation: {missing}", flush=True)
             rescued = rescued + " " + " ".join(sorted(list(missing)))
-            
+
         if validate_translation_segment(segment, rescued):
+            _maybe_mqm_review(segment, rescued, api_url, source_lang, target_lang, book_dir)
             return rescued
-            
+
     print("[Translation] Error: Segment validation failed after all retries. Translation failed.", flush=True)
     return None

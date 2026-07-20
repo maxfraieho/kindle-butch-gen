@@ -1455,6 +1455,7 @@ def get_book_settings_api(slug):
         "generate_audiobook": bool(cfg.get("generate_audiobook")),
         "keep_honorifics": bool(cfg.get("keep_honorifics")),
         "manga_resolution": cfg.get("manga_resolution", "1280x1920"),
+        "enable_mqm_review": bool(cfg.get("enable_mqm_review")),
         "entitled": entitled,
     })
 
@@ -1493,6 +1494,12 @@ def set_book_settings_api(slug):
         cfg["keep_honorifics"] = bool(data["keep_honorifics"])
     if "manga_resolution" in data:
         cfg["manga_resolution"] = str(data["manga_resolution"])
+    if "enable_mqm_review" in data:
+        # Free (like keep_honorifics/generate_audiobook) - not entitlement-
+        # gated per TASK-88's own Tier classification. Opt-in because it
+        # roughly doubles per-segment LLM time (an extra reviewer call for
+        # every translated paragraph) - must never silently turn on.
+        cfg["enable_mqm_review"] = bool(data["enable_mqm_review"])
 
     _atomic_write_json(cfg_path, cfg, ensure_ascii=False, indent=2)
     return jsonify({"status": "success"})

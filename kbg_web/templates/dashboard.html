@@ -2634,6 +2634,19 @@
                         -сан, -чан, -кун, залишати як у оригіналі.</span>
                     </label>
                 </div>`;
+            if (!s.is_manga) {
+                html += `
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-top:0.8rem;">
+                    <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                        <input type="checkbox" id="bs-mqm" ${s.enable_mqm_review ? 'checked' : ''}
+                               style="width:20px; height:20px; margin-top:0.1rem;">
+                        <span><b>🔍 Перевірка якості перекладу</b> — окрема модель-рецензент оцінює
+                        кожен перекладений абзац (1-10, шукає пропуски й смислові викривлення) і
+                        позначає сумнівні місця для перегляду. Приблизно вдвічі збільшує час
+                        перекладу.</span>
+                    </label>
+                </div>`;
+            }
             body.innerHTML = html;
 
             const save = async (field, value) => {
@@ -2650,6 +2663,8 @@
             if (resEl) resEl.addEventListener("change", () => save("manga_resolution", resEl.value));
             const honEl = document.getElementById("bs-honorifics");
             if (honEl) honEl.addEventListener("change", () => save("keep_honorifics", honEl.checked));
+            const mqmEl = document.getElementById("bs-mqm");
+            if (mqmEl) mqmEl.addEventListener("change", () => save("enable_mqm_review", mqmEl.checked));
         }
 
         function closeBookSettings() {
