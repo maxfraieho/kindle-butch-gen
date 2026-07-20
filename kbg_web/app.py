@@ -1508,6 +1508,12 @@ def characters_scan_api(slug):
         subprocess.Popen(
             cmd, stdout=lf, stderr=subprocess.STDOUT,
             cwd=repo_dir, start_new_session=True)
+    # Auto-resume-on-restart, same mechanism/reasoning as agent_editor.py's
+    # registration above - a Termux kill mid-scan previously left NER
+    # scanning silently un-resumed. cast_ner_prepass.py's own de-dup
+    # against existing name_source entries (see that file) makes a
+    # re-launch of the identical command safe to simply redo, not just
+    # resumable in principle. Clears its own state on completion.
     _write_active_conversion_state(slug, cmd, repo_dir, log_path)
     return jsonify({"status": "started",
                     "message": "Сканування персонажів запущено (кілька хвилин); "
@@ -1647,6 +1653,12 @@ def get_manga_page_image(book_dir, slug, page_stem):
 def character_thumbnail_api(slug, char_id):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    # char_id lands directly in a filesystem path below (thumbnails/<char_id>.jpg) -
+    # same defensive-validation convention as every other <slug>-shaped path
+    # param in this file, even though Flask's default converter already
+    # excludes "/" (so this is defense-in-depth, not a proven traversal today).
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", char_id):
+        return jsonify({"status": "error", "message": "Invalid character id"}), 400
     try:
         from common.support_profile import is_entitled
         if not is_entitled("cast_registry"):

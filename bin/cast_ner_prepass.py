@@ -1,8 +1,22 @@
+"""Cast Registry NER pre-pass (TASK-54): auto-draft characters from the
+book's opening slice using local Gemma 3 4B via llama-cli.
+
+Reads: manga -> original_text from bubbles_meta of the first N pages;
+text book -> first chunk of merged markdown. Writes auto_drafted entries
+into books/<slug>/edits/characters.json, never touching existing entries
+(esp. verified ones). Gender guesses come from the TEXT only and always
+require human verification before any rule is injected (QA-gate).
+
+TASK-76: run_llm() streams llama-cli's stdout (instead of blocking on
+subprocess.run) so a live progress %/log can be written to
+ner_scan_progress.json for the dashboard to poll.
+"""
 import argparse
 import glob
 import json
 import os
 import re
+import select
 import subprocess
 import sys
 import time
@@ -117,10 +131,23 @@ def run_llm(text, model, book_dir=None):
         )
 
         while True:
-            # Check timeout
-            if time.time() - start_time > 1800:
+            # Bound each read with select() against the OVERALL deadline -
+            # a bare blocking proc.stdout.read(64) would ignore the 1800s
+            # timeout entirely if the model stalls mid-generation (no new
+            # bytes = the check below never runs again). select() lets us
+            # re-check the deadline even while waiting for output.
+            remaining = 1800 - (time.time() - start_time)
+            if remaining <= 0:
                 proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
                 raise subprocess.TimeoutExpired(cmd, 1800)
+
+            ready, _, _ = select.select([proc.stdout], [], [], min(remaining, 2.0))
+            if not ready:
+                continue  # nothing yet - loop back to re-check the deadline
 
             chunk = proc.stdout.read(64)
             if not chunk:
