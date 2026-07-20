@@ -330,7 +330,7 @@ def main():
                         protected = pm.protect(inner_xml)
                         
                         # Translate
-                        translated_protected = translate_segment_with_retry(protected, pm, args.api_url, target_lang=args.target_lang)
+                        translated_protected = translate_segment_with_retry(protected, pm, args.api_url, target_lang=args.target_lang, source_lang=paths["source_lang"], book_dir=paths["book_dir"])
                         
                         if not translated_protected:
                             raise ValueError("Critical: Failed to translate block after all attempts.")

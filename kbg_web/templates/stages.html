@@ -1911,6 +1911,7 @@
                 <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
                     <button class="tab-btn active" id="tab-paragraphs" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📋 Paragraphs & Audio</button>
                     <button class="tab-btn" id="tab-page-viewer" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📖 Full Page Viewer</button>
+                    <button class="tab-btn" id="tab-cast" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">🧬 Cast & Context</button>
                 </div>
                 <div id="tab-content-area"></div>
             `;
@@ -1918,12 +1919,15 @@
             const tabContent = document.getElementById("tab-content-area");
             const btnParagraphs = document.getElementById("tab-paragraphs");
             const btnPageViewer = document.getElementById("tab-page-viewer");
+            const btnCast = document.getElementById("tab-cast");
 
             btnParagraphs.addEventListener("click", () => {
                 btnParagraphs.style.color = "var(--primary)";
                 btnParagraphs.style.borderBottomColor = "var(--primary)";
                 btnPageViewer.style.color = "var(--text-secondary)";
                 btnPageViewer.style.borderBottomColor = "transparent";
+                btnCast.style.color = "var(--text-secondary)";
+                btnCast.style.borderBottomColor = "transparent";
                 showParagraphsTab();
             });
 
@@ -1932,7 +1936,19 @@
                 btnPageViewer.style.borderBottomColor = "var(--primary)";
                 btnParagraphs.style.color = "var(--text-secondary)";
                 btnParagraphs.style.borderBottomColor = "transparent";
+                btnCast.style.color = "var(--text-secondary)";
+                btnCast.style.borderBottomColor = "transparent";
                 showPageViewerTab();
+            });
+
+            btnCast.addEventListener("click", () => {
+                btnCast.style.color = "var(--primary)";
+                btnCast.style.borderBottomColor = "var(--primary)";
+                btnParagraphs.style.color = "var(--text-secondary)";
+                btnParagraphs.style.borderBottomColor = "transparent";
+                btnPageViewer.style.color = "var(--text-secondary)";
+                btnPageViewer.style.borderBottomColor = "transparent";
+                renderCastTab(tabContent);
             });
 
             function showParagraphsTab() {
@@ -2565,18 +2581,25 @@
             // (крик/думка/наратив) always runs for every book regardless of
             // premium status; this only decides whether it's allowed to
             // influence the translation prompt, so it's free for everyone.
-            const toneR = await fetch(`/api/manga/${slug}/bubble-tone`);
-            const toneD = await toneR.json();
-            let toneHead = `<div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem 1rem; margin-bottom:1rem;">
-                <label style="display:flex; align-items:center; gap:0.4rem;">
-                    <input type="checkbox" id="bubble-tone-enable" ${toneD.enable_bubble_tone ? 'checked' : ''}>
-                    Враховувати тип бульбашки (крик / думка / наратив) у перекладі
-                </label>
-                <p style="color:var(--text-secondary); font-size:0.85rem; margin:0.4rem 0 0;">
-                    Форма бульбашки автоматично визначається для кожного тексту (безкоштовно,
-                    для всіх книг). Тут — чи повинен переклад враховувати цей тип: гучніше й
-                    експресивніше для крику, м'якше для думок, книжковий стиль для наративу.</p>
-            </div>`;
+            let toneHead = "";
+            if (isManga) {
+                try {
+                    const toneR = await fetch(`/api/manga/${slug}/bubble-tone`);
+                    const toneD = await toneR.json();
+                    toneHead = `<div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem 1rem; margin-bottom:1rem;">
+                        <label style="display:flex; align-items:center; gap:0.4rem;">
+                            <input type="checkbox" id="bubble-tone-enable" ${toneD.enable_bubble_tone ? 'checked' : ''}>
+                            Враховувати тип бульбашки (крик / думка / наратив) у перекладі
+                        </label>
+                        <p style="color:var(--text-secondary); font-size:0.85rem; margin:0.4rem 0 0;">
+                            Форма бульбашки автоматично визначається для кожного тексту (безкоштовно,
+                            для всіх книг). Тут — чи повинен переклад враховувати цей тип: гучніше й
+                            експресивніше для крику, м'якше для думок, книжковий стиль для наративу.</p>
+                    </div>`;
+                } catch (e) {
+                    console.error("Failed to load bubble tone:", e);
+                }
+            }
 
             let head = toneHead;
             if (!d.entitled) {
