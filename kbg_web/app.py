@@ -340,7 +340,21 @@ def list_books():
     books_dir = os.path.join(repo_dir, "books")
     if not os.path.exists(books_dir):
         return jsonify([])
-        
+
+    # TASK-82 review fix: is_entitled() does a real network round-trip to
+    # Appwrite (common/support_profile.py:_fetch_entitlements_remote) -
+    # the original patch called it once PER BOOK inside the loop below,
+    # so a library of N books meant N sequential HTTPS calls before this
+    # (frequently-polled, dashboard-critical) endpoint could even return.
+    # Call it once, same result reused for every book - matches this
+    # project's own standing architecture rule that core UI must never
+    # block on cloud reachability.
+    from common.support_profile import is_entitled
+    try:
+        entitled = is_entitled("cast_registry")
+    except Exception:
+        entitled = False
+
     books = []
     for entry in os.listdir(books_dir):
         entry_path = os.path.join(books_dir, entry)
@@ -383,12 +397,6 @@ def list_books():
                 for f in os.listdir(output_dir):
                     if f.endswith((".epub", ".azw3", ".mp3", ".md", ".cbz", ".cbr", ".cb7", ".zip")):
                         output_files.append(f)
-                        
-            from common.support_profile import is_entitled
-            try:
-                entitled = is_entitled("cast_registry")
-            except Exception:
-                entitled = False
 
             books.append({
                 "slug": entry,
