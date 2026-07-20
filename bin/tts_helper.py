@@ -303,6 +303,9 @@ def run_styletts2(payload):
     output_dir = payload.get("output_dir")
     chunks = payload.get("chunks", [])
     speed = float(payload.get("speed", 1.0))
+    voice_quality = payload.get("voice_quality", "x_low")
+    noise_w = float(payload.get("noise_w", 0.8))
+    noise_scale = float(payload.get("noise_scale", 0.667))
 
     if not output_dir:
         print("[TTSHelper] Error: output_dir is required for StyleTTS2", file=sys.stderr)
@@ -443,11 +446,70 @@ def run_styletts2(payload):
                 print(f"[TTSHelper] [{i+1}/{total}] Synthesizing chunk {chunk_hash} ({len(sub_texts)} parts)...", flush=True)
 
             try:
-                inputs = {
-                    'tokens': tokens,
-                    'speed': np.array(speed, dtype=np.float32),
-                    's_prev': s_prev
+                # Map tts_voice_quality to diffusion_steps
+                quality_map = {
+                    "x_low": 5,
+                    "low": 10,
+                    "medium": 15,
+                    "high": 20
                 }
+                diffusion_steps = quality_map.get(voice_quality.lower(), 10)
+
+                # Map noise_w to t (0.6 - 1.0)
+                clamped_noise_w = max(0.1, min(1.5, noise_w))
+                t_val = 0.6 + (clamped_noise_w - 0.1) * (0.4 / 1.4)
+                t_val = float(max(0.6, min(1.0, t_val)))
+
+                # Map noise_w to embedding_scale (0.5 - 3.0)
+                embedding_scale_val = float(max(0.1, min(3.0, noise_w)))
+
+                # Map noise_scale to alpha/beta (0.0 to 1.0)
+                clamped_noise_scale = max(0.1, min(1.5, noise_scale))
+                alpha_val = 0.3 * (clamped_noise_scale / 0.667)
+                alpha_val = float(max(0.0, min(1.0, alpha_val)))
+                beta_val = 0.7 * (clamped_noise_scale / 0.667)
+                beta_val = float(max(0.0, min(1.0, beta_val)))
+
+                # Dynamically construct ONNX inputs
+                session_inputs = [inp.name for inp in sess.get_inputs()]
+                inputs = {}
+                
+                # Check for tokens
+                if 'tokens' in session_inputs:
+                    inputs['tokens'] = tokens
+                elif 'input_ids' in session_inputs:
+                    inputs['input_ids'] = tokens
+                    
+                # Check for speed
+                if 'speed' in session_inputs:
+                    inputs['speed'] = np.array(speed, dtype=np.float32)
+                    
+                # Check for s_prev/style
+                if 's_prev' in session_inputs:
+                    inputs['s_prev'] = s_prev
+                elif 'style' in session_inputs:
+                    inputs['style'] = s_prev
+                    
+                # Check for other style diffusion params
+                if 'diffusion_steps' in session_inputs:
+                    inputs['diffusion_steps'] = np.array(diffusion_steps, dtype=np.int64)
+                if 't' in session_inputs:
+                    inputs['t'] = np.array(t_val, dtype=np.float32)
+                if 'embedding_scale' in session_inputs:
+                    inputs['embedding_scale'] = np.array(embedding_scale_val, dtype=np.float32)
+                if 'alpha' in session_inputs:
+                    inputs['alpha'] = np.array(alpha_val, dtype=np.float32)
+                if 'beta' in session_inputs:
+                    inputs['beta'] = np.array(beta_val, dtype=np.float32)
+
+                # Fallback to standard input signature if dynamically found inputs list is empty or doesn't match standard
+                if not inputs:
+                    inputs = {
+                        'tokens': tokens,
+                        'speed': np.array(speed, dtype=np.float32),
+                        's_prev': s_prev
+                    }
+
                 outputs = sess.run(None, inputs)
                 sub_audio = outputs[0]
                 

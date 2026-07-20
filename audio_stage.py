@@ -443,12 +443,14 @@ def main():
                 "chunks": unique_missing_chunks,
                 "speaker_id": speaker_id,
                 "speed": speed,
-                "noise_scale": noise_scale,
-                "noise_w": noise_w,
                 "lang": target_lang,
                 "audio_priority_path": os.path.abspath(audio_priority_path),
                 "slug": slug
             }
+            if tts_engine == "styletts2":
+                payload["voice_quality"] = voice_quality
+                payload["noise_scale"] = noise_scale
+                payload["noise_w"] = noise_w
             payload_json = json.dumps(payload, ensure_ascii=False)
 
             helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"

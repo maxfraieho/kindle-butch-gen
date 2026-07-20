@@ -1171,6 +1171,7 @@ def tts_preview(slug):
         speed = float(data.get("tts_speed", config.get("tts_speed", 1.0)))
         noise_scale = float(data.get("tts_noise_scale", config.get("tts_noise_scale", 0.667)))
         noise_w = float(data.get("tts_noise_w", config.get("tts_noise_w", 0.8)))
+        voice_quality = str(data.get("tts_voice_quality", config.get("tts_voice_quality", "x_low"))).strip()
         
         # Prepare target path
         preview_wav_path = os.path.join(paths["cache_dir"], "preview.wav")
@@ -1207,6 +1208,10 @@ def tts_preview(slug):
                 "speed": speed,
                 "lang": target_lang
             }
+            if tts_engine == "styletts2":
+                payload["voice_quality"] = voice_quality
+                payload["noise_scale"] = noise_scale
+                payload["noise_w"] = noise_w
             helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
             cmd = [
                 sys.executable, helper_path
@@ -2849,18 +2854,21 @@ def edit_regenerate_audio(slug, chunk_hash):
             "message": "Generation is currently in progress for this book - your edit is saved and will be synthesized automatically."
         })
 
+    tts_engine = paths.get("tts_engine", "supertonic3")
     payload = {
-        "tts_engine": paths.get("tts_engine", "supertonic3"),
+        "tts_engine": tts_engine,
         "model_path": model_path,
         "output_dir": os.path.abspath(chunks_dir),
         "cache_path": os.path.abspath(cache_path),
         "chunks": [{"hash": new_hash, "text": tts_text}],
         "speaker_id": paths.get("tts_speaker_id", 2),
         "speed": paths.get("tts_speed", 1.0),
-        "noise_scale": paths.get("tts_noise_scale", 0.667),
-        "noise_w": paths.get("tts_noise_w", 0.8),
         "lang": paths.get("target_lang", "uk")
     }
+    if tts_engine == "styletts2":
+        payload["voice_quality"] = paths.get("tts_voice_quality", "x_low")
+        payload["noise_scale"] = paths.get("tts_noise_scale", 0.667)
+        payload["noise_w"] = paths.get("tts_noise_w", 0.8)
     helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
     res = subprocess.run([sys.executable, helper_path], input=json.dumps(payload, ensure_ascii=False),
                           capture_output=True, text=True)

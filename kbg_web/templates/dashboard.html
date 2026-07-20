@@ -1472,6 +1472,60 @@
                     `<option value="${i}">Speaker [${i}]</option>`
                 ).join('');
             }
+
+            const noiseScaleInput = document.getElementById(`noise-scale-${slug}`);
+            const noiseWInput = document.getElementById(`noise-w-${slug}`);
+            const qualitySelect = document.getElementById(`quality-${slug}`);
+            
+            const noiseScaleGroup = noiseScaleInput ? noiseScaleInput.closest('.slider-group') : null;
+            const noiseWGroup = noiseWInput ? noiseWInput.closest('.slider-group') : null;
+            const qualityGroup = document.getElementById(`quality-group-${slug}`);
+            
+            if (engineValue === 'supertonic3') {
+                if (noiseScaleInput) {
+                    noiseScaleInput.disabled = true;
+                    if (noiseScaleGroup) {
+                        noiseScaleGroup.style.opacity = '0.5';
+                        noiseScaleGroup.style.pointerEvents = 'none';
+                    }
+                }
+                if (noiseWInput) {
+                    noiseWInput.disabled = true;
+                    if (noiseWGroup) {
+                        noiseWGroup.style.opacity = '0.5';
+                        noiseWGroup.style.pointerEvents = 'none';
+                    }
+                }
+                if (qualitySelect) {
+                    qualitySelect.disabled = true;
+                    if (qualityGroup) {
+                        qualityGroup.style.opacity = '0.5';
+                        qualityGroup.style.pointerEvents = 'none';
+                    }
+                }
+            } else {
+                if (noiseScaleInput) {
+                    noiseScaleInput.disabled = false;
+                    if (noiseScaleGroup) {
+                        noiseScaleGroup.style.opacity = '1';
+                        noiseScaleGroup.style.pointerEvents = 'auto';
+                    }
+                }
+                if (noiseWInput) {
+                    noiseWInput.disabled = false;
+                    if (noiseWGroup) {
+                        noiseWGroup.style.opacity = '1';
+                        noiseWGroup.style.pointerEvents = 'auto';
+                    }
+                }
+                if (qualitySelect) {
+                    qualitySelect.disabled = false;
+                    if (qualityGroup) {
+                        qualityGroup.style.opacity = '1';
+                        qualityGroup.style.pointerEvents = 'auto';
+                    }
+                }
+            }
         }
 
         let isFirstLoad = true;
@@ -1694,6 +1748,7 @@
                         
                         const detailsEl = document.getElementById(`details-${slug}`);
                         const engineEl = document.getElementById(`engine-${slug}`);
+                        const qualityEl = document.getElementById(`quality-${slug}`);
                         const speakerEl = document.getElementById(`speaker-${slug}`);
                         const speedEl = document.getElementById(`speed-${slug}`);
                         const noiseEl = document.getElementById(`noise-scale-${slug}`);
@@ -1716,6 +1771,7 @@
 
                         formValues[slug] = {
                             engine: engineEl ? engineEl.value : null,
+                            quality: qualityEl ? qualityEl.value : null,
                             speaker: speakerEl ? speakerEl.value : null,
                             speed: speedEl ? speedEl.value : null,
                             noise_scale: noiseEl ? noiseEl.value : null,
@@ -1965,6 +2021,15 @@
                                             ${speakerOptions}
                                         </select>
                                     </div>
+                                    <div class="form-group" style="margin-bottom:0;" id="quality-group-${book.slug}" ${book.tts_engine === 'supertonic3' ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
+                                        <label for="quality-${book.slug}">Voice Quality</label>
+                                        <select id="quality-${book.slug}" class="form-control" style="padding: 0.5rem;" ${book.tts_engine === 'supertonic3' ? 'disabled' : ''}>
+                                            <option value="x_low" ${book.tts_voice_quality === 'x_low' ? 'selected' : ''}>Extra Low</option>
+                                            <option value="low" ${book.tts_voice_quality === 'low' ? 'selected' : ''}>Low</option>
+                                            <option value="medium" ${book.tts_voice_quality === 'medium' ? 'selected' : ''}>Medium</option>
+                                            <option value="high" ${book.tts_voice_quality === 'high' ? 'selected' : ''}>High</option>
+                                        </select>
+                                    </div>
                                     <div class="slider-group">
                                         <div class="slider-header">
                                             <span>Speed</span>
@@ -1972,19 +2037,19 @@
                                         </div>
                                         <input type="range" id="speed-${book.slug}" class="range-slider" min="0.5" max="2.0" step="0.1" value="${book.tts_speed}" oninput="document.getElementById('speed-val-${book.slug}').innerText = this.value">
                                     </div>
-                                    <div class="slider-group">
+                                    <div class="slider-group" id="noise-scale-group-${book.slug}" ${book.tts_engine === 'supertonic3' ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
                                         <div class="slider-header">
                                             <span>Noise Scale</span>
                                             <span id="noise-scale-val-${book.slug}">${book.tts_noise_scale}</span>
                                         </div>
-                                        <input type="range" id="noise-scale-${book.slug}" class="range-slider" min="0.1" max="1.5" step="0.05" value="${book.tts_noise_scale}" oninput="document.getElementById('noise-scale-val-${book.slug}').innerText = this.value">
+                                        <input type="range" id="noise-scale-${book.slug}" class="range-slider" min="0.1" max="1.5" step="0.05" value="${book.tts_noise_scale}" oninput="document.getElementById('noise-scale-val-${book.slug}').innerText = this.value" ${book.tts_engine === 'supertonic3' ? 'disabled' : ''}>
                                     </div>
-                                    <div class="slider-group">
+                                    <div class="slider-group" id="noise-w-group-${book.slug}" ${book.tts_engine === 'supertonic3' ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
                                         <div class="slider-header">
                                             <span>Noise Width</span>
                                             <span id="noise-w-val-${book.slug}">${book.tts_noise_w}</span>
                                         </div>
-                                        <input type="range" id="noise-w-${book.slug}" class="range-slider" min="0.1" max="1.5" step="0.05" value="${book.tts_noise_w}" oninput="document.getElementById('noise-w-val-${book.slug}').innerText = this.value">
+                                        <input type="range" id="noise-w-${book.slug}" class="range-slider" min="0.1" max="1.5" step="0.05" value="${book.tts_noise_w}" oninput="document.getElementById('noise-w-val-${book.slug}').innerText = this.value" ${book.tts_engine === 'supertonic3' ? 'disabled' : ''}>
                                     </div>
                                     <div style="display: flex; align-items: flex-end;">
                                         <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.5rem 1rem; font-size: 0.875rem;">Save Settings</button>
@@ -2083,6 +2148,9 @@
                         if (vals.engine !== null && document.getElementById(`engine-${slug}`)) {
                             document.getElementById(`engine-${slug}`).value = vals.engine;
                             handleEngineChange(slug, vals.engine, book.target_lang);
+                        }
+                        if (vals.quality !== null && document.getElementById(`quality-${slug}`)) {
+                            document.getElementById(`quality-${slug}`).value = vals.quality;
                         }
                         if (vals.speaker !== null && document.getElementById(`speaker-${slug}`)) {
                             document.getElementById(`speaker-${slug}`).value = vals.speaker;
@@ -2364,7 +2432,7 @@
             event.preventDefault();
             const tts_engine = document.getElementById(`engine-${slug}`).value;
             const tts_voice = tts_engine;
-            const tts_voice_quality = 'medium';
+            const tts_voice_quality = document.getElementById(`quality-${slug}`).value;
             const tts_speaker_id = parseInt(document.getElementById(`speaker-${slug}`).value);
             const tts_speed = parseFloat(document.getElementById(`speed-${slug}`).value);
             const tts_noise_scale = parseFloat(document.getElementById(`noise-scale-${slug}`).value);
@@ -2404,6 +2472,7 @@
             
             // Read current unsaved form values
             const tts_engine = document.getElementById(`engine-${slug}`).value;
+            const tts_voice_quality = document.getElementById(`quality-${slug}`).value;
             const tts_speaker_id = parseInt(document.getElementById(`speaker-${slug}`).value);
             const tts_speed = parseFloat(document.getElementById(`speed-${slug}`).value);
             const tts_noise_scale = parseFloat(document.getElementById(`noise-scale-${slug}`).value);
@@ -2413,7 +2482,7 @@
                 const response = await fetch(`/api/tts-preview/${slug}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, tts_engine, tts_speaker_id, tts_speed, tts_noise_scale, tts_noise_w })
+                    body: JSON.stringify({ text, tts_engine, tts_voice_quality, tts_speaker_id, tts_speed, tts_noise_scale, tts_noise_w })
                 });
                 
                 if (response.ok) {
