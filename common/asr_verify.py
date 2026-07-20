@@ -265,8 +265,16 @@ def append_to_stress_queue(flag: dict, queue_path: str) -> None:
 
     queue.append(flag)
 
-    with open(queue_path, "w", encoding="utf-8") as f:
+    # Atomic write (tmp + os.replace) - same convention as
+    # kbg_web/app.py's _atomic_write_json and cast_ner_prepass.py's
+    # save_progress. Not yet load-bearing (this module isn't wired into
+    # the live pipeline), but a Termux kill mid-write on a plain open("w")
+    # would leave a truncated/corrupt queue file - exactly the failure
+    # mode this session hit for real tonight elsewhere.
+    tmp_path = queue_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(queue, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, queue_path)
 
 
 # ---------------------------------------------------------------------------
