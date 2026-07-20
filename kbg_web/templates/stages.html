@@ -752,6 +752,12 @@
                             <label style="font-size:0.85rem; color:var(--text-secondary);">Кейсів за раз:
                                 <input type="number" id="agent-limit" value="8" min="1" max="20" style="width:64px; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.3rem; margin-left:0.3rem;">
                             </label>
+                            <div style="display:flex; align-items:center; gap:0.3rem; border:1px solid var(--border-color); border-radius:6px; padding:0.2rem 0.4rem;">
+                                <span style="font-size:0.8rem; color:var(--text-secondary);">з:</span>
+                                <input type="number" id="agent-page-start" placeholder="початок" style="width:60px; font-size:0.85rem; padding:0.1rem 0.2rem; background:transparent; border:none; border-bottom:1px solid var(--border-color); color:var(--text-primary);">
+                                <span style="font-size:0.8rem; color:var(--text-secondary);">по:</span>
+                                <input type="number" id="agent-page-end" placeholder="кінець" style="width:60px; font-size:0.85rem; padding:0.1rem 0.2rem; background:transparent; border:none; border-bottom:1px solid var(--border-color); color:var(--text-primary);">
+                            </div>
                             <button class="nav-btn" id="agent-start-btn" style="padding:0.5rem 1.1rem; background:var(--primary); color:#fff;" onclick="startAgentScan(this)">▶️ Запустити пошук</button>
                             <button class="nav-btn" id="agent-stop-btn" style="padding:0.5rem 1.1rem; background:#7f1d1d; color:#fff; display:none;" onclick="stopAgentScan(this)">⏹ Зупинити</button>
                         </div>
@@ -803,8 +809,10 @@
                 } catch (e) { line.textContent = "Не вдалося отримати стан агента."; }
             }
 
-            window.startAgentScan = async (btn) => {
-                const limit = parseInt(document.getElementById("agent-limit").value) || 8;
+            window.startAgentScan = async (btn, options = {}) => {
+                const limit = options.limit !== undefined ? options.limit : (parseInt(document.getElementById("agent-limit").value) || 8);
+                const pageStartVal = options.page_start !== undefined ? options.page_start : (document.getElementById("agent-page-start") ? document.getElementById("agent-page-start").value : "");
+                const pageEndVal = options.page_end !== undefined ? options.page_end : (document.getElementById("agent-page-end") ? document.getElementById("agent-page-end").value : "");
                 const ok = confirm("Запустити агента?\n\n• Якщо модель перекладу зараз завантажена в пам'яті - її тимчасово зупинимо (увімкнеться назад автоматично)\n• Телефон буде під навантаженням - бажане активне охолодження\n• Кожна пропозиція чекатиме вашого підтвердження, нічого не застосується саме");
                 if (!ok) return;
                 btn.disabled = true;
@@ -815,9 +823,12 @@
                         _agentWeStoppedLlama = true;
                         await new Promise(res => setTimeout(res, 2500));
                     }
+                    const payload = { limit };
+                    if (pageStartVal) payload.page_start = parseInt(pageStartVal, 10);
+                    if (pageEndVal) payload.page_end = parseInt(pageEndVal, 10);
                     const r = await fetch(`/api/agent-editor/scan/${slug}`, {
                         method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ limit }) });
+                        body: JSON.stringify(payload) });
                     const d = await r.json();
                     if (!r.ok) throw new Error(d.message);
                 } catch (err) {
@@ -851,7 +862,18 @@
             let editingFontSize = null;       // int px, or null = auto
             let editingPanelSnapshot = null;  // {text, box, fontSize} at open time - unsaved-edit guard
 
-            function renderMangaViewerTab() {
+            async function renderMangaViewerTab() {
+                let enableAgentEditor = false;
+                try {
+                    const settingsRes = await fetch(`/api/book-settings/${slug}`);
+                    if (settingsRes.ok) {
+                        const settingsData = await settingsRes.json();
+                        enableAgentEditor = settingsData.enable_agent_editor;
+                    }
+                } catch (e) {
+                    console.error("Failed to load book settings", e);
+                }
+
                 mangaTabContent.innerHTML = `
                     <div class="unified-viewer">
                         <div class="viewer-viewport" id="viewer-viewport"></div>
@@ -871,6 +893,12 @@
                                 <input type="number" id="manga-page-jump" min="1" max="${bookData.source_pages.length}" placeholder="#" style="width: 3.5rem; padding: 0.4rem 0.5rem; font-size: 0.85rem; background: #18181b; color: white; border: 1px solid var(--border-color); border-radius: 6px; text-align: center;">
                                 <button class="nav-btn" id="manga-jump-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Go</button>
                             </div>
+
+                            ${enableAgentEditor ? `
+                            <button class="nav-btn" id="viewer-agent-btn" style="background:var(--primary); color:#fff; display:flex; align-items:center; gap:0.3rem; margin-left:0.6rem; font-size:0.85rem; padding:0.4rem 0.8rem;">
+                                🤖 Агент на цю сторінку
+                            </button>
+                            ` : ''}
                         </div>
                         <div class="unified-status" id="page-indicator">Сторінка ...</div>
                         <div id="manga-regen-bar" style="display:none; justify-content:center; margin-top:0.5rem;">
@@ -881,6 +909,16 @@
                 `;
                 wireMangaViewer();
                 showPage(currentMangaPage);
+
+                if (enableAgentEditor) {
+                    const viewAgentBtn = document.getElementById("viewer-agent-btn");
+                    if (viewAgentBtn) {
+                        viewAgentBtn.addEventListener("click", () => {
+                            const pageNum = currentMangaPage + 1;
+                            window.startAgentScan(viewAgentBtn, { limit: 20, page_start: pageNum, page_end: pageNum });
+                        });
+                    }
+                }
             }
 
             const updateSegments = () => {
@@ -2551,6 +2589,12 @@
                         <input type="checkbox" id="cast-enable" ${d.enabled ? 'checked' : ''}>
                         Застосовувати правила персонажів у перекладі цієї книги
                     </label>
+                    <div style="display:flex; align-items:center; gap:0.3rem; border:1px solid var(--border-color); border-radius:6px; padding:0.2rem 0.4rem;">
+                        <span style="font-size:0.8rem; color:var(--text-secondary);">з:</span>
+                        <input type="number" id="cast-page-start" placeholder="початок" style="width:60px; font-size:0.85rem; padding:0.1rem 0.2rem; background:transparent; border:none; border-bottom:1px solid var(--border-color); color:var(--text-primary);">
+                        <span style="font-size:0.8rem; color:var(--text-secondary);">по:</span>
+                        <input type="number" id="cast-page-end" placeholder="кінець" style="width:60px; font-size:0.85rem; padding:0.1rem 0.2rem; background:transparent; border:none; border-bottom:1px solid var(--border-color); color:var(--text-primary);">
+                    </div>
                     <button class="nav-btn" id="cast-scan">▶️ Сканувати персонажів</button>
                     <button class="nav-btn" id="cast-scan-stop" style="background:#7f1d1d; color:#fff; display:none;">⏹ Зупинити</button>
                     <button class="nav-btn" id="cast-add">➕ Додати вручну</button>
@@ -2688,21 +2732,34 @@
             const sc = document.getElementById('cast-scan');
             if (sc) sc.addEventListener('click', async () => {
                 const msg = document.getElementById('cast-msg');
+                const pageStartInput = document.getElementById('cast-page-start');
+                const pageEndInput = document.getElementById('cast-page-end');
+                const payload = {};
+                if (pageStartInput && pageStartInput.value) {
+                    payload.page_start = parseInt(pageStartInput.value, 10);
+                }
+                if (pageEndInput && pageEndInput.value) {
+                    payload.page_end = parseInt(pageEndInput.value, 10);
+                }
                 let weStoppedLlama = false;
                 msg.textContent = 'Запуск...';
-                let res = await fetch(`/api/characters/${slug}/scan`, {method:'POST'});
+                
+                const fetchScan = async () => {
+                    return fetch(`/api/characters/${slug}/scan`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                };
+                
+                let res = await fetchScan();
                 let j = await res.json();
                 if (res.status === 409 && /Модель перекладу/.test(j.message || '')) {
-                    // No confirm() here - there's no real "no" other than
-                    // not scanning at all, and the restart below is already
-                    // automatic, so a blocking dialog only adds friction
-                    // for a decision that's always "yes, obviously" (Q's
-                    // call, 2026-07-20).
                     msg.textContent = 'Звільняємо памʼять від моделі перекладу...';
                     await fetch('/api/models/stop', {method:'POST'});
                     weStoppedLlama = true;
                     await new Promise(r => setTimeout(r, 2500));
-                    res = await fetch(`/api/characters/${slug}/scan`, {method:'POST'});
+                    res = await fetchScan();
                     j = await res.json();
                 }
                 msg.textContent = j.message || res.status;

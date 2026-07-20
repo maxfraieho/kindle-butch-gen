@@ -72,12 +72,19 @@ def save_progress(book_dir, stage, percent, log_tail=None, error=None, done=Fals
     os.replace(tmp, path)
 
 
-def collect_text(book_dir, pages):
+def collect_text(book_dir, pages, page_start=None, page_end=None):
     meta = sorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
     page_pairs = []
     if meta:
         chunks = []
-        for p in meta[:pages]:
+        if page_start is not None or page_end is not None:
+            start_idx = (page_start - 1) if page_start is not None else 0
+            start_idx = max(0, start_idx)
+            end_idx = page_end if page_end is not None else len(meta)
+            target_slice = meta[start_idx:end_idx]
+        else:
+            target_slice = meta[:pages]
+        for p in target_slice:
             page_stem = os.path.splitext(os.path.basename(p))[0]
             page_bubbles = []
             try:
@@ -240,6 +247,8 @@ def main():
     ap.add_argument("--book-dir", required=True)
     ap.add_argument("--pages", type=int, default=50)
     ap.add_argument("--model", default=MODEL_DEFAULT)
+    ap.add_argument("--page-start", type=int, default=None)
+    ap.add_argument("--page-end", type=int, default=None)
     args = ap.parse_args()
 
     book_dir = args.book_dir
@@ -252,7 +261,7 @@ def main():
             save_progress(book_dir, "помилка", 5, error=err_msg, done=True)
             sys.exit(2)
 
-        text, page_pairs = collect_text(book_dir, args.pages)
+        text, page_pairs = collect_text(book_dir, args.pages, page_start=args.page_start, page_end=args.page_end)
         if not text.strip():
             err_msg = "No source text found to scan."
             print(err_msg, file=sys.stderr)
