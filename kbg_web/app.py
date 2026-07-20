@@ -1519,6 +1519,195 @@ def characters_scan_api(slug):
                     "message": "Сканування персонажів запущено (кілька хвилин); "
                                "оновіть список згодом."})
 
+@app.route("/api/characters/<slug>/scan-progress", methods=["GET"])
+def characters_scan_progress_api(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error",
+                            "message": "Розширена можливість: /premium у @GetVydraBot"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+
+    book_dir = os.path.join(repo_dir, "books", slug)
+    progress_path = os.path.join(book_dir, "edits", "ner_scan_progress.json")
+    if os.path.exists(progress_path):
+        try:
+            with open(progress_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return jsonify(data)
+        except Exception:
+            pass
+    return jsonify({"stage": None, "percent": 0})
+
+@app.route("/api/characters/<slug>/scan/stop", methods=["POST"])
+def characters_scan_stop_api(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error",
+                            "message": "Розширена можливість: /premium у @GetVydraBot"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
+
+    subprocess.run(["pkill", "-f", "cast_ner_prepass.py"], capture_output=True)
+    subprocess.run(["pkill", "-f", "llama-cli"], capture_output=True)
+    _clear_active_conversion_state(slug)
+    
+    # Write a stopped progress file
+    try:
+        book_dir = os.path.join(repo_dir, "books", slug)
+        progress_path = os.path.join(book_dir, "edits", "ner_scan_progress.json")
+        data = {"stage": "зупинено", "percent": 0, "done": True, "error": "Сканування зупинено користувачем."}
+        tmp = progress_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, progress_path)
+    except Exception:
+        pass
+
+    return jsonify({"status": "success", "message": "Сканування зупинено."})
+
+def _resolve_manga_input(book_dir, slug):
+    source_dir = os.path.join(book_dir, "source")
+    if os.path.isdir(source_dir):
+        return source_dir
+    for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
+        input_path = os.path.join(book_dir, f"{slug}{possible_ext}")
+        if os.path.exists(input_path):
+            return input_path
+    return None
+
+def get_manga_page_image(book_dir, slug, page_stem):
+    import zipfile
+    import shutil
+    import tempfile
+    from PIL import Image
+
+    # 1. Search actual source dir
+    actual_source_dir = os.path.join(book_dir, "source")
+    if os.path.isdir(actual_source_dir):
+        for f in os.listdir(actual_source_dir):
+            if os.path.splitext(f)[0] == page_stem and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                return Image.open(os.path.join(actual_source_dir, f))
+
+    # 2. Search preview cache source dir
+    preview_source_dir = os.path.join(book_dir, "preview_cache", "source")
+    if os.path.isdir(preview_source_dir):
+        for f in os.listdir(preview_source_dir):
+            if os.path.splitext(f)[0] == page_stem and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                return Image.open(os.path.join(preview_source_dir, f))
+
+    # 3. If archive exists, extract on the fly
+    archive_path = _resolve_manga_input(book_dir, slug)
+    if archive_path:
+        source_ext = os.path.splitext(archive_path)[1].lower()
+        if source_ext in [".zip", ".cbz", ".epub"]:
+            with zipfile.ZipFile(archive_path, 'r') as z:
+                for file_info in z.infolist():
+                    if file_info.is_dir():
+                        continue
+                    filename = file_info.filename
+                    basename = os.path.basename(filename)
+                    if os.path.splitext(basename)[0] == page_stem and basename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                        from io import BytesIO
+                        return Image.open(BytesIO(z.read(filename)))
+        elif source_ext in [".rar", ".cbr", ".cb7"]:
+            temp_d = tempfile.mkdtemp()
+            try:
+                subprocess.run(["7z", "x", f"-o{temp_d}", archive_path, f"*{page_stem}*"], capture_output=True)
+                for root, _, files in os.walk(temp_d):
+                    for f in files:
+                        if os.path.splitext(f)[0] == page_stem and f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                            img = Image.open(os.path.join(root, f))
+                            img.load()
+                            return img
+            except Exception:
+                pass
+            finally:
+                shutil.rmtree(temp_d, ignore_errors=True)
+        elif source_ext == ".pdf":
+            m = re.search(r'\d+', page_stem)
+            if m:
+                page_num = int(m.group(0))
+                temp_d = tempfile.mkdtemp()
+                try:
+                    subprocess.run(["pdftoppm", "-png", "-f", str(page_num), "-l", str(page_num), "-r", "150", archive_path, os.path.join(temp_d, "page")], capture_output=True)
+                    for f in os.listdir(temp_d):
+                        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                            img = Image.open(os.path.join(temp_d, f))
+                            img.load()
+                            return img
+                except Exception:
+                    pass
+                finally:
+                    shutil.rmtree(temp_d, ignore_errors=True)
+                    
+    return None
+
+@app.route("/api/characters/<slug>/thumbnail/<char_id>")
+def character_thumbnail_api(slug, char_id):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    # char_id lands directly in a filesystem path below (thumbnails/<char_id>.jpg) -
+    # same defensive-validation convention as every other <slug>-shaped path
+    # param in this file, even though Flask's default converter already
+    # excludes "/" (so this is defense-in-depth, not a proven traversal today).
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", char_id):
+        return jsonify({"status": "error", "message": "Invalid character id"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check failed"}), 403
+
+    from common.cast_registry import load_characters
+    from PIL import Image
+    
+    book_dir = os.path.join(repo_dir, "books", slug)
+    thumbnail_path = os.path.join(book_dir, "edits", "thumbnails", f"{char_id}.jpg")
+    
+    if os.path.exists(thumbnail_path):
+        return send_file(thumbnail_path)
+
+    # Find sample_page from characters.json
+    characters = load_characters(book_dir)
+    sample_page = None
+    for char in characters:
+        if char.get("id") == char_id:
+            sample_page = char.get("sample_page")
+            break
+
+    if not sample_page:
+        return "Character sample page not found", 404
+
+    try:
+        img = get_manga_page_image(book_dir, slug, sample_page)
+        if not img:
+            return "Manga page image not found", 404
+
+        # Generate thumbnail (PIL modifies image in-place)
+        img.thumbnail((480, 999999))
+        
+        # Save as JPEG
+        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+            
+        tmp_path = thumbnail_path + ".tmp"
+        img.save(tmp_path, "JPEG", quality=85)
+        os.replace(tmp_path, thumbnail_path)
+        
+        return send_file(thumbnail_path)
+    except Exception as e:
+        app.logger.error(f"Failed to generate thumbnail for {char_id}: {e}")
+        return f"Error generating thumbnail: {e}", 500
+
 @app.route("/api/premium/model-status")
 def premium_model_status_api():
     """TASK-65 onboarding: lets the premium-welcome dialog show real

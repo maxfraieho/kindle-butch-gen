@@ -2463,6 +2463,59 @@
         fetchBookData();
     
         // ── TASK-54: Cast & Context tab ────────────────────────────────
+        let _castScanPollTimer = null;
+        let _castScanWeStoppedLlama = false;
+
+        async function refreshCastScanStatus() {
+            try {
+                const statusRes = await fetch(`/api/agent-editor/status/${slug}`, {cache:'no-store'});
+                const statusData = await statusRes.json();
+                const isRunning = statusData.ner_running;
+
+                const startBtn = document.getElementById('cast-scan');
+                const stopBtn = document.getElementById('cast-scan-stop');
+                const progressWrap = document.getElementById('cast-progress-wrap');
+                const progressStage = document.getElementById('cast-progress-stage');
+                const progressLabel = document.getElementById('cast-progress-label');
+                const progressFill = document.getElementById('cast-progress-fill');
+                const logEl = document.getElementById('cast-log');
+                const msg = document.getElementById('cast-msg');
+
+                if (startBtn) startBtn.style.display = isRunning ? 'none' : '';
+                if (stopBtn) stopBtn.style.display = isRunning ? '' : 'none';
+
+                if (isRunning) {
+                    if (progressWrap) progressWrap.style.display = '';
+                    
+                    const progRes = await fetch(`/api/characters/${slug}/scan-progress`, {cache:'no-store'});
+                    const progData = await progRes.json();
+                    
+                    if (progressStage) progressStage.textContent = progData.stage || 'Аналіз...';
+                    if (progressLabel) progressLabel.textContent = `${progData.percent}%`;
+                    if (progressFill) progressFill.style.width = `${progData.percent}%`;
+                    
+                    if (logEl && progData.log_tail && progData.log_tail.length) {
+                        const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
+                        logEl.textContent = progData.log_tail.join('\n');
+                        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+                    }
+                } else {
+                    if (_castScanPollTimer) {
+                        clearInterval(_castScanPollTimer);
+                        _castScanPollTimer = null;
+                    }
+                    if (progressWrap) progressWrap.style.display = 'none';
+                    if (_castScanWeStoppedLlama) {
+                        _castScanWeStoppedLlama = false;
+                        fetch('/api/models/start', {method:'POST'}).catch(() => {});
+                        if (msg) msg.textContent = 'Сервер перекладу відновлено.';
+                    }
+                }
+            } catch (e) {
+                console.error("Error polling cast progress:", e);
+            }
+        }
+
         async function renderCastTab(container) {
             container.innerHTML = '<p style="color:var(--text-secondary); padding:1rem;">Завантаження реєстру персонажів…</p>';
             const r = await fetch(`/api/characters/${slug}`);
@@ -2493,18 +2546,32 @@
                     🔒 <b>Cast Registry — розширена можливість.</b> Активуйте через
                     <a href="https://t.me/GetVydraBot" target="_blank">@GetVydraBot</a> (/premium).</div>`;
             } else {
-                head += `<div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem;">
-                    <label style="display:flex; align-items:center; gap:0.4rem;">
+                head += `<div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem; align-items:center;">
+                    <label style="display:flex; align-items:center; gap:0.4rem; margin-right:1rem;">
                         <input type="checkbox" id="cast-enable" ${d.enabled ? 'checked' : ''}>
                         Застосовувати правила персонажів у перекладі цієї книги
                     </label>
-                    <button class="nav-btn" id="cast-scan">🔎 Сканувати персонажів (NER)</button>
+                    <button class="nav-btn" id="cast-scan">▶️ Сканувати персонажів</button>
+                    <button class="nav-btn" id="cast-scan-stop" style="background:#7f1d1d; color:#fff; display:none;">⏹ Зупинити</button>
                     <button class="nav-btn" id="cast-add">➕ Додати вручну</button>
                     <span id="cast-msg" style="color:var(--text-secondary);"></span>
+                </div>
+                <div id="cast-progress-wrap" style="display:none; margin-top:0.8rem; margin-bottom:1rem; width:100%;">
+                    <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.3rem; display:flex; justify-content:space-between;">
+                        <span id="cast-progress-stage">Сканування...</span>
+                        <span id="cast-progress-label">0%</span>
+                    </div>
+                    <div style="width:100%; height:8px; background:var(--border-color); border-radius:4px; overflow:hidden; margin-bottom:0.8rem;">
+                        <div id="cast-progress-fill" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s ease;"></div>
+                    </div>
+                    <pre id="cast-log" style="background:#0b0b12; border:1px solid var(--border-color); border-radius:8px; padding:0.7rem; font-family:monospace; font-size:0.76rem; max-height:200px; overflow-y:auto; white-space:pre-wrap; color:var(--text-secondary);"></pre>
                 </div>`;
             }
             const rows = chars.map((c, i) => `
                 <tr data-i="${i}" style="border-bottom:1px solid var(--border-color);">
+                    <td style="padding:0.4rem; width:50px; text-align:center;">
+                        <img src="/api/characters/${slug}/thumbnail/${c.id}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;" onerror="this.style.display='none'">
+                    </td>
                     <td style="padding:0.4rem;"><input value="${(c.name_source||[]).join(', ')}" data-f="name_source" style="width:98%"></td>
                     <td><input value="${c.name_target||''}" data-f="name_target" style="width:95%"></td>
                     <td><select data-f="gender">
@@ -2524,9 +2591,10 @@
                    для спойлер-чутливої неоднозначності.</p>
                 <div style="overflow-x:auto;"><table style="width:100%; font-size:0.9rem; border-collapse:collapse;">
                     <tr style="color:var(--text-secondary); text-align:left;">
+                        <th style="width:50px;"></th>
                         <th style="padding:0.4rem;">Імена в оригіналі (через кому)</th><th>Українською</th>
                         <th>Рід</th><th>POV</th><th>Статус</th><th></th></tr>
-                    ${rows || '<tr><td colspan="6" style="padding:1rem; color:var(--text-secondary);">Поки порожньо — запустіть сканування або додайте вручну.</td></tr>'}
+                    ${rows || '<tr><td colspan="7" style="padding:1rem; color:var(--text-secondary);">Поки порожньо — запустіть сканування або додайте вручну.</td></tr>'}
                 </table></div>`;
 
             const collect = () => Array.from(container.querySelectorAll('tr[data-i]')).map((tr, idx) => {
@@ -2569,14 +2637,26 @@
                     body: JSON.stringify({enable_bubble_tone: tone.checked})});
                 if (!res.ok) { const j = await res.json(); alert(j.message); tone.checked = !tone.checked; }
             });
+            // Initial poll setup or status check
+            if (_castScanPollTimer) {
+                clearInterval(_castScanPollTimer);
+                _castScanPollTimer = null;
+            }
+            refreshCastScanStatus();
+            fetch(`/api/agent-editor/status/${slug}`, {cache:'no-store'})
+                .then(r => r.json())
+                .then(statusData => {
+                    if (statusData.ner_running) {
+                        refreshCastScanStatus();
+                        _castScanPollTimer = setInterval(refreshCastScanStatus, 2000);
+                    }
+                }).catch(() => {});
+
             const sc = document.getElementById('cast-scan');
             if (sc) sc.addEventListener('click', async () => {
                 const msg = document.getElementById('cast-msg');
-                // Same informed-consent flow as the Agent tab: the NER
-                // model (~3.3GB) can't share RAM with llama-server, so
-                // offer to pause it and bring it back afterwards instead
-                // of dead-ending the user with a 409.
                 let weStoppedLlama = false;
+                msg.textContent = 'Запуск...';
                 let res = await fetch(`/api/characters/${slug}/scan`, {method:'POST'});
                 let j = await res.json();
                 if (res.status === 409 && /Сервер перекладу/.test(j.message || '')) {
@@ -2589,21 +2669,26 @@
                     j = await res.json();
                 }
                 msg.textContent = j.message || res.status;
-                if (weStoppedLlama && res.ok) {
-                    // Poll until the NER process finishes, then restore
-                    // the translation server automatically.
-                    const timer = setInterval(async () => {
-                        try {
-                            const st = await (await fetch(`/api/agent-editor/status/${slug}`, {cache:'no-store'})).json();
-                            if (!st.ner_running) {
-                                clearInterval(timer);
-                                await fetch('/api/models/start', {method:'POST'});
-                                msg.textContent += ' Сервер перекладу відновлено.';
-                            }
-                        } catch (e) { clearInterval(timer); }
-                    }, 10000);
+                if (res.ok) {
+                    _castScanWeStoppedLlama = weStoppedLlama;
+                    if (_castScanPollTimer) clearInterval(_castScanPollTimer);
+                    refreshCastScanStatus();
+                    _castScanPollTimer = setInterval(refreshCastScanStatus, 2000);
                 }
             });
+
+            const scStop = document.getElementById('cast-scan-stop');
+            if (scStop) scStop.addEventListener('click', async () => {
+                const msg = document.getElementById('cast-msg');
+                const ok = confirm("Зупинити сканування персонажів?");
+                if (!ok) return;
+                msg.textContent = 'Зупинка...';
+                const res = await fetch(`/api/characters/${slug}/scan/stop`, {method:'POST'});
+                const j = await res.json();
+                msg.textContent = j.message || res.status;
+                refreshCastScanStatus();
+            });
+
             const ad = document.getElementById('cast-add');
             if (ad) ad.addEventListener('click', () => {
                 chars.push({id:'char_manual_'+Date.now(), name_source:[], name_target:'',

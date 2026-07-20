@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Cast Registry NER pre-pass (TASK-54): auto-draft characters from the
 book's opening slice using local Gemma 3 4B via llama-cli.
 
@@ -7,14 +6,20 @@ text book -> first chunk of merged markdown. Writes auto_drafted entries
 into books/<slug>/edits/characters.json, never touching existing entries
 (esp. verified ones). Gender guesses come from the TEXT only and always
 require human verification before any rule is injected (QA-gate).
+
+TASK-76: run_llm() streams llama-cli's stdout (instead of blocking on
+subprocess.run) so a live progress %/log can be written to
+ner_scan_progress.json for the dashboard to poll.
 """
 import argparse
 import glob
 import json
 import os
 import re
+import select
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common.cast_registry import load_characters, save_characters, VALID_GENDERS
@@ -36,38 +41,149 @@ EXCERPT:
 """
 
 
+def save_progress(book_dir, stage, percent, log_tail=None, error=None, done=False):
+    path = os.path.join(book_dir, "edits", "ner_scan_progress.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    data = {
+        "stage": stage,
+        "percent": percent,
+        "done": done
+    }
+    if log_tail is not None:
+        data["log_tail"] = log_tail
+    else:
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    old_data = json.load(f)
+                    if "log_tail" in old_data:
+                        data["log_tail"] = old_data["log_tail"]
+        except Exception:
+            pass
+        if "log_tail" not in data:
+            data["log_tail"] = []
+
+    if error is not None:
+        data["error"] = error
+
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
 def collect_text(book_dir, pages):
     meta = sorted(glob.glob(os.path.join(book_dir, "bubbles_meta", "*.json")))
+    page_pairs = []
     if meta:
         chunks = []
         for p in meta[:pages]:
+            page_stem = os.path.splitext(os.path.basename(p))[0]
+            page_bubbles = []
             try:
                 for b in json.load(open(p, encoding="utf-8")):
                     t = (b.get("original_text") or "").strip()
                     if t:
                         chunks.append(t)
+                        page_bubbles.append(t)
             except Exception:
                 continue
-        return "\n".join(chunks)
+            if page_bubbles:
+                page_pairs.append((page_stem, "\n".join(page_bubbles)))
+        return "\n".join(chunks), page_pairs
     for cand in glob.glob(os.path.join(book_dir, "translated", "merged*_*.md")) + \
                 glob.glob(os.path.join(book_dir, "translated", "*.md")):
         try:
-            return open(cand, encoding="utf-8").read()[:15000]
+            return open(cand, encoding="utf-8").read()[:15000], []
         except Exception:
             continue
-    return ""
+    return "", []
 
 
-def run_llm(text, model):
+def run_llm(text, model, book_dir=None):
     cmd = [LLAMA_CLI, "-m", model, "-c", "8192", "-n", "1024",
            "--temp", "1.0", "--top-k", "64", "--top-p", "0.95",
            "--min-p", "0.01", "--repeat-penalty", "1.0",
            "-no-cnv", "-p", PROMPT + text[:12000]]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    return res.stdout
+    
+    if not book_dir:
+        # Fallback to blocking subprocess if book_dir is not provided
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        return res.stdout
+
+    stderr_path = os.path.join(book_dir, "edits", "ner_scan_llama_stderr.log")
+    os.makedirs(os.path.dirname(stderr_path), exist_ok=True)
+    
+    start_time = time.time()
+    raw_output = []
+    lines = []
+    current_line = ""
+    last_update_time = time.time()
+    chars_so_far = 0
+
+    with open(stderr_path, "w", encoding="utf-8") as stderr_file:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+            text=True,
+            bufsize=1
+        )
+
+        while True:
+            # Bound each read with select() against the OVERALL deadline -
+            # a bare blocking proc.stdout.read(64) would ignore the 1800s
+            # timeout entirely if the model stalls mid-generation (no new
+            # bytes = the check below never runs again). select() lets us
+            # re-check the deadline even while waiting for output.
+            remaining = 1800 - (time.time() - start_time)
+            if remaining <= 0:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise subprocess.TimeoutExpired(cmd, 1800)
+
+            ready, _, _ = select.select([proc.stdout], [], [], min(remaining, 2.0))
+            if not ready:
+                continue  # nothing yet - loop back to re-check the deadline
+
+            chunk = proc.stdout.read(64)
+            if not chunk:
+                break
+
+            raw_output.append(chunk)
+            chars_so_far += len(chunk)
+
+            # Update log lines
+            for char in chunk:
+                if char == '\n':
+                    lines.append(current_line)
+                    current_line = ""
+                else:
+                    current_line += char
+
+            # Keep only the last 40 lines
+            if len(lines) > 40:
+                lines = lines[-40:]
+
+            # Periodically write progress every 2 seconds
+            now = time.time()
+            if now - last_update_time >= 2.0:
+                last_update_time = now
+                percent = int(min(90, 5 + 85 * chars_so_far / 4096))
+                log_tail = lines + ([current_line] if current_line else [])
+                save_progress(book_dir, "аналіз тексту", percent, log_tail=log_tail)
+
+        # Wait for the process to fully exit
+        proc.wait(timeout=30)
+
+    raw = "".join(raw_output) + current_line
+    return raw
 
 
-def parse_characters(raw):
+def parse_characters(raw, page_pairs=None):
     m = re.search(r"\[.*\]", raw, re.DOTALL)
     if not m:
         return []
@@ -81,7 +197,26 @@ def parse_characters(raw):
         if not names:
             continue
         gender = ch.get("gender") if ch.get("gender") in VALID_GENDERS else "neutral"
-        out.append({
+
+        # Find first sample_page if page_pairs is provided
+        sample_page = None
+        if page_pairs:
+            for name in names:
+                for stem, text in page_pairs:
+                    # Cyrillic boundary check using Python's standard word boundary re
+                    if re.search(r"[a-zA-Zа-яА-ЯёЁіІїЇєЄґҐ]", name):
+                        pattern = r'(?i)\b' + re.escape(name) + r'\b'
+                        if re.search(pattern, text):
+                            sample_page = stem
+                            break
+                    else:
+                        if name.lower() in text.lower():
+                            sample_page = stem
+                            break
+                if sample_page:
+                    break
+
+        char_entry = {
             "id": f"char_auto_{i:02d}_{re.sub(r'[^a-z0-9]', '', names[0].lower())[:12]}",
             "name_source": names,
             "name_target": ch.get("name_target") or "",
@@ -92,7 +227,11 @@ def parse_characters(raw):
             "status": "auto_drafted",
             "ner_confidence": ch.get("confidence"),
             "ner_mentions": ch.get("mentions"),
-        })
+        }
+        if sample_page:
+            char_entry["sample_page"] = sample_page
+
+        out.append(char_entry)
     return out
 
 
@@ -103,38 +242,61 @@ def main():
     ap.add_argument("--model", default=MODEL_DEFAULT)
     args = ap.parse_args()
 
-    if not os.path.exists(args.model):
-        print(f"NER model missing: {args.model} - download it first "
-              f"(premium flow warns about this).", file=sys.stderr)
-        sys.exit(2)
-    text = collect_text(args.book_dir, args.pages)
-    if not text.strip():
-        print("No source text found to scan.", file=sys.stderr)
-        sys.exit(1)
-
-    slug = os.path.basename(args.book_dir.rstrip("/"))
-    send_heartbeat(slug, "аналізує текст", stage="сканування персонажів")
-    drafted = parse_characters(run_llm(text, args.model))
-    existing = load_characters(args.book_dir)
-    known = {n for ch in existing for n in (ch.get("name_source") or [])}
-    added = [ch for ch in drafted
-             if not any(n in known for n in ch["name_source"])]
-    save_characters(args.book_dir, existing + added)
-
-    # Clear auto-resume state on normal completion - same pattern as
-    # agent_editor.py's own main().
+    book_dir = args.book_dir
     try:
-        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        state_path = os.path.join(repo_dir, ".active_conversion.json")
-        if os.path.exists(state_path):
-            with open(state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-            if state.get("slug") == slug:
-                os.remove(state_path)
-    except Exception:
-        pass
-    print(f"NER pre-pass: {len(drafted)} candidates, {len(added)} new "
-          f"drafted (existing entries untouched).")
+        save_progress(book_dir, "читання тексту", 5, log_tail=[])
+
+        if not os.path.exists(args.model):
+            err_msg = f"NER model missing: {args.model}"
+            print(err_msg, file=sys.stderr)
+            save_progress(book_dir, "помилка", 5, error=err_msg, done=True)
+            sys.exit(2)
+
+        text, page_pairs = collect_text(book_dir, args.pages)
+        if not text.strip():
+            err_msg = "No source text found to scan."
+            print(err_msg, file=sys.stderr)
+            save_progress(book_dir, "помилка", 5, error=err_msg, done=True)
+            sys.exit(1)
+
+        slug = os.path.basename(book_dir.rstrip("/"))
+        send_heartbeat(slug, "аналізує текст", stage="сканування персонажів")
+        raw_llm_out = run_llm(text, args.model, book_dir=book_dir)
+
+        save_progress(book_dir, "обробка результатів", 92)
+        drafted = parse_characters(raw_llm_out, page_pairs=page_pairs)
+
+        if page_pairs:
+            save_progress(book_dir, "пошук зображень", 96)
+
+        existing = load_characters(book_dir)
+        known = {n for ch in existing for n in (ch.get("name_source") or [])}
+        added = [ch for ch in drafted
+                 if not any(n in known for n in ch["name_source"])]
+        save_characters(book_dir, existing + added)
+
+        # Clear auto-resume state on normal completion
+        try:
+            repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            state_path = os.path.join(repo_dir, ".active_conversion.json")
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                if state.get("slug") == slug:
+                    os.remove(state_path)
+        except Exception:
+            pass
+
+        save_progress(book_dir, "завершено", 100, done=True)
+        print(f"NER pre-pass: {len(drafted)} candidates, {len(added)} new "
+              f"drafted (existing entries untouched).")
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"NER pre-pass failed: {e}\n{tb}", file=sys.stderr)
+        save_progress(book_dir, "помилка", 99, error=str(e), done=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
