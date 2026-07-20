@@ -1708,6 +1708,88 @@ def character_thumbnail_api(slug, char_id):
         app.logger.error(f"Failed to generate thumbnail for {char_id}: {e}")
         return f"Error generating thumbnail: {e}", 500
 
+@app.route("/api/characters/<slug>/thumbnail/<char_id>", methods=["POST"])
+def character_thumbnail_upload_api(slug, char_id):
+    """TASK-78: lets a manually-added character (no sample_page - it was
+    never seen by the NER scan) get a picture too, and doubles as an
+    override for an auto-drafted one the user wants to correct. Writes to
+    the SAME cache path the GET handler above checks first, so this is
+    the only code path that needs to know about "manual vs auto" - GET
+    just serves whatever's newest, no separate flag to keep in sync."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", char_id):
+        return jsonify({"status": "error", "message": "Invalid character id"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check failed"}), 403
+
+    if "file" not in request.files:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+
+    # Cheap size guard BEFORE touching PIL - this is a thumbnail source,
+    # not a document upload (that's parse-metadata's much larger limit).
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > 15 * 1024 * 1024:
+        return jsonify({"status": "error", "message": "Файл завеликий (макс. 15MB)"}), 400
+
+    from PIL import Image
+    try:
+        img = Image.open(file.stream)
+        img.load()  # force-decode now, inside our try/except - a truncated
+                    # or non-image file otherwise fails later, off-path
+    except Exception:
+        return jsonify({"status": "error", "message": "Не вдалося розпізнати зображення"}), 400
+
+    book_dir = os.path.join(repo_dir, "books", slug)
+    thumbnail_path = os.path.join(book_dir, "edits", "thumbnails", f"{char_id}.jpg")
+    os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
+    try:
+        img.thumbnail((480, 999999))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        tmp_path = thumbnail_path + ".tmp"
+        img.save(tmp_path, "JPEG", quality=85)
+        os.replace(tmp_path, thumbnail_path)
+    except Exception as e:
+        app.logger.error(f"Failed to save uploaded thumbnail for {char_id}: {e}")
+        return jsonify({"status": "error", "message": f"Помилка збереження: {e}"}), 500
+
+    return jsonify({"status": "success", "message": "Зображення збережено."})
+
+@app.route("/api/characters/<slug>/thumbnail/<char_id>", methods=["DELETE"])
+def character_thumbnail_delete_api(slug, char_id):
+    """Revert to the auto-detected sample_page thumbnail (or to no image,
+    if the character has none) by clearing the cache the GET handler
+    checks first - does NOT touch characters.json/sample_page at all."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", char_id):
+        return jsonify({"status": "error", "message": "Invalid character id"}), 400
+    try:
+        from common.support_profile import is_entitled
+        if not is_entitled("cast_registry"):
+            return jsonify({"status": "error", "message": "Access denied"}), 403
+    except Exception:
+        return jsonify({"status": "error", "message": "Entitlement check failed"}), 403
+
+    book_dir = os.path.join(repo_dir, "books", slug)
+    thumbnail_path = os.path.join(book_dir, "edits", "thumbnails", f"{char_id}.jpg")
+    try:
+        if os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({"status": "success", "message": "Зображення видалено."})
+
 @app.route("/api/premium/model-status")
 def premium_model_status_api():
     """TASK-65 onboarding: lets the premium-welcome dialog show real

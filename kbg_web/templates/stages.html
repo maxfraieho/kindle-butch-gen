@@ -2570,7 +2570,11 @@
             const rows = chars.map((c, i) => `
                 <tr data-i="${i}" style="border-bottom:1px solid var(--border-color);">
                     <td style="padding:0.4rem; width:50px; text-align:center;">
-                        <img src="/api/characters/${slug}/thumbnail/${c.id}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;" onerror="this.style.display='none'">
+                        <div class="cast-thumb-wrap" data-char-id="${c.id}" style="position:relative; width:48px; height:48px; margin:0 auto; cursor:pointer;" title="Клацніть, щоб додати/змінити зображення">
+                            <img src="/api/characters/${slug}/thumbnail/${c.id}" style="width:48px;height:48px;object-fit:cover;border-radius:6px; display:block;" onerror="this.style.display='none'">
+                            <input type="file" accept="image/*" class="cast-thumb-input" style="display:none;">
+                        </div>
+                        <a href="#" class="cast-thumb-reset" data-char-id="${c.id}" style="font-size:0.7rem; color:var(--text-secondary);">↺</a>
                     </td>
                     <td style="padding:0.4rem;"><input value="${(c.name_source||[]).join(', ')}" data-f="name_source" style="width:98%"></td>
                     <td><input value="${c.name_target||''}" data-f="name_target" style="width:95%"></td>
@@ -2622,6 +2626,35 @@
                 if (btn.dataset.act === 'unverify') list[idx].status = 'unverified';
                 if (btn.dataset.act === 'del') list.splice(idx, 1);
                 save(list);
+            }));
+            // TASK-78: per-character image, for BOTH auto-drafted and
+            // manually-added characters (the manual-add flow otherwise
+            // has no way to attach a picture at all).
+            container.querySelectorAll('.cast-thumb-wrap').forEach(wrap => {
+                const charId = wrap.dataset.charId;
+                const fileInput = wrap.querySelector('.cast-thumb-input');
+                wrap.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', async () => {
+                    const f = fileInput.files[0];
+                    if (!f) return;
+                    const fd = new FormData();
+                    fd.append('file', f);
+                    const res = await fetch(`/api/characters/${slug}/thumbnail/${charId}`, {method:'POST', body: fd});
+                    const j = await res.json();
+                    if (res.ok) {
+                        wrap.querySelector('img').src = `/api/characters/${slug}/thumbnail/${charId}?v=${Date.now()}`;
+                        wrap.querySelector('img').style.display = '';
+                    } else alert(j.message || 'Помилка завантаження зображення');
+                });
+            });
+            container.querySelectorAll('.cast-thumb-reset').forEach(a => a.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const charId = a.dataset.charId;
+                await fetch(`/api/characters/${slug}/thumbnail/${charId}`, {method:'DELETE'});
+                const wrap = container.querySelector(`.cast-thumb-wrap[data-char-id="${charId}"]`);
+                const img = wrap.querySelector('img');
+                img.style.display = '';
+                img.src = `/api/characters/${slug}/thumbnail/${charId}?v=${Date.now()}`;
             }));
             const en = document.getElementById('cast-enable');
             if (en) en.addEventListener('change', async () => {
