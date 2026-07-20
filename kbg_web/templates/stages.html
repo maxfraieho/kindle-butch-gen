@@ -2692,9 +2692,13 @@
                 msg.textContent = 'Запуск...';
                 let res = await fetch(`/api/characters/${slug}/scan`, {method:'POST'});
                 let j = await res.json();
-                if (res.status === 409 && /Сервер перекладу/.test(j.message || '')) {
-                    const ok = confirm("Сканування персонажів потребує пам'яті, яку зараз займає сервер перекладу.\n\nЗупинити сервер на час сканування? (Після завершення він увімкнеться автоматично.)");
-                    if (!ok) { msg.textContent = 'Скасовано.'; return; }
+                if (res.status === 409 && /Модель перекладу/.test(j.message || '')) {
+                    // No confirm() here - there's no real "no" other than
+                    // not scanning at all, and the restart below is already
+                    // automatic, so a blocking dialog only adds friction
+                    // for a decision that's always "yes, obviously" (Q's
+                    // call, 2026-07-20).
+                    msg.textContent = 'Звільняємо памʼять від моделі перекладу...';
                     await fetch('/api/models/stop', {method:'POST'});
                     weStoppedLlama = true;
                     await new Promise(r => setTimeout(r, 2500));
