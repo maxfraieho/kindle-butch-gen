@@ -1220,6 +1220,14 @@ for cand in glob.glob(os.path.join(book_dir, "translated", "merged*_*.md")) + \
 
 **Ідея:** додати `<tone_analysis>` XML-тег у системний промпт `Hy-MT2-7B` - модель спочатку коротко визначає емоційний регістр абзацу (neutral/aggressive/melancholic/suspense) в ТОМУ Ж виклику інференсу, перед власне перекладом. Нуль додаткових апаратних ресурсів (лише трохи більше вихідних токенів). Аналог bubble-tone для манги, без окремої моделі.
 
+**КРИТИЧНЕ УТОЧНЕННЯ до TASK-85 (Claude, перед делегуванням AGY, з живого рев'ю TASK-84):** `translate_text_hy_mt2()` в `common/utils.py` зараз для ОБОХ форматів моделі (7B і не-7B) явно каже моделі "Output ONLY the translation, no explanations, no commentary" / "Output only the translation, no explanations". Це ПРЯМО суперечить ідеї додати `<tone_analysis>`-крок ПЕРЕД перекладом - модель отримає суперечливі інструкції.
+
+**Що треба зробити правильно:**
+1. Переформулювати промпт так, щоб ЯВНО дозволити один структурований `<tone_analysis>...</tone_analysis>` блок ПЕРЕД перекладом, а заборону "без пояснень/коментарів" застосувати ТІЛЬКИ до частини ПІСЛЯ цього блоку (напр.: "First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. Then, after closing the tag, output ONLY the translation with no further explanation or commentary.").
+2. **ОБОВ'ЯЗКОВО:** відповідь моделі тепер міститиме І тег `<tone_analysis>...</tone_analysis>`, І сам переклад. Перед тим, як `translate_text_hy_mt2()` поверне результат виклику (чи в `translate_text()`, де б не був фінальний return) - тег та його вміст МАЮТЬ БУТИ ВИРІЗАНІ (regex, напр. `re.sub(r'<tone_analysis>.*?</tone_analysis>\s*', '', raw, flags=re.DOTALL)`) з відповіді ПЕРЕД тим, як вона піде далі в `validate_translation_segment()` (перевірка заголовків/плейсхолдерів) чи збережеться як переклад. Якщо цього не зробити - текст тону потрапить У ФІНАЛЬНИЙ ПЕРЕКЛАД як сміття, зламавши і валідацію, і сам текст книги.
+3. Подумай, чи `stop_tokens` (`["<|eos|>", ...]` для 7B, `["<|hy_User|>", ...]` для не-7B) потребують коригування - модель має ЗАВЕРШИТИ tone_analysis тег і продовжити генерацію перекладу в ТОМУ Ж виклику, стоп-токени не повинні обірвати генерацію РАНІШЕ, ніж модель дійде до кінця блоку тону.
+4. Реально протестуй (мок LLM-відповідь із tone-тегом + текстом перекладу) - regex-вирізання коректно прибирає тег і залишає ЛИШЕ переклад, включно з edge-кейсами (тег відсутній у відповіді - модель проігнорувала інструкцію; тег не закритий; кілька тегів).
+
 ---
 
 ## [ ] TASK-86: ASR-петля верифікації наголосів через whisper.cpp (Tier 2, преміум) - ЧЕРГА
