@@ -199,7 +199,16 @@ dpkg --configure -a 2>/dev/null || true
 # device: header present -> full build succeeds, zero extra link flags
 # needed. Missed this on the first pass (assumed a bare platform gap
 # without checking Termux's own package repo - Q caught it).
-pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip libandroid-spawn
+# python-pillow: TASK-76 needs PIL on the HOST (Flask process generates
+# character-scan thumbnails directly, no proot involved) - deliberately
+# via pkg, NOT pip. The proot Ubuntu container's Pillow install (below,
+# apt python3-pil) already hit a source-build dead end with pip because
+# proot injects the Termux-bound prefix into a foreign gcc; the plain
+# Termux host doesn't have that problem, but Termux's own prebuilt
+# python-pillow package is still the safer/faster path (no compile) than
+# hoping pip resolves a matching wheel for whatever Python version this
+# device's Termux ships.
+pkg install -y proot-distro git termux-exec clang cmake make ocl-icd opencl-headers rsync termux-api ffmpeg python python-pip python-pillow libandroid-spawn
 pip install --upgrade pip --break-system-packages || true
 # ipa-uk intentionally absent: the package was REMOVED from PyPI (404,
 # found by the first outside install on OnePlus 15) - a vendored copy
