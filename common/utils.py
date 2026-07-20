@@ -121,6 +121,19 @@ def _is_hy_mt2_model(api_url):
         pass
     return False
 
+def clean_translation_text(raw):
+    if not raw:
+        return raw
+    # Remove all closed tone_analysis tags (and trailing spaces/newlines)
+    cleaned = re.sub(r'<tone_analysis>.*?</tone_analysis>\s*', '', raw, flags=re.DOTALL)
+    # Handle unclosed tags (e.g. <tone_analysis>suspense\nTranslation)
+    # Match <tone_analysis> followed by at most 100 characters (excluding '<' or '\n') and then a newline or end of string.
+    cleaned = re.sub(r'<tone_analysis>[^<\n]{0,100}(?:\n|\Z)\s*', '', cleaned)
+    # Clean up any leftover '<tone_analysis>' or '</tone_analysis>' tag just in case
+    cleaned = re.sub(r'<tone_analysis>\s*', '', cleaned)
+    cleaned = re.sub(r'</tone_analysis>\s*', '', cleaned)
+    return cleaned.strip()
+
 def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", temperature=0.1, cast_rules=None):
     lang_map = {
         "uk": "Ukrainian",
@@ -145,14 +158,16 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
     if is_7b_format:
         raw_prompt = (
             f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}. "
-            f"Output ONLY the translation, no explanations, no commentary:\n\n{rules_prefix}{text}<|extra_0|>"
+            f"First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. "
+            f"Then, after closing the tag, output ONLY the translation with no further explanation or commentary:\n\n{rules_prefix}{text}<|extra_0|>"
         )
         stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>"]
     else:
         raw_prompt = (
             f"<|hy_begin\u2581of\u2581sentence|>"
             f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}. "
-            f"Output only the translation, no explanations:\n\n{rules_prefix}{text}<|hy_Assistant|>"
+            f"First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. "
+            f"Then, after closing the tag, output ONLY the translation with no further explanation or commentary:\n\n{rules_prefix}{text}<|hy_Assistant|>"
         )
         stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>"]
 
@@ -183,7 +198,8 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
                 return None
             result = resp.json()
             translated = result.get("content", "").strip()
-            return translated if translated else None
+            cleaned = clean_translation_text(translated)
+            return cleaned if cleaned else None
         except Exception as e:
             print(f"[Translation] Hy-MT2 API request failed: {e}. Checking server status...", flush=True)
             wait_for_server_ready(base_url)
