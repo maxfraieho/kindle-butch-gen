@@ -111,7 +111,7 @@ def main():
             translated_segments.append(cache[seg_hash])
         else:
             log(f"Translating segment {idx+1}/{len(segments)} (length: {len(seg)} chars)...")
-            translated_seg = translate_segment_with_retry(seg, pm, args.api_url, target_lang=target_lang)
+            translated_seg = translate_segment_with_retry(seg, pm, args.api_url, target_lang=target_lang, source_lang=paths["source_lang"], book_dir=paths["book_dir"])
             if not translated_seg:
                 raise ValueError(f"Critical error: Failed to translate segment {idx+1} after all attempts.")
             translated_segments.append(translated_seg)

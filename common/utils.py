@@ -121,7 +121,7 @@ def _is_hy_mt2_model(api_url):
         pass
     return False
 
-def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", temperature=0.1):
+def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", temperature=0.1, cast_rules=None):
     lang_map = {
         "uk": "Ukrainian",
         "ru": "Russian",
@@ -141,17 +141,18 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
     except Exception as e:
         print(f"[Translation] Format detection warning: failed to fetch props: {e}. Defaulting to 1.8B format.", flush=True)
 
+    rules_prefix = f"{cast_rules}\n\n" if cast_rules else ""
     if is_7b_format:
         raw_prompt = (
             f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}. "
-            f"Output ONLY the translation, no explanations, no commentary:\n\n{text}<|extra_0|>"
+            f"Output ONLY the translation, no explanations, no commentary:\n\n{rules_prefix}{text}<|extra_0|>"
         )
         stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>"]
     else:
         raw_prompt = (
             f"<|hy_begin\u2581of\u2581sentence|>"
             f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}. "
-            f"Output only the translation, no explanations:\n\n{text}<|hy_Assistant|>"
+            f"Output only the translation, no explanations:\n\n{rules_prefix}{text}<|hy_Assistant|>"
         )
         stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>"]
 
@@ -187,14 +188,14 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
             print(f"[Translation] Hy-MT2 API request failed: {e}. Checking server status...", flush=True)
             wait_for_server_ready(base_url)
 
-def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang="ru"):
+def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang="ru", cast_rules=None):
     if not wait_for_server_ready(api_url):
         raise ConnectionError(f"Translation server at {api_url} is not reachable.")
 
     if _is_hy_mt2_model(api_url):
         print("[Translation] Detected Hy-MT2 model — using raw /completion endpoint", flush=True)
         return translate_text_hy_mt2(text, api_url, source_lang=source_lang,
-                                     target_lang=target_lang, temperature=0.1)
+                                     target_lang=target_lang, temperature=0.1, cast_rules=cast_rules)
 
     lang_map = {
         "uk": "Ukrainian",
@@ -202,7 +203,10 @@ def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang
         "en": "English"
     }
     target_lang_full = lang_map.get(target_lang, "Ukrainian")
-    prompt = f"Translate the following text into {target_lang_full}:\n\n{text}"
+    prompt = f"Translate the following text into {target_lang_full}:\n\n"
+    if cast_rules:
+        prompt += f"{cast_rules}\n\n"
+    prompt += text
     headers = {"Content-Type": "application/json"}
     data = {
         "messages": [{"role": "user", "content": prompt}],
@@ -268,18 +272,32 @@ def validate_translation_segment(original, translated):
         return False
     return True
 
-def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3, source_lang="ru"):
+def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3, source_lang="ru", book_dir=None):
     temp = 0.7
     xml_segment = to_xml_format(segment)
     orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", segment))
     last_translated = None
     
+    # Try to load cast registry if book_dir is provided
+    cast_rules = ""
+    if book_dir:
+        try:
+            from common.cast_registry import registry_enabled, load_characters, cast_rules_block
+            if registry_enabled(book_dir):
+                chars = load_characters(book_dir)
+                if chars:
+                    cast_rules = cast_rules_block(chars, segment)
+                    if cast_rules:
+                        print(f"[Translation] Injected cast registry rules for segment:\n{cast_rules}", flush=True)
+        except Exception as e:
+            print(f"[Translation] Warning: Failed to generate cast rules: {e}", flush=True)
+            
     for attempt in range(max_retries):
         if attempt > 0:
             temp = 0.1
             print(f"[Translation] Retrying segment (attempt {attempt+1}/{max_retries}) with temperature {temp}...", flush=True)
             
-        translated = translate_text(xml_segment, api_url, target_lang=target_lang, temperature=temp, source_lang=source_lang)
+        translated = translate_text(xml_segment, api_url, target_lang=target_lang, temperature=temp, source_lang=source_lang, cast_rules=cast_rules)
         if not translated:
             continue
             

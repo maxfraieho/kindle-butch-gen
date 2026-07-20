@@ -110,8 +110,87 @@ def collect_text(book_dir, pages, page_start=None, page_end=None):
             if page_bubbles:
                 page_pairs.append((page_stem, "\n".join(page_bubbles)))
         return "\n".join(chunks), page_pairs
-    for cand in glob.glob(os.path.join(book_dir, "translated", "merged*_*.md")) + \
+
+    # 1. Try to load config.json to find source_lang
+    source_lang = None
+    config_path = os.path.join(book_dir, "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                source_lang = cfg.get("source_lang")
+        except Exception:
+            pass
+
+    # 2. Try the merged source file in translated/
+    if source_lang:
+        source_cand = os.path.join(book_dir, "translated", f"merged_source_{source_lang}.md")
+        if os.path.exists(source_cand):
+            try:
+                return open(source_cand, encoding="utf-8").read()[:15000], []
+            except Exception:
+                pass
+
+    # 3. Try to read from un-translated PDF batch files if they exist
+    batches_pattern = os.path.join(book_dir, "batches", "batch_*", "*", "*.md")
+    batch_files = glob.glob(batches_pattern)
+    if batch_files:
+        source_batch_files = []
+        for bf in batch_files:
+            basename = os.path.basename(bf)
+            # Exclude any translated batch files
+            if "_translated_" not in basename:
+                source_batch_files.append(bf)
+        
+        if source_batch_files:
+            def get_batch_start(path):
+                match = re.search(r"batch_(\d+)_(\d+)", path)
+                return int(match.group(1)) if match else 0
+            def get_batch_end(path):
+                match = re.search(r"batch_(\d+)_(\d+)", path)
+                return int(match.group(2)) if match else 0
+            
+            source_batch_files.sort(key=get_batch_start)
+            
+            # Filter by page_start / page_end
+            filtered_batches = []
+            for bf in source_batch_files:
+                b_start = get_batch_start(bf)
+                b_end = get_batch_end(bf)
+                if page_start is not None and b_end < page_start:
+                    continue
+                if page_end is not None and b_start > page_end:
+                    continue
+                filtered_batches.append(bf)
+            
+            chunks = []
+            total_len = 0
+            for bf in filtered_batches:
+                try:
+                    content = open(bf, encoding="utf-8").read()
+                    chunks.append(content)
+                    total_len += len(content)
+                    if total_len >= 15000:
+                        break
+                except Exception:
+                    continue
+            if chunks:
+                return "\n\n".join(chunks)[:15000], []
+
+    # 4. Fallback to any merged_source_*.md in translated/
+    source_cands = glob.glob(os.path.join(book_dir, "translated", "merged_source_*.md"))
+    for cand in source_cands:
+        try:
+            return open(cand, encoding="utf-8").read()[:15000], []
+        except Exception:
+            continue
+
+    # 5. Last resort fallback: existing translated merged or other files
+    for cand in glob.glob(os.path.join(book_dir, "translated", "merged_translated_*.md")) + \
+                glob.glob(os.path.join(book_dir, "translated", "merged*_*.md")) + \
                 glob.glob(os.path.join(book_dir, "translated", "*.md")):
+        if "merged_source_" in os.path.basename(cand):
+            continue
         try:
             return open(cand, encoding="utf-8").read()[:15000], []
         except Exception:
