@@ -21,11 +21,22 @@ def check_model():
         print(f"Props failed: {e}")
     return True
 
+def clean_translation_text(raw):
+    import re
+    if not raw:
+        return raw
+    cleaned = re.sub(r'<tone_analysis>.*?</tone_analysis>\s*', '', raw, flags=re.DOTALL)
+    cleaned = re.sub(r'<tone_analysis>[^<\n]{0,100}(?:\n|\Z)\s*', '', cleaned)
+    cleaned = re.sub(r'<tone_analysis>\s*', '', cleaned)
+    cleaned = re.sub(r'</tone_analysis>\s*', '', cleaned)
+    return cleaned.strip()
+
 def translate_hy_mt2(text, source_lang="Russian", target_lang="Ukrainian"):
     raw_prompt = (
         f"<|hy_begin\u2581of\u2581sentence|>"
         f"<|hy_User|>Translate the following text from {source_lang} to {target_lang}. "
-        f"Output only the translation, no explanations:\n\n{text}<|hy_Assistant|>"
+        f"First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. "
+        f"Then, after closing the tag, output ONLY the translation with no further explanation or commentary:\n\n{text}<|hy_Assistant|>"
     )
 
     data = {
@@ -44,7 +55,8 @@ def translate_hy_mt2(text, source_lang="Russian", target_lang="Ukrainian"):
             print(f"Error: {resp.status_code} {resp.text[:300]}")
             return None
         result = resp.json()
-        return result.get("content", "").strip()
+        raw_content = result.get("content", "").strip()
+        return clean_translation_text(raw_content)
     except Exception as e:
         print(f"Request failed: {e}")
         return None
