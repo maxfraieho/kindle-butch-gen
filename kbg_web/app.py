@@ -340,7 +340,21 @@ def list_books():
     books_dir = os.path.join(repo_dir, "books")
     if not os.path.exists(books_dir):
         return jsonify([])
-        
+
+    # TASK-82 review fix: is_entitled() does a real network round-trip to
+    # Appwrite (common/support_profile.py:_fetch_entitlements_remote) -
+    # the original patch called it once PER BOOK inside the loop below,
+    # so a library of N books meant N sequential HTTPS calls before this
+    # (frequently-polled, dashboard-critical) endpoint could even return.
+    # Call it once, same result reused for every book - matches this
+    # project's own standing architecture rule that core UI must never
+    # block on cloud reachability.
+    from common.support_profile import is_entitled
+    try:
+        entitled = is_entitled("cast_registry")
+    except Exception:
+        entitled = False
+
     books = []
     for entry in os.listdir(books_dir):
         entry_path = os.path.join(books_dir, entry)
@@ -374,7 +388,7 @@ def list_books():
             # Calculate progress
             prog = calculate_progress(entry)
             if "error" in prog:
-                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0}
+                prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0, "overall_percent": 0.0}
                 
             # Scan output files
             output_dir = os.path.join(entry_path, "output")
@@ -383,7 +397,7 @@ def list_books():
                 for f in os.listdir(output_dir):
                     if f.endswith((".epub", ".azw3", ".mp3", ".md", ".cbz", ".cbr", ".cb7", ".zip")):
                         output_files.append(f)
-                        
+
             books.append({
                 "slug": entry,
                 "title": title,
@@ -400,7 +414,10 @@ def list_books():
                 "tts_noise_scale": float(cfg.get("tts_noise_scale", 0.667)),
                 "tts_noise_w": float(cfg.get("tts_noise_w", 0.8)),
                 "tts_engine": cfg.get("tts_engine", "supertonic3"),
-                "generate_audiobook": bool(cfg.get("generate_audiobook", True))
+                "generate_audiobook": bool(cfg.get("generate_audiobook", True)),
+                "enable_cast_registry": bool(cfg.get("enable_cast_registry", False)) and entitled,
+                "enable_agent_editor": bool(cfg.get("enable_agent_editor", False)) and entitled,
+                "enable_bubble_tone": bool(cfg.get("enable_bubble_tone", False))
             })
             
     return jsonify(books)
@@ -1015,6 +1032,7 @@ def status_api(slug):
         "translation_percent": prog["translation_percent"],
         "stress_percent": prog["stress_percent"],
         "tts_percent": prog["tts_percent"],
+        "overall_percent": prog.get("overall_percent", 0.0),
         "logs": log_lines
     })
 

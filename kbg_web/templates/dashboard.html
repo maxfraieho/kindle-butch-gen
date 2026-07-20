@@ -1781,7 +1781,7 @@
                             if (pp) pp.textContent = pct + '%';
                             if (ps) ps.innerHTML = `Перекладаю сторінки: <strong>${book.progress.manga_pages_completed || 0} із ${book.progress.manga_total_pages || 0}</strong>`;
                         } else {
-                            const op = Math.round(((book.progress.marker_percent||0)+(book.progress.translation_percent||0)+(book.progress.stress_percent||0)+(book.progress.tts_percent||0))/4);
+                            const op = Math.round(book.progress.overall_percent !== undefined ? book.progress.overall_percent : (((book.progress.marker_percent||0)+(book.progress.translation_percent||0)+(book.progress.stress_percent||0)+(book.progress.tts_percent||0))/4));
                             if (pf) pf.style.width = op + '%';
                             if (pp) pp.textContent = op + '%';
                         }
@@ -1850,7 +1850,7 @@
                         else if (tts_p < 100) { activeStage = "Озвучую"; activePercent = tts_p; }
                     }
 
-                    const overall_p = Math.round((marker_p + trans_p + stress_p + tts_p) / 4);
+                    const overall_p = Math.round(book.progress.overall_percent !== undefined ? book.progress.overall_percent : ((marker_p + trans_p + stress_p + tts_p) / 4));
                     
                     let progressHtml = '';
                     let optionsHtml = '';
@@ -1858,6 +1858,30 @@
                         const comp = book.progress.manga_pages_completed || 0;
                         const tot = book.progress.manga_total_pages || 0;
                         const pct = book.progress.manga_percent || 0;
+
+                        let mangaStepsHtml = '';
+                        mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Детекція бульбашок та OCR">Детекція</span>`;
+                        
+                        if (book.enable_cast_registry) {
+                            mangaStepsHtml += `<span class="step-divider"></span>`;
+                            mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Cast Registry (персонажі)">Cast</span>`;
+                        }
+                        if (book.enable_bubble_tone) {
+                            mangaStepsHtml += `<span class="step-divider"></span>`;
+                            mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Bubble Tone (тон реплік)">Тон</span>`;
+                        }
+                        
+                        mangaStepsHtml += `<span class="step-divider"></span>`;
+                        mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Переклад тексту">Переклад</span>`;
+                        
+                        if (book.enable_agent_editor) {
+                            mangaStepsHtml += `<span class="step-divider"></span>`;
+                            mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Агент-редактор">Агент</span>`;
+                        }
+                        
+                        mangaStepsHtml += `<span class="step-divider"></span>`;
+                        mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Типографіка та рендер сторінок">Типографіка</span>`;
+
                         progressHtml = `
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
@@ -1866,6 +1890,9 @@
                                 </div>
                                 <div class="progress-bar-bg">
                                     <div class="progress-bar-fill fill-translation" id="progressfill-${book.slug}" style="width: ${pct}%"></div>
+                                </div>
+                                <div class="pipeline-steps">
+                                    ${mangaStepsHtml}
                                 </div>
                             </div>
                         `;
@@ -1882,6 +1909,18 @@
                             </div>
                         `;
                     } else {
+                        let stepsHtml = '';
+                        stepsHtml += `<span class="step-node ${marker_p === 100 ? 'completed' : (book.is_running && activeStage === 'Розпізнаю текст' ? 'active' : '')}" title="Розпізнавання тексту">Текст</span>`;
+                        stepsHtml += `<span class="step-divider"></span>`;
+                        stepsHtml += `<span class="step-node ${trans_p === 100 ? 'completed' : (book.is_running && activeStage === 'Перекладаю' ? 'active' : '')}" title="Переклад">Переклад</span>`;
+                        
+                        if (book.generate_audiobook !== false) {
+                            stepsHtml += `<span class="step-divider"></span>`;
+                            stepsHtml += `<span class="step-node ${stress_p === 100 ? 'completed' : (book.is_running && activeStage === 'Розставляю наголоси' ? 'active' : '')}" title="Наголоси для озвучення">Наголоси</span>`;
+                            stepsHtml += `<span class="step-divider"></span>`;
+                            stepsHtml += `<span class="step-node ${tts_p === 100 ? 'completed' : (book.is_running && activeStage === 'Озвучую' ? 'active' : '')}" title="Синтез аудіо">Звук</span>`;
+                        }
+
                         progressHtml = `
                             <div class="pipeline-progress">
                                 <div class="pipeline-progress-header">
@@ -1892,13 +1931,7 @@
                                     <div class="progress-bar-fill pipeline-gradient-fill" id="progressfill-${book.slug}" style="width: ${overall_p}%"></div>
                                 </div>
                                 <div class="pipeline-steps">
-                                    <span class="step-node ${marker_p === 100 ? 'completed' : (activeStage === 'Розпізнаю текст' ? 'active' : '')}" title="Розпізнавання тексту">Текст</span>
-                                    <span class="step-divider"></span>
-                                    <span class="step-node ${trans_p === 100 ? 'completed' : (activeStage === 'Перекладаю' ? 'active' : '')}" title="Переклад">Переклад</span>
-                                    <span class="step-divider"></span>
-                                    <span class="step-node ${stress_p === 100 ? 'completed' : (activeStage === 'Розставляю наголоси' ? 'active' : '')}" title="Наголоси для озвучення">Наголоси</span>
-                                    <span class="step-divider"></span>
-                                    <span class="step-node ${tts_p === 100 ? 'completed' : (activeStage === 'Озвучую' ? 'active' : '')}" title="Синтез аудіо">Звук</span>
+                                    ${stepsHtml}
                                 </div>
                             </div>
                         `;

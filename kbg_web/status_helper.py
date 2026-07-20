@@ -147,14 +147,25 @@ def calculate_progress(slug):
                 pct = ep.get("percent", 0.0)
             
             is_manga = False
+            generate_audiobook = True
             config_path = paths["config_path"]
             if os.path.exists(config_path):
                 try:
                     with open(config_path, "r", encoding="utf-8") as cf:
-                        is_manga = json.load(cf).get("is_manga", False)
+                        cfg_json = json.load(cf)
+                        is_manga = cfg_json.get("is_manga", False)
+                        generate_audiobook = cfg_json.get("generate_audiobook", True)
                 except Exception:
                     pass
                     
+            if is_manga:
+                overall_percent = pct
+            else:
+                if generate_audiobook:
+                    overall_percent = (100.0 + pct + 0.0 + 0.0) / 4
+                else:
+                    overall_percent = (100.0 + pct) / 2
+
             return {
                 "is_manga": is_manga,
                 "manga_percent": pct,
@@ -163,7 +174,8 @@ def calculate_progress(slug):
                 "marker_percent": 100.0,
                 "translation_percent": pct,
                 "stress_percent": 0.0,
-                "tts_percent": 0.0
+                "tts_percent": 0.0,
+                "overall_percent": round(overall_percent, 1)
             }
         except Exception:
             pass
@@ -171,11 +183,13 @@ def calculate_progress(slug):
     # Check if manga
     config_path = paths["config_path"]
     is_manga = False
+    generate_audiobook = True
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
                 is_manga = cfg.get("is_manga", False)
+                generate_audiobook = cfg.get("generate_audiobook", True)
         except Exception:
             pass
             
@@ -202,7 +216,8 @@ def calculate_progress(slug):
             "marker_percent": manga_percent,
             "translation_percent": manga_percent,
             "stress_percent": manga_percent,
-            "tts_percent": manga_percent
+            "tts_percent": manga_percent,
+            "overall_percent": manga_percent
         }
     
     pdf_path = paths.get("pdf_path")
@@ -338,12 +353,19 @@ def calculate_progress(slug):
         tts_percent = 0.0
         stress_percent = 0.0
     
+    # Calculate overall percent
+    if generate_audiobook:
+        overall_percent = (marker_percent + translation_percent + stress_percent + tts_percent) / 4
+    else:
+        overall_percent = (marker_percent + translation_percent) / 2
+
     return {
         "is_manga": False,
         "marker_percent": round(marker_percent, 1),
         "translation_percent": round(translation_percent, 1),
         "stress_percent": round(stress_percent, 1),
-        "tts_percent": round(tts_percent, 1)
+        "tts_percent": round(tts_percent, 1),
+        "overall_percent": round(overall_percent, 1)
     }
 
 def print_status(slug):
