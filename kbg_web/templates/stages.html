@@ -2614,11 +2614,12 @@
             const rows = chars.map((c, i) => `
                 <tr data-i="${i}" style="border-bottom:1px solid var(--border-color);">
                     <td style="padding:0.4rem; width:50px; text-align:center;">
-                        <div class="cast-thumb-wrap" data-char-id="${c.id}" style="position:relative; width:48px; height:48px; margin:0 auto; cursor:pointer;" title="Клацніть, щоб додати/змінити зображення">
-                            <img src="/api/characters/${slug}/thumbnail/${c.id}" style="width:48px;height:48px;object-fit:cover;border-radius:6px; display:block;" onerror="this.style.display='none'">
+                        <div class="cast-thumb-wrap" data-char-id="${c.id}" style="width:48px; height:48px; margin:0 auto; cursor:pointer;" title="Клацніть, щоб додати/змінити фото персонажа">
+                            <div class="cast-thumb-placeholder" style="width:48px; height:48px; border:1px dashed var(--border-color); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:1.2rem; color:var(--text-secondary);">📷</div>
+                            <img src="/api/characters/${slug}/thumbnail/${c.id}" style="width:48px;height:48px;object-fit:cover;border-radius:6px; display:none;" onerror="this.style.display='none'">
                             <input type="file" accept="image/*" class="cast-thumb-input" style="display:none;">
                         </div>
-                        <a href="#" class="cast-thumb-reset" data-char-id="${c.id}" style="font-size:0.7rem; color:var(--text-secondary);">↺</a>
+                        <a href="#" class="cast-thumb-reset" data-char-id="${c.id}" style="font-size:0.7rem; color:var(--text-secondary); display:none;" title="Прибрати фото">↺ скинути</a>
                     </td>
                     <td style="padding:0.4rem;"><input value="${(c.name_source||[]).join(', ')}" data-f="name_source" style="width:98%"></td>
                     <td><input value="${c.name_target||''}" data-f="name_target" style="width:95%"></td>
@@ -2674,9 +2675,25 @@
             // TASK-78: per-character image, for BOTH auto-drafted and
             // manually-added characters (the manual-add flow otherwise
             // has no way to attach a picture at all).
+            // TASK-81: the empty state used to be a blank 48x48 box with
+            // nothing visible at all (img.onerror just hides itself) - Q
+            // circled it in a screenshot asking what it even was. Now a
+            // dashed-border 📷 placeholder fills that space until a real
+            // image loads, and the ↺ reset link only shows once there's
+            // actually something to reset.
+            const setThumbState = (wrap, hasImage) => {
+                const charId = wrap.dataset.charId;
+                wrap.querySelector('.cast-thumb-placeholder').style.display = hasImage ? 'none' : 'flex';
+                wrap.querySelector('img').style.display = hasImage ? 'block' : 'none';
+                const resetLink = container.querySelector(`.cast-thumb-reset[data-char-id="${charId}"]`);
+                if (resetLink) resetLink.style.display = hasImage ? '' : 'none';
+            };
             container.querySelectorAll('.cast-thumb-wrap').forEach(wrap => {
                 const charId = wrap.dataset.charId;
                 const fileInput = wrap.querySelector('.cast-thumb-input');
+                const img = wrap.querySelector('img');
+                img.addEventListener('load', () => setThumbState(wrap, true));
+                img.addEventListener('error', () => setThumbState(wrap, false));
                 wrap.addEventListener('click', () => fileInput.click());
                 fileInput.addEventListener('change', async () => {
                     const f = fileInput.files[0];
@@ -2686,8 +2703,7 @@
                     const res = await fetch(`/api/characters/${slug}/thumbnail/${charId}`, {method:'POST', body: fd});
                     const j = await res.json();
                     if (res.ok) {
-                        wrap.querySelector('img').src = `/api/characters/${slug}/thumbnail/${charId}?v=${Date.now()}`;
-                        wrap.querySelector('img').style.display = '';
+                        img.src = `/api/characters/${slug}/thumbnail/${charId}?v=${Date.now()}`;
                     } else alert(j.message || 'Помилка завантаження зображення');
                 });
             });
@@ -2697,7 +2713,6 @@
                 await fetch(`/api/characters/${slug}/thumbnail/${charId}`, {method:'DELETE'});
                 const wrap = container.querySelector(`.cast-thumb-wrap[data-char-id="${charId}"]`);
                 const img = wrap.querySelector('img');
-                img.style.display = '';
                 img.src = `/api/characters/${slug}/thumbnail/${charId}?v=${Date.now()}`;
             }));
             const en = document.getElementById('cast-enable');
