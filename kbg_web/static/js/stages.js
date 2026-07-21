@@ -9,7 +9,6 @@
             };
         })();
 
-        const slug = "{{ slug }}";
         let isManga = false;
         let bookData = null;
         let currentMangaPage = 0;
