@@ -74,6 +74,40 @@ def main():
     # resume is one of these two, give it a moment to release RAM, then
     # proceed. Never do this for a translation resume - that pipeline
     # NEEDS llama-server running.
+    # Check autostart_llama setting
+    global_settings_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "global_settings.json"
+    )
+    autostart_llama = False
+    if os.path.exists(global_settings_path):
+        try:
+            with open(global_settings_path, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                autostart_llama = settings.get("autostart_llama", False)
+        except Exception:
+            pass
+
+    # If it is a translation run, it needs the translation server.
+    NEEDS_LLAMA_RUNNING = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py")
+    needs_llama = any(n in str(part) for part in cmd for n in NEEDS_LLAMA_RUNNING)
+    if "--no-translate" in cmd:
+        needs_llama = False
+
+    if needs_llama and not autostart_llama:
+        # Check if llama-server is already running anyway
+        import socket
+        llama_running = False
+        try:
+            with socket.create_connection(("127.0.0.1", 8081), timeout=0.5):
+                llama_running = True
+        except Exception:
+            pass
+        if not llama_running:
+            print(f"[AutoResume] Llama translation server autostart is disabled and server is not running. "
+                  f"Skipping auto-resume of translation for '{slug}' to prevent overloading the device.")
+            return
+
     NEEDS_LLAMA_STOPPED = ("agent_editor.py", "cast_ner_prepass.py")
     resuming_name = next((n for n in NEEDS_LLAMA_STOPPED
                           if any(n in str(part) for part in cmd)), None)
