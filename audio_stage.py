@@ -506,6 +506,40 @@ def main():
 
     log("All chunk files verified successfully.")
 
+    # Run ASR verification loop if enabled
+    if paths.get("enable_asr_verify", False):
+        log("Running ASR verification on newly synthesized chunks...")
+        try:
+            from common.asr_verify import verify_chunk, append_to_stress_queue
+            
+            model_dir = os.path.join(repo_dir, "models", "sherpa-onnx-whisper-small-int8")
+            queue_path = os.path.join(paths["book_dir"], "asr_stress_queue.json")
+            
+            if unique_missing_chunks:
+                log(f"Analyzing {len(unique_missing_chunks)} new chunks using Whisper...")
+                for mc in unique_missing_chunks:
+                    chunk_hash = mc["hash"]
+                    chunk_text = mc["text"]
+                    audio_path = os.path.join(chunks_dir, f"{chunk_hash}.wav")
+                    
+                    if os.path.exists(audio_path):
+                        flag = verify_chunk(
+                            chunk_id=chunk_hash,
+                            audio_path=audio_path,
+                            original_text=chunk_text,
+                            model_dir=model_dir,
+                            cer_threshold=0.15,
+                            language=target_lang,
+                        )
+                        if flag["mismatch"]:
+                            append_to_stress_queue(flag, queue_path)
+                            log(f"  ASR Mismatch on {chunk_hash} (CER: {flag['char_error_rate']:.4f}). "
+                                f"Ref: '{chunk_text}' | Hyp: '{flag['transcribed_text']}'")
+            else:
+                log("No new chunks were synthesized in this run. Skipping ASR analysis.")
+        except Exception as e:
+            log(f"Warning: ASR verification loop failed: {e}")
+
     # Create ffmpeg list file with silence and fade-out
     log("Preparing chunks with fade-out and silence padding...")
 

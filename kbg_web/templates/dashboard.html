@@ -2645,6 +2645,15 @@
                         позначає сумнівні місця для перегляду. Приблизно вдвічі збільшує час
                         перекладу.</span>
                     </label>
+                </div>
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-top:0.8rem;">
+                    <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                        <input type="checkbox" id="bs-asr" ${s.enable_asr_verify ? 'checked' : ''}
+                               style="width:20px; height:20px; margin-top:0.1rem;">
+                        <span><b>🎙️ Верифікація наголосів ASR (Whisper)</b> — автоматично порівнює
+                        синтезоване аудіо з оригінальним текстом для виявлення неправильних наголосів
+                        та поміщає їх у чергу перевірки наголосів.</span>
+                    </label>
                 </div>`;
             }
             body.innerHTML = html;
@@ -2665,6 +2674,8 @@
             if (honEl) honEl.addEventListener("change", () => save("keep_honorifics", honEl.checked));
             const mqmEl = document.getElementById("bs-mqm");
             if (mqmEl) mqmEl.addEventListener("change", () => save("enable_mqm_review", mqmEl.checked));
+            const asrEl = document.getElementById("bs-asr");
+            if (asrEl) asrEl.addEventListener("change", () => save("enable_asr_verify", asrEl.checked));
         }
 
         function closeBookSettings() {

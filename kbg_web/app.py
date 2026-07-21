@@ -1453,6 +1453,7 @@ def get_book_settings_api(slug):
         "is_manga": bool(cfg.get("is_manga")),
         "enable_agent_editor": bool(cfg.get("enable_agent_editor")),
         "generate_audiobook": bool(cfg.get("generate_audiobook")),
+        "enable_asr_verify": bool(cfg.get("enable_asr_verify")),
         "keep_honorifics": bool(cfg.get("keep_honorifics")),
         "manga_resolution": cfg.get("manga_resolution", "1280x1920"),
         "enable_mqm_review": bool(cfg.get("enable_mqm_review")),
@@ -1500,6 +1501,8 @@ def set_book_settings_api(slug):
         # roughly doubles per-segment LLM time (an extra reviewer call for
         # every translated paragraph) - must never silently turn on.
         cfg["enable_mqm_review"] = bool(data["enable_mqm_review"])
+    if "enable_asr_verify" in data:
+        cfg["enable_asr_verify"] = bool(data["enable_asr_verify"])
 
     _atomic_write_json(cfg_path, cfg, ensure_ascii=False, indent=2)
     return jsonify({"status": "success"})
@@ -2597,6 +2600,21 @@ def preview_manga_quality_flags(slug):
         return jsonify({"status": "error", "message": f"Failed to read quality flags: {e}"}), 500
     return jsonify({"status": "success", "flags": flags})
 
+@app.route("/api/preview/asr-quality-flags/<slug>")
+def preview_asr_quality_flags(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    asr_queue_path = os.path.join(paths["book_dir"], "asr_stress_queue.json")
+    if not os.path.exists(asr_queue_path):
+        return jsonify({"status": "success", "flags": []})
+    try:
+        with open(asr_queue_path, "r", encoding="utf-8") as f:
+            flags = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read ASR quality flags: {e}"}), 500
+    return jsonify({"status": "success", "flags": flags})
+
 @app.route("/api/preview/book/<slug>")
 def preview_book_stages(slug):
     if not validate_slug(slug):
@@ -2782,6 +2800,22 @@ def edit_stress(slug, chunk_hash):
 
     edit = edit_store.add_edit(slug, mode="stress", target_id=chunk_hash, field="stress",
                                 original_value=original_stress, edited_value=new_stress)
+
+    # Auto-resolve ASR quality flag if it exists for this chunk
+    paths = resolve_book_paths(repo_dir, slug)
+    asr_queue_path = os.path.join(paths["book_dir"], "asr_stress_queue.json")
+    if os.path.exists(asr_queue_path):
+        try:
+            with open(asr_queue_path, "r", encoding="utf-8") as f:
+                flags = json.load(f)
+            new_flags = [flag for flag in flags if flag.get("chunk_id") != chunk_hash]
+            tmp_path = asr_queue_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(new_flags, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, asr_queue_path)
+        except Exception:
+            pass
+
     return jsonify({"status": "success", "edit": edit})
 
 @app.route("/api/edit/queue/<slug>")
@@ -3025,6 +3059,27 @@ def edit_discard(slug, edit_id):
     if not edit:
         return jsonify({"status": "error", "message": "Edit not found"}), 404
     edit_store.mark_status(slug, edit_id, "discarded")
+    return jsonify({"status": "success"})
+
+@app.route("/api/edit/stress/discard/<slug>/<chunk_hash>", methods=["POST"])
+def edit_stress_discard(slug, chunk_hash):
+    if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
+        return jsonify({"status": "error", "message": "Invalid parameters"}), 400
+    
+    paths = resolve_book_paths(repo_dir, slug)
+    asr_queue_path = os.path.join(paths["book_dir"], "asr_stress_queue.json")
+    if os.path.exists(asr_queue_path):
+        try:
+            with open(asr_queue_path, "r", encoding="utf-8") as f:
+                flags = json.load(f)
+            new_flags = [flag for flag in flags if flag.get("chunk_id") != chunk_hash]
+            tmp_path = asr_queue_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(new_flags, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, asr_queue_path)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to modify ASR queue: {e}"}), 500
+            
     return jsonify({"status": "success"})
 
 @app.route("/api/edit/manga-text/<slug>/<page_filename>", methods=["PUT"])

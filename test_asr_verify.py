@@ -159,94 +159,107 @@ class TestBuildMismatchFlag(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# transcribe (mocked subprocess)
+# transcribe (mocked sherpa-onnx)
 # ---------------------------------------------------------------------------
 
 class TestTranscribe(unittest.TestCase):
 
-    def _fake_whisper_path(self):
-        """Створює тимчасовий порожній файл як мок бінарника."""
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix="whisper-cli")
-        tmp.close()
-        return tmp.name
+    def setUp(self):
+        # Clear cache before each test
+        import common.asr_verify
+        common.asr_verify._recognizer = None
+
+        self.mock_numpy = MagicMock()
+        self.mock_sherpa = MagicMock()
+        self.mock_wave = MagicMock()
+
+        self.dict_patcher = patch.dict("sys.modules", {
+            "numpy": self.mock_numpy,
+            "sherpa_onnx": self.mock_sherpa
+        })
+        self.dict_patcher.start()
+
+        self.wave_patcher = patch("wave.open", self.mock_wave)
+        self.wave_patcher.start()
+
+    def tearDown(self):
+        self.dict_patcher.stop()
+        self.wave_patcher.stop()
+
+    def _fake_dir(self):
+        tmp = tempfile.TemporaryDirectory()
+        for name in ["encoder.onnx", "decoder.onnx", "tokens.txt"]:
+            with open(os.path.join(tmp.name, name), "w") as f:
+                f.write("")
+        return tmp
 
     def _fake_wav_path(self):
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         tmp.close()
         return tmp.name
 
-    def test_transcribe_returns_stdout(self):
-        whisper_bin = self._fake_whisper_path()
+    def test_transcribe_success(self):
+        tmpdir = self._fake_dir()
         wav_path = self._fake_wav_path()
         try:
-            mock_result = MagicMock()
-            mock_result.stdout = "  Він пішов додому.  \n"
-            mock_result.returncode = 0
+            # Set up wave mock
+            mock_file = MagicMock()
+            mock_file.getnchannels.return_value = 1
+            mock_file.getsampwidth.return_value = 2
+            mock_file.getframerate.return_value = 16000
+            mock_file.getnframes.return_value = 16000
+            mock_file.readframes.return_value = b"\x00" * 32000
+            self.mock_wave.return_value.__enter__.return_value = mock_file
 
-            with patch("subprocess.run", return_value=mock_result) as mock_run:
-                result = transcribe(
-                    audio_path=wav_path,
-                    whisper_cli_path=whisper_bin,
-                    model_path="/models/whisper-small.gguf",
-                )
-                self.assertEqual(result, "Він пішов додому.")
-                # Перевіряємо що subprocess.run викликався
-                mock_run.assert_called_once()
-                call_args = mock_run.call_args
-                cmd = call_args[0][0]
-                # Перевіряємо структуру команди
-                self.assertIn(whisper_bin, cmd)
-                self.assertIn("-f", cmd)
-                self.assertIn(wav_path, cmd)
-                self.assertIn("-l", cmd)
-                self.assertIn("uk", cmd)
+            # Set up numpy mock
+            self.mock_numpy.frombuffer.return_value = MagicMock()
+
+            # Set up sherpa_onnx mock
+            mock_recognizer = MagicMock()
+            mock_stream = MagicMock()
+            mock_stream.result.text = "Hello world"
+            mock_recognizer.create_stream.return_value = mock_stream
+            self.mock_sherpa.OfflineRecognizer.from_whisper.return_value = mock_recognizer
+
+            result = transcribe(
+                audio_path=wav_path,
+                model_dir=tmpdir.name,
+                language="uk",
+                num_threads=4
+            )
+
+            self.assertEqual(result, "Hello world")
+            self.mock_sherpa.OfflineRecognizer.from_whisper.assert_called_once_with(
+                encoder=os.path.join(tmpdir.name, "encoder.onnx"),
+                decoder=os.path.join(tmpdir.name, "decoder.onnx"),
+                tokens=os.path.join(tmpdir.name, "tokens.txt"),
+                num_threads=4,
+                language="uk",
+                task="transcribe"
+            )
         finally:
-            os.unlink(whisper_bin)
+            tmpdir.cleanup()
             os.unlink(wav_path)
 
-    def test_transcribe_raises_filenotfound_for_missing_binary(self):
+    def test_transcribe_raises_filenotfound_for_missing_model_dir(self):
         with self.assertRaises(FileNotFoundError) as ctx:
             transcribe(
                 audio_path="/tmp/some.wav",
-                whisper_cli_path="/nonexistent/whisper-cli",
-                model_path="/models/whisper-small.gguf",
+                model_dir="/nonexistent/model_dir",
             )
-        self.assertIn("whisper-cli binary not found", str(ctx.exception))
+        self.assertIn("Whisper model directory not found", str(ctx.exception))
 
     def test_transcribe_raises_filenotfound_for_missing_audio(self):
-        whisper_bin = self._fake_whisper_path()
+        tmpdir = self._fake_dir()
         try:
             with self.assertRaises(FileNotFoundError) as ctx:
                 transcribe(
                     audio_path="/nonexistent/audio.wav",
-                    whisper_cli_path=whisper_bin,
-                    model_path="/models/whisper-small.gguf",
+                    model_dir=tmpdir.name,
                 )
             self.assertIn("Audio file not found", str(ctx.exception))
         finally:
-            os.unlink(whisper_bin)
-
-    def test_transcribe_passes_extra_args(self):
-        whisper_bin = self._fake_whisper_path()
-        wav_path = self._fake_wav_path()
-        try:
-            mock_result = MagicMock()
-            mock_result.stdout = "Текст"
-            mock_result.returncode = 0
-
-            with patch("subprocess.run", return_value=mock_result) as mock_run:
-                transcribe(
-                    audio_path=wav_path,
-                    whisper_cli_path=whisper_bin,
-                    model_path="/models/whisper-small.gguf",
-                    extra_args=["--threads", "4", "--beam-size", "5"],
-                )
-                cmd = mock_run.call_args[0][0]
-                self.assertIn("--threads", cmd)
-                self.assertIn("4", cmd)
-        finally:
-            os.unlink(whisper_bin)
-            os.unlink(wav_path)
+            tmpdir.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +310,6 @@ class TestAppendToStressQueue(unittest.TestCase):
                 chunk_id="c1", audio_path="/tmp/c1.wav",
                 original_text="x", transcribed_text="x",
             )
-            # Не повинно кидати виняток
             append_to_stress_queue(flag, queue_path)
             with open(queue_path, encoding="utf-8") as f:
                 data = json.load(f)
@@ -314,7 +326,6 @@ class TestAppendToStressQueue(unittest.TestCase):
             append_to_stress_queue(flag, queue_path)
             with open(queue_path, encoding="utf-8") as f:
                 raw = f.read()
-            # ensure_ascii=False: кирилиця не має бути ескейпована
             self.assertIn("Він пішов додому.", raw)
 
 
@@ -326,7 +337,6 @@ class TestVerifyChunk(unittest.TestCase):
 
     def test_verify_chunk_ok(self):
         """verify_chunk returns flag with mismatch=False on good transcription."""
-        whisper_bin_mock = "/fake/whisper-cli"
         wav_mock = "/fake/audio.wav"
 
         with patch("common.asr_verify.transcribe", return_value="він пішов додому") as mock_t:
@@ -334,27 +344,25 @@ class TestVerifyChunk(unittest.TestCase):
                 chunk_id="book1_ch01",
                 audio_path=wav_mock,
                 original_text="Він пішов додому.",
-                whisper_cli_path=whisper_bin_mock,
-                model_path="/models/whisper-small.gguf",
+                model_dir="/models/whisper-small-onnx",
                 cer_threshold=0.15,
             )
             mock_t.assert_called_once()
         self.assertFalse(flag["mismatch"])
-        self.assertEqual(flag["asr_backend"], "whisper-cli")
+        self.assertEqual(flag["asr_backend"], "sherpa-onnx")
 
     def test_verify_chunk_on_transcription_error(self):
         """verify_chunk returns mismatch=True (fail-safe) on ASR exception."""
-        with patch("common.asr_verify.transcribe", side_effect=FileNotFoundError("no binary")):
+        with patch("common.asr_verify.transcribe", side_effect=FileNotFoundError("no model files")):
             flag = verify_chunk(
                 chunk_id="book1_ch02",
                 audio_path="/fake/audio.wav",
                 original_text="Він пішов додому.",
-                whisper_cli_path="/nonexistent/whisper-cli",
-                model_path="/models/whisper-small.gguf",
+                model_dir="/nonexistent/model",
             )
         self.assertTrue(flag["mismatch"])
         self.assertIn("<error:", flag["transcribed_text"])
-        self.assertEqual(flag["asr_backend"], "whisper-cli-error")
+        self.assertEqual(flag["asr_backend"], "sherpa-onnx-error")
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +370,6 @@ class TestVerifyChunk(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Виводимо детальний звіт
     loader = unittest.TestLoader()
     suite = loader.loadTestsFromModule(sys.modules[__name__])
     runner = unittest.TextTestRunner(verbosity=2)

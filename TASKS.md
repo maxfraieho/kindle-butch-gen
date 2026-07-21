@@ -1327,6 +1327,18 @@ for cand in glob.glob(os.path.join(book_dir, "translated", "merged*_*.md")) + \
 4. НЕ інтегруй ще в `translate_segment_with_retry`/основний pipeline перекладу (як окремий, тестований модуль спочатку - Q підтвердить підключення окремо, той самий патерн, що TASK-86's `asr_verify.py`).
 5. Реальні тести з мокованим `requests.post` - перевір: (а) нормальна відповідь з валідним JSON парситься коректно, (б) LLM повертає щось, що НЕ парситься як JSON - fail-safe спрацьовує (accept=true, не падає), (в) LLM повертає score поза діапазоном 1-10 - обробляється розумно (clamp чи ignore, на твій розсуд), (г) реальний виклик `build/append` до `translation_quality_flags.json` (як TASK-86's `append_to_stress_queue` - атомарний запис tmp+os.replace, той самий патерн проєкту).
 
+
+## [ ] TASK-89: Підключення ASR-петлі верифікації наголосів (`common/asr_verify.py`) до audio-пайплайну
+* **Problem:** ASR-петля верифікації наголосів (`common/asr_verify.py`), яка порівнює синтезоване аудіо з оригінальним текстом для виявлення неправильних наголосів (mismatch-ів), готова та протестована у stateless-режимі (30/30 тестів), але все ще не підключена до основного `audio_stage.py` конвеєра.
+* **Solution:**
+  1. Замінити в `common/asr_verify.py` subprocess-виклики `whisper-cli` на Python API виклики через `sherpa_onnx.OfflineRecognizer.from_whisper()` з ледачим імпортом (`numpy`/`sherpa-onnx`) та синглтон-кешуванням інстансу моделі для уникнення OOM та повторного завантаження ваг у RAM.
+  2. Додати прапорець `enable_asr_verify` (opt-in, дефолт `False`) в налаштування книги (`config.json`), Flask API та веб-інтерфейс (Settings modal).
+  3. Інтегрувати верифікацію чанків у `audio_stage.py` строго після завершення синтезу TTS (`tts_helper.py`), запускаючи ASR-декодування лише для нових синтезованих чанків (`unique_missing_chunks`).
+  4. При виявленні невідповідності (CER > 0.15) зберігати результати в `asr_stress_queue.json` книги.
+  5. Створити роути Flask `GET /api/preview/asr-quality-flags/<slug>` та `POST /api/edit/stress/discard/<slug>/<chunk_hash>`. Автоматично видаляти флаги з черги при внесенні ручної правки наголосу через `PUT /api/edit/stress`.
+  6. Відобразити список авто-виявлених помилок ASR у вкладці "Pending Edits" (секція "Auto-flagged ASR") в UI `stages.html` разом з аудіоплеєром та кнопками швидкого редагування/відхилення.
+  7. Забезпечити повний fail-safe контракт: будь-яка помилка ASR ловиться, повертає статус помилки і позначає чанк для ручного рев'ю, ніколи не ламаючи генерацію книги.
+
 ---
 
 ## Відхилено дослідженням (НЕ робити, задокументовано для довідки):

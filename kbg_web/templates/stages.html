@@ -2037,41 +2037,142 @@
                 };
 
                 async function renderPendingEditsList() {
-                    list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">Loading pending edits...</div>`;
+                    list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">Loading pending edits and ASR mismatches...</div>`;
                     let edits = [];
+                    let asrFlags = [];
                     try {
-                        const res = await fetch(`/api/edit/queue/${slug}?status=pending`);
-                        edits = await res.json();
+                        const [res1, res2] = await Promise.all([
+                            fetch(`/api/edit/queue/${slug}?status=pending`),
+                            fetch(`/api/preview/asr-quality-flags/${slug}`)
+                        ]);
+                        edits = await res1.json();
+                        const flagsData = await res2.json();
+                        asrFlags = flagsData.flags || [];
                     } catch (err) {
                         list.innerHTML = `<div style="text-align:center; padding:2rem; color:#ef4444;">Failed to load pending edits: ${err.message}</div>`;
                         return;
                     }
-                    if (edits.length === 0) {
-                        list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">No pending edits.</div>`;
+                    if (edits.length === 0 && asrFlags.length === 0) {
+                        list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-secondary);">No pending edits or ASR mismatches.</div>`;
                         return;
                     }
-                    list.innerHTML = edits.map(e => `
-                        <div class="paragraph-card">
-                            <div class="card-meta">
-                                <span>${e.mode === 'text' ? 'Text edit' : 'Stress edit'} | Hash: ${e.target_id.substring(0, 8)}... | ${new Date(e.created_at).toLocaleString()}</span>
-                                <span class="badge badge-no-audio">${e.status}</span>
-                            </div>
-                            <div class="grid-stages">
-                                <div class="stage-box">
-                                    <div class="stage-title">Before</div>
-                                    <div class="stage-content">${wordDiffHtml(e.original_value, e.edited_value, false)}</div>
+                    
+                    let html = '';
+                    if (edits.length > 0) {
+                        html += `<h3 style="margin:1rem 0 0.5rem; color:var(--text-primary);">📝 Pending Edits (${edits.length})</h3>`;
+                        html += edits.map(e => `
+                            <div class="paragraph-card">
+                                <div class="card-meta">
+                                    <span>${e.mode === 'text' ? 'Text edit' : 'Stress edit'} | Hash: ${e.target_id.substring(0, 8)}... | ${new Date(e.created_at).toLocaleString()}</span>
+                                    <span class="badge badge-no-audio">${e.status}</span>
                                 </div>
-                                <div class="stage-box">
-                                    <div class="stage-title">After</div>
-                                    <div class="stage-content stage-stressed">${wordDiffHtml(e.original_value, e.edited_value, true)}</div>
+                                <div class="grid-stages">
+                                    <div class="stage-box">
+                                        <div class="stage-title">Before</div>
+                                        <div class="stage-content">${wordDiffHtml(e.original_value, e.edited_value, false)}</div>
+                                    </div>
+                                    <div class="stage-box">
+                                        <div class="stage-title">After</div>
+                                        <div class="stage-content stage-stressed">${wordDiffHtml(e.original_value, e.edited_value, true)}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:0.6rem; margin-top:0.8rem;">
+                                    <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="approveEdit('${e.id}', this)">✅ Approve</button>
                                 </div>
                             </div>
-                            <div style="display:flex; gap:0.6rem; margin-top:0.8rem;">
-                                <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="approveEdit('${e.id}', this)">✅ Approve</button>
+                        `).join('');
+                    }
+
+                    if (asrFlags.length > 0) {
+                        html += `<h3 style="margin:2rem 0 0.5rem; color:var(--text-primary);">🎙️ Auto-flagged ASR Stress Mismatches (${asrFlags.length})</h3>`;
+                        html += asrFlags.map(f => {
+                            const hash = f.chunk_id;
+                            const b64Original = btoa(unescape(encodeURIComponent(f.original_text)));
+                            return `
+                            <div class="paragraph-card" id="asr-card-${hash}">
+                                <div class="card-meta">
+                                    <span>ASR Warning | Hash: ${hash.substring(0, 8)}... | CER: ${(f.char_error_rate * 100).toFixed(1)}% (Threshold: ${(f.cer_threshold * 100).toFixed(0)}%)</span>
+                                    <span class="badge badge-no-audio" style="background:#f0b429; color:#18181b;">mismatch</span>
+                                </div>
+                                <div class="grid-stages">
+                                    <div class="stage-box">
+                                        <div class="stage-title">Expected (Original Text)</div>
+                                        <div class="stage-content">${wordDiffHtml(f.original_text, f.transcribed_text, false)}</div>
+                                    </div>
+                                    <div class="stage-box">
+                                        <div class="stage-title">Observed (ASR Transcription)</div>
+                                        <div class="stage-content stage-stressed" style="color:#fca5a5;">${wordDiffHtml(f.original_text, f.transcribed_text, true)}</div>
+                                    </div>
+                                </div>
+                                <div style="margin-top:0.8rem;">
+                                    <audio controls src="/api/preview/audio/${slug}/${hash}" style="width:100%; max-height:40px; margin-bottom:0.6rem;"></audio>
+                                </div>
+                                
+                                <div id="asr-edit-container-${hash}" style="display:none; margin-top:0.8rem; border-top:1px solid var(--border-color); padding-top:0.8rem;">
+                                    <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.3rem;">Stress marks:</label>
+                                    <textarea id="asr-edit-input-${hash}" class="edit-textarea" style="width:100%; min-height:60px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(f.original_text)}</textarea>
+                                    <div style="display:flex; gap:0.6rem; margin-top:0.4rem;">
+                                        <button class="nav-btn" style="padding:0.3rem 0.8rem;" onclick="submitAsrCorrection('${hash}', '${b64Original}')">💾 Save stress mark</button>
+                                        <button class="nav-btn" style="padding:0.3rem 0.8rem; background:#3f3f46; color:#fff;" onclick="toggleAsrEditForm('${hash}')">Cancel</button>
+                                    </div>
+                                </div>
+                                
+                                <div style="display:flex; gap:0.6rem; margin-top:0.8rem;" id="asr-actions-${hash}">
+                                    <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="toggleAsrEditForm('${hash}')">✍️ Edit Stress</button>
+                                    <button class="nav-btn" style="padding:0.4rem 0.9rem; background:#7f1d1d; color:#fca5a5;" onclick="discardAsrWarning('${hash}', this)">❌ Discard</button>
+                                </div>
                             </div>
-                        </div>
-                    `).join('');
+                            `;
+                        }).join('');
+                    }
+                    list.innerHTML = html;
                 }
+
+                window.toggleAsrEditForm = (hash) => {
+                    const el = document.getElementById(`asr-edit-container-${hash}`);
+                    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+                    const actions = document.getElementById(`asr-actions-${hash}`);
+                    if (actions) actions.style.display = actions.style.display === 'none' ? 'flex' : 'none';
+                };
+
+                window.submitAsrCorrection = async (hash, encodedText) => {
+                    const originalText = decodeURIComponent(escape(atob(encodedText)));
+                    const inputEl = document.getElementById(`asr-edit-input-${hash}`);
+                    const newStress = inputEl.value.trim();
+                    if (!newStress) {
+                        alert('Stress marks are required');
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`/api/edit/stress/${slug}/${hash}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ original_stress: originalText, new_stress: newStress })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.message);
+                        renderPendingEditsList();
+                    } catch (err) {
+                        alert('Failed to save stress: ' + err.message);
+                    }
+                };
+
+                window.discardAsrWarning = async (hash, btn) => {
+                    btn.disabled = true;
+                    btn.textContent = 'Discarding...';
+                    try {
+                        const res = await fetch(`/api/edit/stress/discard/${slug}/${hash}`, { method: 'POST' });
+                        if (!res.ok) {
+                            const data = await res.json();
+                            throw new Error(data.message);
+                        }
+                        renderPendingEditsList();
+                    } catch (err) {
+                        alert('Discard failed: ' + err.message);
+                        btn.disabled = false;
+                        btn.textContent = '❌ Discard';
+                    }
+                };
 
                 window.approveEdit = async (editId, btn) => {
                     btn.disabled = true;

@@ -109,73 +109,109 @@ def _normalize(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Транскрипція через whisper-cli subprocess
+# Транскрипція через sherpa-onnx Python API
 # ---------------------------------------------------------------------------
+
+_recognizer = None
 
 def transcribe(
     audio_path: str,
-    whisper_cli_path: str,
-    model_path: str,
-    extra_args: Optional[list[str]] = None,
-    timeout_seconds: int = 120,
+    model_dir: str,
     language: str = "uk",
+    num_threads: int = 4,
 ) -> str:
-    """Call whisper-cli (or compatible binary) and return transcribed text.
+    """Call sherpa-onnx (Whisper model) Python API and return transcribed text.
 
     Args:
-        audio_path:      Existing WAV file to transcribe.
-        whisper_cli_path: Absolute path to the whisper-cli binary.
-                          Example: "/data/data/com.termux/files/home/whisper.cpp/whisper-cli"
-                          The binary does NOT need to exist at import time —
-                          FileNotFoundError is raised only when this function is called.
-        model_path:      Path to the .gguf or .bin Whisper model.
-        extra_args:      Additional CLI flags, e.g. ["--threads", "4"].
-        timeout_seconds: Hard kill timeout.  For phone Q: 120s is conservative
-                         for Short (< 10s) audio chunks.
-        language:        Whisper language code (default "uk" for Ukrainian).
+        audio_path:  Existing WAV file to transcribe.
+        model_dir:   Path to the directory containing Whisper ONNX model files:
+                     encoder.onnx, decoder.onnx, tokens.txt.
+        language:    Whisper language code (default "uk" for Ukrainian).
+        num_threads: Number of threads to use for computation.
 
     Returns:
-        Transcribed text as a plain string (stdout, stripped).
+        Transcribed text as a plain string.
 
     Raises:
-        FileNotFoundError: if whisper_cli_path or audio_path does not exist.
-        subprocess.TimeoutExpired: if transcription exceeds timeout_seconds.
-        subprocess.CalledProcessError: if binary exits non-zero.
-
-    Expected whisper-cli interface (whisper.cpp ≥ 1.5):
-        whisper-cli -m <model> -f <audio> -l <lang> --no-timestamps -otxt
-    The binary prints transcription to stdout (with -otxt or plain).
-    Adjust extra_args if your binary version uses different flags.
+        FileNotFoundError: if model_dir, audio_path, or model files do not exist.
     """
-    if not os.path.isfile(whisper_cli_path):
-        raise FileNotFoundError(
-            f"whisper-cli binary not found: {whisper_cli_path}\n"
-            "Install via: pkg install whisper-cpp  (if available)  OR\n"
-            "  compile whisper.cpp manually (requires Q confirmation — see TASK-86 safety constraints)\n"
-            "  OR use sherpa-onnx Python backend (already installed, model not yet downloaded)."
-        )
+    global _recognizer
+
+    if not os.path.isdir(model_dir):
+        raise FileNotFoundError(f"Whisper model directory not found: {model_dir}")
     if not os.path.isfile(audio_path):
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    cmd = [
-        whisper_cli_path,
-        "-m", model_path,
-        "-f", audio_path,
-        "-l", language,
-        "--no-timestamps",
-        "-otxt",
-    ]
-    if extra_args:
-        cmd.extend(extra_args)
+    # Lazy imports to support running tests on systems without these packages installed
+    import sherpa_onnx
+    import numpy as np
+    import wave
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-        check=True,
-    )
-    return result.stdout.strip()
+    if _recognizer is None:
+        # Resolve required files inside model_dir
+        encoder = os.path.join(model_dir, "encoder.onnx")
+        if not os.path.exists(encoder):
+            for f in os.listdir(model_dir):
+                if f.endswith("encoder.onnx") or f.endswith("encoder.int8.onnx"):
+                    encoder = os.path.join(model_dir, f)
+                    break
+
+        decoder = os.path.join(model_dir, "decoder.onnx")
+        if not os.path.exists(decoder):
+            for f in os.listdir(model_dir):
+                if f.endswith("decoder.onnx") or f.endswith("decoder.int8.onnx"):
+                    decoder = os.path.join(model_dir, f)
+                    break
+
+        tokens = os.path.join(model_dir, "tokens.txt")
+        if not os.path.exists(tokens):
+            for f in os.listdir(model_dir):
+                if f.endswith("tokens.txt"):
+                    tokens = os.path.join(model_dir, f)
+                    break
+
+        if not os.path.isfile(encoder) or not os.path.isfile(decoder) or not os.path.isfile(tokens):
+            raise FileNotFoundError(
+                f"Missing required Whisper model files in {model_dir}.\n"
+                f"Expected encoder.onnx, decoder.onnx, tokens.txt."
+            )
+
+        _recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
+            encoder=encoder,
+            decoder=decoder,
+            tokens=tokens,
+            num_threads=num_threads,
+            language=language,
+            task="transcribe",
+        )
+
+    # Read mono/16-bit WAV file and normalize to float32
+    with wave.open(audio_path, "rb") as f:
+        n_channels = f.getnchannels()
+        sampwidth = f.getsampwidth()
+        sample_rate = f.getframerate()
+        num_frames = f.getnframes()
+        
+        samples_bytes = f.readframes(num_frames)
+        
+        if sampwidth == 2:
+            samples_int16 = np.frombuffer(samples_bytes, dtype=np.int16)
+            samples_float32 = samples_int16.astype(np.float32) / 32768.0
+        elif sampwidth == 1:
+            samples_int8 = np.frombuffer(samples_bytes, dtype=np.uint8)
+            samples_float32 = (samples_int8.astype(np.float32) - 128.0) / 128.0
+        else:
+            raise ValueError(f"Unsupported sample width: {sampwidth}")
+            
+        if n_channels > 1:
+            samples_float32 = samples_float32[::n_channels]
+
+    # Run recognizer on the waveform
+    stream = _recognizer.create_stream()
+    stream.accept_waveform(sample_rate, samples_float32)
+    _recognizer.decode_stream(stream)
+    
+    return stream.result.text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +224,7 @@ def build_mismatch_flag(
     original_text: str,
     transcribed_text: str,
     cer_threshold: float = 0.15,
-    asr_backend: str = "whisper-cli",
+    asr_backend: str = "sherpa-onnx",
     asr_model: str = "",
 ) -> dict:
     """Build a mismatch_flag dict for quality_flags.json / stress review queue.
@@ -199,7 +235,7 @@ def build_mismatch_flag(
       "mismatch": True/False, "char_error_rate": float, ...
     }
 
-    A flag is always returned (mismatch=False if CER ≤ threshold).
+    A flag is always returned (mismatch=False if CER <= threshold).
     The caller decides whether to append to the queue (typically: only if
     mismatch=True, but keeping all flags is also valid for auditing).
 
@@ -209,7 +245,7 @@ def build_mismatch_flag(
         original_text:   The text that was fed to TTS.
         transcribed_text: The text returned by the ASR backend.
         cer_threshold:   CER above which mismatch=True.  Default 0.15 (15%).
-        asr_backend:     Informational: "whisper-cli" | "sherpa-onnx" | "mock".
+        asr_backend:     Informational: "sherpa-onnx" | "mock".
         asr_model:       Informational: model path or name used.
 
     Returns:
@@ -267,10 +303,7 @@ def append_to_stress_queue(flag: dict, queue_path: str) -> None:
 
     # Atomic write (tmp + os.replace) - same convention as
     # kbg_web/app.py's _atomic_write_json and cast_ner_prepass.py's
-    # save_progress. Not yet load-bearing (this module isn't wired into
-    # the live pipeline), but a Termux kill mid-write on a plain open("w")
-    # would leave a truncated/corrupt queue file - exactly the failure
-    # mode this session hit for real tonight elsewhere.
+    # save_progress.
     tmp_path = queue_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(queue, f, ensure_ascii=False, indent=2)
@@ -285,17 +318,15 @@ def verify_chunk(
     chunk_id: str,
     audio_path: str,
     original_text: str,
-    whisper_cli_path: str,
-    model_path: str,
+    model_dir: str,
     cer_threshold: float = 0.15,
     language: str = "uk",
-    extra_args: Optional[list[str]] = None,
-    timeout_seconds: int = 120,
+    num_threads: int = 4,
 ) -> dict:
     """Transcribe audio and build a mismatch_flag in one call.
 
-    This is the main entry point for the ASR loop in audio_stage.py (future
-    integration).  If transcription fails for any reason, returns a flag with
+    This is the main entry point for the ASR loop in audio_stage.py.
+    If transcription fails for any reason, returns a flag with
     transcribed_text="<error: ...>" and mismatch=True so the chunk is always
     queued for manual review on ASR failure (fail-safe, not fail-silent).
 
@@ -307,16 +338,14 @@ def verify_chunk(
     try:
         transcribed = transcribe(
             audio_path=audio_path,
-            whisper_cli_path=whisper_cli_path,
-            model_path=model_path,
-            extra_args=extra_args,
-            timeout_seconds=timeout_seconds,
+            model_dir=model_dir,
             language=language,
+            num_threads=num_threads,
         )
-        asr_backend = "whisper-cli"
+        asr_backend = "sherpa-onnx"
     except Exception as exc:
         transcribed = f"<error: {exc}>"
-        asr_backend = "whisper-cli-error"
+        asr_backend = "sherpa-onnx-error"
 
     return build_mismatch_flag(
         chunk_id=chunk_id,
@@ -325,5 +354,5 @@ def verify_chunk(
         transcribed_text=transcribed,
         cer_threshold=cer_threshold,
         asr_backend=asr_backend,
-        asr_model=model_path,
+        asr_model=model_dir,
     )
