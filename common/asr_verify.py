@@ -148,29 +148,47 @@ def transcribe(
     import wave
 
     if _recognizer is None:
-        # Resolve required files inside model_dir
-        encoder = os.path.join(model_dir, "encoder.onnx")
-        if not os.path.exists(encoder):
+        # Resolve required files inside model_dir, prioritizing int8 quantized versions
+        encoder = None
+        for name in ["encoder.int8.onnx", "small-encoder.int8.onnx", "encoder.onnx", "small-encoder.onnx"]:
+            path = os.path.join(model_dir, name)
+            if os.path.exists(path):
+                encoder = path
+                break
+        if encoder is None:
+            # Fallback search
             for f in os.listdir(model_dir):
-                if f.endswith("encoder.onnx") or f.endswith("encoder.int8.onnx"):
+                if f.endswith("encoder.int8.onnx") or f.endswith("encoder.onnx"):
                     encoder = os.path.join(model_dir, f)
                     break
 
-        decoder = os.path.join(model_dir, "decoder.onnx")
-        if not os.path.exists(decoder):
+        decoder = None
+        for name in ["decoder.int8.onnx", "small-decoder.int8.onnx", "decoder.onnx", "small-decoder.onnx"]:
+            path = os.path.join(model_dir, name)
+            if os.path.exists(path):
+                decoder = path
+                break
+        if decoder is None:
+            # Fallback search
             for f in os.listdir(model_dir):
-                if f.endswith("decoder.onnx") or f.endswith("decoder.int8.onnx"):
+                if f.endswith("decoder.int8.onnx") or f.endswith("decoder.onnx"):
                     decoder = os.path.join(model_dir, f)
                     break
 
-        tokens = os.path.join(model_dir, "tokens.txt")
-        if not os.path.exists(tokens):
+        tokens = None
+        for name in ["tokens.txt", "small-tokens.txt"]:
+            path = os.path.join(model_dir, name)
+            if os.path.exists(path):
+                tokens = path
+                break
+        if tokens is None:
+            # Fallback search
             for f in os.listdir(model_dir):
                 if f.endswith("tokens.txt"):
                     tokens = os.path.join(model_dir, f)
                     break
 
-        if not os.path.isfile(encoder) or not os.path.isfile(decoder) or not os.path.isfile(tokens):
+        if not encoder or not decoder or not tokens or not os.path.isfile(encoder) or not os.path.isfile(decoder) or not os.path.isfile(tokens):
             raise FileNotFoundError(
                 f"Missing required Whisper model files in {model_dir}.\n"
                 f"Expected encoder.onnx, decoder.onnx, tokens.txt."
