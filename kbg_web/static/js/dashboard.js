@@ -454,13 +454,14 @@
             const pick = (exts) => { for (const e of exts) { const f = files.find(x => x.endsWith(e)); if (f) return f; } return null; };
             const primaryFile = pick(['.azw3', '.epub', '.cbz', '.mp3', '.md']);
             if (book.is_running) {
-                return `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">⏸ Зупинити переклад</button>`;
+                return `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:140px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px;">⏸ Зупинити переклад</button>`;
             } else if (primaryFile) {
-                return `<a class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem; text-decoration:none; text-align:center;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити готову книгу</a>
-                    <a href="/view/${book.slug}" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; padding:0.8rem 1rem;">📖 Переглянути</a>
-                    <button onclick="rerunConversionClean('${book.slug}')" class="btn btn-secondary" title="Перекласти книгу повністю з нуля, без жодних кешованих даних" style="display:inline-flex; align-items:center; padding:0.8rem 1rem;">🔁 Перекласти з нуля</button>`;
+                return `
+                    <a href="/view/${book.slug}" class="btn btn-primary" style="flex:1; min-width:130px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px; text-decoration:none; text-align:center; display:inline-flex; align-items:center; justify-content:center; gap:0.4rem;">📖 Читати / Переглянути</a>
+                    <a class="btn btn-success" style="flex:1; min-width:130px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px; text-decoration:none; text-align:center; display:inline-flex; align-items:center; justify-content:center; gap:0.4rem;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити (${primaryFile.split('.').pop().toUpperCase()})</a>
+                `;
             } else {
-                return `<button onclick="runConversion('${book.slug}')" class="btn btn-success" style="flex:1; min-width:200px; font-size:1rem; padding:0.8rem;">▶️ Почати переклад</button>`;
+                return `<button onclick="runConversion('${book.slug}')" class="btn btn-success" style="flex:1; min-width:160px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px;">▶️ Почати переклад</button>`;
             }
         }
 
@@ -673,16 +674,13 @@
                         mangaStepsHtml += `<span class="step-node ${pct === 100 ? 'completed' : (book.is_running ? 'active' : '')}" title="Типографіка та рендер сторінок">Типографіка</span>`;
 
                         progressHtml = `
-                            <div class="pipeline-progress">
-                                <div class="pipeline-progress-header">
+                            <div class="pipeline-progress" style="margin: 0.8rem 0;">
+                                <div class="pipeline-progress-header" style="margin-bottom: 0.4rem; display: flex; justify-content: space-between; font-size: 0.85rem;">
                                     <span class="pipeline-active-stage" id="progressstage-${book.slug}">Перекладаю сторінки: <strong>${comp} із ${tot}</strong></span>
-                                    <span class="pipeline-percent" id="progresspct-${book.slug}">${pct}%</span>
+                                    <span class="pipeline-percent" id="progresspct-${book.slug}" style="font-weight: 600; color: var(--primary);">${pct}%</span>
                                 </div>
-                                <div class="progress-bar-bg">
-                                    <div class="progress-bar-fill fill-translation" id="progressfill-${book.slug}" style="width: ${pct}%"></div>
-                                </div>
-                                <div class="pipeline-steps">
-                                    ${mangaStepsHtml}
+                                <div class="progress-bar-bg" style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;">
+                                    <div class="progress-bar-fill fill-translation" id="progressfill-${book.slug}" style="width: ${pct}%; height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s ease;"></div>
                                 </div>
                             </div>
                         `;
@@ -712,16 +710,13 @@
                         }
 
                         progressHtml = `
-                            <div class="pipeline-progress">
-                                <div class="pipeline-progress-header">
+                            <div class="pipeline-progress" style="margin: 0.8rem 0;">
+                                <div class="pipeline-progress-header" style="margin-bottom: 0.4rem; display: flex; justify-content: space-between; font-size: 0.85rem;">
                                     <span class="pipeline-active-stage" id="progressstage-${book.slug}"><strong>${activeStage}</strong>${activePercent > 0 && activePercent < 100 ? ` (${activePercent}%)` : ''}</span>
-                                    <span class="pipeline-percent" id="progresspct-${book.slug}">${overall_p}%</span>
+                                    <span class="pipeline-percent" id="progresspct-${book.slug}" style="font-weight: 600; color: var(--primary);">${overall_p}%</span>
                                 </div>
-                                <div class="progress-bar-bg">
-                                    <div class="progress-bar-fill pipeline-gradient-fill" id="progressfill-${book.slug}" style="width: ${overall_p}%"></div>
-                                </div>
-                                <div class="pipeline-steps">
-                                    ${stepsHtml}
+                                <div class="progress-bar-bg" style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden;">
+                                    <div class="progress-bar-fill pipeline-gradient-fill" id="progressfill-${book.slug}" style="width: ${overall_p}%; height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s ease;"></div>
                                 </div>
                             </div>
                         `;
@@ -1819,5 +1814,15 @@
             document.querySelectorAll('.kebab-dropdown.active').forEach(el => {
                 el.classList.remove('active');
             });
+            window.closeHeaderMenu();
         });
     
+        window.toggleHeaderMenu = (event) => {
+            event.stopPropagation();
+            const dropdown = document.getElementById('headerSettingsDropdown');
+            if (dropdown) dropdown.classList.toggle('active');
+        };
+        window.closeHeaderMenu = () => {
+            const dropdown = document.getElementById('headerSettingsDropdown');
+            if (dropdown) dropdown.classList.remove('active');
+        };

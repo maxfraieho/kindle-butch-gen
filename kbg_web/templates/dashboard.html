@@ -71,25 +71,22 @@
             <div class="glass-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
                     <h2 class="card-title" style="margin: 0; border-bottom: none; padding-bottom: 0; flex: 1; min-width: 150px;">Мої книги</h2>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button class="btn btn-primary btn-add-book-header" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openAddBookModal()">
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                        <button class="btn btn-primary btn-add-book-header" style="padding: 0.45rem 0.9rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openAddBookModal()">
                             <span>➕</span> Додати книгу
                         </button>
-                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openModelsSelector()">
-                            <span>🤖</span> Моделі
-                        </button>
-                        <button class="btn-outline" id="selfUpdateBtn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="runSelfUpdate()">
-                            <span>🔄</span> Оновити Vydra
-                        </button>
-                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openFolderSelector()">
-                            <span>⚙</span> Куди зберігати
-                        </button>
-                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openPasswordModal()">
-                            <span>🔑</span> Пароль
-                        </button>
-                        <button class="btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; border-radius: 8px; cursor: pointer;" onclick="openAppSettings()">
-                            <span>⚙️</span> Налаштування
-                        </button>
+                        <div class="kebab-menu-container" style="position: relative;">
+                            <button onclick="toggleHeaderMenu(event)" class="btn-outline" style="padding: 0.45rem 0.9rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.35rem; border-radius: 8px; cursor: pointer;">
+                                <span>⚙️</span> Налаштування ▾
+                            </button>
+                            <div class="kebab-dropdown" id="headerSettingsDropdown" style="right: 0; left: auto; top: 110%; min-width: 200px;">
+                                <button onclick="openModelsSelector(); closeHeaderMenu();" class="dropdown-item">🤖 Моделі</button>
+                                <button onclick="openFolderSelector(); closeHeaderMenu();" class="dropdown-item">📁 Куди зберігати</button>
+                                <button onclick="openPasswordModal(); closeHeaderMenu();" class="dropdown-item">🔑 Пароль</button>
+                                <button onclick="openAppSettings(); closeHeaderMenu();" class="dropdown-item">⚙️ Загальні налаштування</button>
+                                <button id="selfUpdateBtn" onclick="runSelfUpdate(); closeHeaderMenu();" class="dropdown-item">🔄 Оновити Vydra</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="save-location-info">
