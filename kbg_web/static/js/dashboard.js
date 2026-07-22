@@ -1322,15 +1322,6 @@
                         </div>
                     </div>
                     <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
-                        <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
-                            <input type="checkbox" id="bs-agent" ${s.enable_agent_editor ? 'checked' : ''} ${s.entitled ? '' : 'disabled'}
-                                   style="width:20px; height:20px; margin-top:0.1rem;">
-                            <span><b>🤖 Агент-редактор</b> — візуально перевіряє й пропонує виправлення
-                            проблемних сторінок манґи (кожна пропозиція чекає вашого підтвердження).</span>
-                        </label>
-                        <div style="margin-top:0.4rem; font-size:0.82rem;">${lockLine}</div>
-                    </div>
-                    <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
                         <label style="font-size:0.85rem; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">📖 Пристрій для читання (роздільність) — типово для цієї книги</label>
                         <select id="bs-resolution" class="form-control" style="padding: 0.5rem; font-size: 0.9rem; width: 100%;">
                             <option value="1280x1920" ${s.manga_resolution === '1280x1920' ? 'selected' : ''}>Safe Default (1280x1920)</option>
@@ -1342,44 +1333,73 @@
                             <option value="original" ${s.manga_resolution === 'original' ? 'selected' : ''}>Original (без зміни розміру)</option>
                         </select>
                     </div>`;
-            } else {
-                html += `
-                    <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem; font-size:0.85rem; color:var(--text-secondary);">
-                        🎧 Чекбокс "Аудіокнига" у Додаткових налаштуваннях картки тепер сам
-                        запам'ятовує стан для цієї книги — окремого перемикача тут немає.
-                    </div>`;
             }
+
             html += `
-                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem;">
+                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-bottom:0.8rem;">
                     <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
                         <input type="checkbox" id="bs-honorifics" ${s.keep_honorifics ? 'checked' : ''}
-                               style="width:20px; height:20px; margin-top:0.1rem;">
-                        <span><b>🈂️ Зберігати гоноративи</b> — не перекладати суфікси на кшталт
-                        -сан, -чан, -кун, залишати як у оригіналі.</span>
+                               style="width:20px; height:20px; margin-top:0.1rem; accent-color:var(--primary);">
+                        <span><b>🈂️ Зберігати гоноративи</b> — не перекладати суфікси на кшталт -сан, -чан, -кун, залишати як у оригіналі.</span>
                     </label>
                 </div>`;
-            if (!s.is_manga) {
-                html += `
-                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-top:0.8rem;">
-                    <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
-                        <input type="checkbox" id="bs-mqm" ${s.enable_mqm_review ? 'checked' : ''}
-                               style="width:20px; height:20px; margin-top:0.1rem;">
-                        <span><b>🔍 Перевірка якості перекладу</b> — окрема модель-рецензент оцінює
-                        кожен перекладений абзац (1-10, шукає пропуски й смислові викривлення) і
-                        позначає сумнівні місця для перегляду. Приблизно вдвічі збільшує час
-                        перекладу.</span>
-                    </label>
-                </div>
-                <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; margin-top:0.8rem;">
-                    <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
-                        <input type="checkbox" id="bs-asr" ${s.enable_asr_verify ? 'checked' : ''}
-                               style="width:20px; height:20px; margin-top:0.1rem;">
-                        <span><b>🎙️ Верифікація наголосів ASR (Whisper)</b> — автоматично порівнює
-                        синтезоване аудіо з оригінальним текстом для виявлення неправильних наголосів
-                        та поміщає їх у чергу перевірки наголосів.</span>
-                    </label>
+
+            // UI 2.0 Premium Section Header & Checkboxes for Audio & Text Translation
+            const statusBadge = s.entitled
+                ? `<span style="color:#22c55e; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.3); padding:0.2rem 0.5rem; border-radius:6px; font-size:0.75rem; font-weight:600;">✓ Активно</span>`
+                : `<span style="color:#f0b429; background:rgba(240,180,41,0.15); border:1px solid rgba(240,180,41,0.3); padding:0.2rem 0.5rem; border-radius:6px; font-size:0.75rem; font-weight:600;">🔒 Потребує підтримки</span>`;
+
+            html += `
+                <div style="border:1px solid rgba(240,180,41,0.3); background:rgba(240,180,41,0.03); border-radius:12px; padding:0.9rem; margin-top:0.8rem;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem; padding-bottom:0.6rem; border-bottom:1px solid rgba(255,255,255,0.08);">
+                        <span style="font-weight:700; color:#f0b429; font-size:0.95rem; display:flex; align-items:center; gap:0.4rem;">
+                            👑 Преміум-можливості (UI 2.0)
+                        </span>
+                        ${statusBadge}
+                    </div>
+
+                    <!-- 🎙️ ASR-верифікація наголосів (Whisper) (аудіопайплайн) -->
+                    <div style="margin-bottom:0.8rem; padding-bottom:0.8rem; border-bottom:1px solid rgba(255,255,255,0.06);">
+                        <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                            <input type="checkbox" id="bs-asr" ${s.enable_asr_verify ? 'checked' : ''} ${s.entitled ? '' : 'disabled'}
+                                   style="width:20px; height:20px; margin-top:0.15rem; accent-color:var(--primary);">
+                            <div>
+                                <span style="font-weight:600; color:var(--text-main, #fff);">🎙️ ASR-верифікація наголосів (Whisper)</span>
+                                <p style="font-size:0.82rem; color:var(--text-secondary); margin:0.25rem 0 0 0; line-height:1.35;">
+                                    Порівнює синтезоване аудіо з текстом через Whisper для виявлення помилок наголосів і направлення їх у чергу верифікації.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- 🧠 MQM-оцінка якості (текстовий переклад) -->
+                    <div style="margin-bottom:0.8rem; padding-bottom:0.8rem; border-bottom:1px solid rgba(255,255,255,0.06);">
+                        <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                            <input type="checkbox" id="bs-mqm" ${s.enable_mqm_review ? 'checked' : ''} ${s.entitled ? '' : 'disabled'}
+                                   style="width:20px; height:20px; margin-top:0.15rem; accent-color:var(--primary);">
+                            <div>
+                                <span style="font-weight:600; color:var(--text-main, #fff);">🧠 MQM-оцінка якості перекладу</span>
+                                <p style="font-size:0.82rem; color:var(--text-secondary); margin:0.25rem 0 0 0; line-height:1.35;">
+                                    Окрема модель-рецензент аналізує кожен перекладений абзац (1-10, шукає пропуски й смислові викривлення) і позначає сумнівні місця для перегляду.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- 🤖 Агент-редактор (текстовий переклад & манґа) -->
+                    <div>
+                        <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer;">
+                            <input type="checkbox" id="bs-agent" ${s.enable_agent_editor ? 'checked' : ''} ${s.entitled ? '' : 'disabled'}
+                                   style="width:20px; height:20px; margin-top:0.15rem; accent-color:var(--primary);">
+                            <div>
+                                <span style="font-weight:600; color:var(--text-main, #fff);">🤖 Агент-редактор (Gemma 3 4B)</span>
+                                <p style="font-size:0.82rem; color:var(--text-secondary); margin:0.25rem 0 0 0; line-height:1.35;">
+                                    Автономний ШІ перевіряє складні й проблемні місця перекладу та пропонує виправлення з вашим підтвердженням.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
                 </div>`;
-            }
             body.innerHTML = html;
 
             const save = async (field, value) => {
