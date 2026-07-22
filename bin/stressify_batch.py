@@ -90,8 +90,9 @@ def main():
         print(text)
         sys.exit(0)
 
-    input_path = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
-    output_path = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    input_path = os.path.join(repo_dir, "books", "temp_unstressed.json")
+    output_path = os.path.join(repo_dir, "books", "temp_stressed.json")
 
     if not os.path.exists(input_path):
         print(f"[StressifyBatch] Error: Input file {input_path} not found.", file=sys.stderr)

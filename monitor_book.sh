@@ -7,12 +7,14 @@ SLUG="${1:-three-days-of-happiness}"
 # whatever the current live web login actually is instead of a stale
 # baked-in value that silently stops working (or leaks an old secret)
 # the moment the password is rotated.
+TERMUX_HOME="${TERMUX_HOME:-$HOME}"
 WEB_USER="${KBG_WEB_USER:-admin}"
-WEB_PASSWORD="${KBG_WEB_PASSWORD:?Set KBG_WEB_PASSWORD before running monitor_book.sh}"
+WEB_PASSWORD="${KBG_WEB_PASSWORD:?Вкажіть KBG_WEB_PASSWORD перед запуском monitor_book.sh}"
 AUTH="${WEB_USER}:${WEB_PASSWORD}"
 BASE_URL="http://localhost:5000"
 LLAMA_URL="http://localhost:8081"
-LLAMA_MODEL="/data/data/com.termux/files/home/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf"
+LLAMA_MODEL="${LLAMA_MODEL:-$TERMUX_HOME/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf}"
+LLAMA_SERVER="${LLAMA_SERVER:-$TERMUX_HOME/llama.cpp/build/bin/llama-server}"
 CHECK_INTERVAL=60   # seconds between checks
 STALL_LIMIT=6       # checks with no progress = 6min stall → restart
 
@@ -32,19 +34,19 @@ except: print('fail')
 }
 
 restart_llama() {
-    log "Restarting llama-server..."
+    log "Перезапуск llama-server..."
     pkill -f "llama-serve[r]" 2>/dev/null
     sleep 3
-    nohup /data/data/com.termux/files/home/llama.cpp/build/bin/llama-server \
+    nohup "$LLAMA_SERVER" \
         -m "$LLAMA_MODEL" -c 4096 -ngl 99 -t 8 \
         --host 0.0.0.0 --port 8081 \
         > /tmp/llama-server.log 2>&1 &
-    log "llama-server PID: $!"
+    log "PID сервера llama-server: $!"
     sleep 10
 }
 
 restart_conversion() {
-    log "Restarting conversion for $SLUG..."
+    log "Перезапуск конвертації для $SLUG..."
     python3 -c "
 import requests
 from requests.auth import HTTPBasicAuth
@@ -55,7 +57,7 @@ print(r.status_code, r.text[:100])
 "
 }
 
-log "=== Starting monitor for: $SLUG ==="
+log "=== Запуск моніторингу для книги: $SLUG ==="
 
 while true; do
     # Get status
@@ -78,39 +80,39 @@ except Exception as ex:
 " 2>/dev/null)
 
     if [[ "$STATUS" == error:* ]]; then
-        log "API error: $STATUS"
+        log "Помилка API: $STATUS"
         sleep $CHECK_INTERVAL
         continue
     fi
 
     IFS='|' read -r running trans stress tts edit <<< "$STATUS"
-    log "Running=$running | Trans=${trans}% | Stress=${stress}% | TTS=${tts}% | Edit=${edit}%"
+    log "Запущено=$running | Переклад=${trans}% | Наголоси=${stress}% | TTS=${tts}% | Редагування=${edit}%"
 
     # Check if fully done
     if (( $(echo "$tts >= 99.9" | python3 -c "import sys; print(int(eval(sys.stdin.read())))") )); then
-        log "=== ALL STAGES COMPLETE! TTS at ${tts}% ==="
-        log "Shutting down services..."
+        log "=== УСІ ЕТАПИ ЗАВЕРШЕНО! Озвучка TTS на ${tts}% ==="
+        log "Завершення робочих процесів..."
         pkill -f "llama-serve[r]"
         pkill -f "kbg_web/app[.]py"
         pkill -f "translate_epub[.]py"
         pkill -f "run_conversio[n]"
-        log "Done. All services stopped."
+        log "Готово. Усі сервіси зупинено."
         exit 0
     fi
 
     # Check llama-server health
     llama_health=$(check_llama)
     if [[ "$llama_health" != "ok" ]]; then
-        log "llama-server is DOWN! Restarting..."
+        log "llama-server СТОЇТЬ! Перезапуск..."
         restart_llama
     fi
 
     # Check for stall
     if [[ "$running" == "0" ]]; then
         stall_count=$((stall_count + 1))
-        log "Process not running. Stall count: $stall_count/$STALL_LIMIT"
+        log "Процес не запущено. Кількість затримок: $stall_count/$STALL_LIMIT"
         if [[ $stall_count -ge $STALL_LIMIT ]]; then
-            log "Stalled! Restarting conversion..."
+            log "Затримка виконання! Перезапуск конвертації..."
             restart_conversion
             stall_count=0
             sleep 5
@@ -119,9 +121,9 @@ except Exception as ex:
         # Check progress stall
         if [[ "$trans" == "$prev_pct" ]] && (( $(echo "$trans < 99.9" | python3 -c "import sys; print(int(eval(sys.stdin.read())))") )); then
             stall_count=$((stall_count + 1))
-            log "No progress change. Stall count: $stall_count/$STALL_LIMIT"
+            log "Прогрес відсутній. Кількість затримок: $stall_count/$STALL_LIMIT"
             if [[ $stall_count -ge $STALL_LIMIT ]]; then
-                log "Progress stalled! Restarting..."
+                log "Прогрес зупинився! Перезапуск..."
                 pkill -f "translate_epub[.]py" 2>/dev/null
                 sleep 2
                 restart_conversion

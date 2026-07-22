@@ -71,27 +71,27 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
     
     if not os.path.exists(input_path):
-        log(f"Error: Input file '{input_path}' does not exist.")
+        log(f"Помилка: Вихідний файл '{input_path}' не існує.")
         sys.exit(1)
         
     # Check server availability and wait for model loading
     if not wait_for_server_ready(args.api_url):
-        log("Error: Translation server did not become ready in time.")
-        log("Please start the translation server using:")
+        log("Помилка: Сервер перекладу не готовий до роботи.")
+        log("Будь ласка, запустіть сервер перекладу за допомогою:")
         log("llama-server -m ~/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf -c 4096 -t 4 --port 8081")
         sys.exit(1)
         
-    log(f"Reading source file: {input_path}")
+    log(f"Читання вихідного файлу: {input_path}")
     with open(input_path, "r", encoding="utf-8") as f:
         source_text = f.read()
         
-    log("Protecting Markdown elements with placeholders...")
+    log("Захист елементів Markdown заповнювачами (placeholders)...")
     pm = PlaceholderManager()
     protected_text = pm.protect(source_text)
     
-    log("Splitting text into logical segments...")
+    log("Розбиття тексту на логічні сегменти...")
     segments = split_into_segments(protected_text)
-    log(f"Total segments to translate: {len(segments)}")
+    log(f"Усього сегментів для перекладу: {len(segments)}")
     
     # Load cache
     cache = {}
@@ -99,9 +99,9 @@ def main():
         try:
             with open(cache_path, "r", encoding="utf-8") as cf:
                 cache = json.load(cf)
-            log(f"Loaded cache from {cache_path} with {len(cache)} entries.")
+            log(f"Завантажено кеш з {cache_path} ({len(cache)} записів).")
         except Exception as e:
-            log(f"Warning: Failed to load cache: {e}. Starting fresh.")
+            log(f"Попередження: Не вдалося завантажити кеш: {e}. Початок з нуля.")
             
     translated_segments = []
     
@@ -110,10 +110,10 @@ def main():
         if seg_hash in cache:
             translated_segments.append(cache[seg_hash])
         else:
-            log(f"Translating segment {idx+1}/{len(segments)} (length: {len(seg)} chars)...")
+            log(f"Переклад сегменту {idx+1}/{len(segments)} (довжина: {len(seg)} симв.)...")
             translated_seg = translate_segment_with_retry(seg, pm, args.api_url, target_lang=target_lang, source_lang=paths["source_lang"], book_dir=paths["book_dir"])
             if not translated_seg:
-                raise ValueError(f"Critical error: Failed to translate segment {idx+1} after all attempts.")
+                raise ValueError(f"Критична помилка: Не вдалося перекласти сегмент {idx+1} після всіх спроб.")
             translated_segments.append(translated_seg)
             # Save to cache
             cache[seg_hash] = translated_seg
@@ -121,12 +121,12 @@ def main():
                 with open(cache_path, "w", encoding="utf-8") as cf:
                     json.dump(cache, cf, ensure_ascii=False, indent=2)
             except Exception as e:
-                log(f"Warning: Failed to save cache: {e}")
+                log(f"Попередження: Не вдалося зберегти кеш: {e}")
                 
-    log("Merging translated segments...")
+    log("Об'єднання перекладених сегментів...")
     translated_protected_text = "\n\n".join(translated_segments)
     
-    log("Restoring placeholders...")
+    log("Відновлення оригінальних елементів Markdown...")
     final_text = pm.restore(translated_protected_text)
     
     # Write to output. Locked because a live edit (TASK-23) may concurrently
@@ -134,7 +134,7 @@ def main():
     with file_lock(output_path):
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(final_text)
-    log(f"Translation completed successfully! Saved to: {output_path}")
+    log(f"Переклад успішно завершено! Збережено у: {output_path}")
 
 if __name__ == "__main__":
     main()

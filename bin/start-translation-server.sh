@@ -13,11 +13,12 @@ termux-wake-lock
 
 export LD_LIBRARY_PATH="$HOME:/system/lib64:/vendor/lib64:$PREFIX/opt/vendor/lib:$HOME/llama.cpp/build/bin"
 
-MODEL=$(python3 -c "import json; print(json.load(open('/data/data/com.termux/files/home/kindle-butch-gen/global_settings.json')).get('translation_model', '/data/data/com.termux/files/home/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf'))")
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODEL=$(python3 -c "import json, os; s_path=os.path.join('${REPO_DIR}', 'global_settings.json'); home=os.path.expanduser('~'); default_m=os.path.join(home, 'models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf'); print(json.load(open(s_path)).get('translation_model', default_m)) if os.path.exists(s_path) else print(default_m)")
 PORT=8081
 PID_FILE="${1:-$HOME/llama-server-8081.pid}"
 
-echo "$(date): Starting Hy-MT2-7B on port $PORT with OpenCL GPU..."
+echo "$(date): Запуск моделі перекладу Hy-MT2-7B на порту $PORT..."
 
 cd ~/llama.cpp/build/bin
 nohup ./llama-server \

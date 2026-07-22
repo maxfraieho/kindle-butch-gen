@@ -10,14 +10,14 @@ cd "$REPO_DIR"
 validate_slug() {
   local slug="$1"
   if [[ ! "$slug" =~ ^[a-z0-9_-]+$ ]]; then
-    echo "Error: Invalid slug '$slug'. Must match ^[a-z0-9_-]+$" >&2
+    echo "Помилка: Недійсний ідентифікатор '$slug'. Повинен відповідати шаблону ^[a-z0-9_-]+$" >&2
     exit 1
   fi
 }
 
 show_usage() {
-  echo "Usage: $0 <action> [arguments]"
-  echo "Actions:"
+  echo "Використання: $0 <команда> [аргументи]"
+  echo "Команди:"
   echo "  add <slug> --pdf <path> --title <title> --authors <authors> --lang <lang>"
   echo "  run <slug> [--clean] [--no-translate] [--no-ebook] [--no-audio]"
   echo "  status <slug>"
@@ -34,7 +34,7 @@ case "$ACTION" in
   add)
     SLUG="$2"
     if [ -z "$SLUG" ]; then
-      echo "Error: Missing book slug" >&2
+      echo "Помилка: Відсутній ідентифікатор книги (slug)" >&2
       show_usage
     fi
     validate_slug "$SLUG"
@@ -197,28 +197,28 @@ except Exception:
     if [ "$IS_TRANSLATION_NEEDED" = "true" ] && [ "$NO_TRANSLATE" -eq 0 ]; then
       # Verify translation server connectivity
       if ! LD_LIBRARY_PATH="" curl -s --connect-timeout 2 "http://127.0.0.1:8081" >/dev/null; then
-        echo "Translation server is not running on port 8081. Attempting to start it..."
+        echo "Сервер перекладу не запущено на порту 8081. Спроба запуску..."
         if [ -f "$HOME/start-translation-server.sh" ]; then
           bash "$HOME/start-translation-server.sh"
-          echo -n "Waiting for translation server to boot..."
+          echo -n "Очікування готовності сервера перекладу..."
           for i in {1..15}; do
             if LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081" >/dev/null; then
-              echo " Connected!"
+              echo " Підключено!"
               break
             fi
             echo -n "."
             sleep 1
           done
           if ! LD_LIBRARY_PATH="" curl -s --connect-timeout 1 "http://127.0.0.1:8081" >/dev/null; then
-            echo " Error: Translation server failed to start on port 8081." >&2
+            echo " Помилка: Сервер перекладу не зміг стартувати на порту 8081." >&2
             exit 1
           fi
         else
-          echo "Error: Translation server helper script (~/start-translation-server.sh) not found." >&2
+          echo "Помилка: Скрипт запуску сервера перекладу (~/start-translation-server.sh) не знайдено." >&2
           exit 1
         fi
       else
-        echo "Translation server is already up and running on port 8081."
+        echo "Сервер перекладу вже працює на порту 8081."
       fi
     fi
     

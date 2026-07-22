@@ -1390,8 +1390,61 @@
                     });
                 } catch (e) { /* best-effort - user can retry by reopening */ }
             };
+
+            const checkAndConsentModel = async (field, checkbox, modelKey, consentText, downloadTarget) => {
+                if (!checkbox.checked) {
+                    await save(field, false);
+                    return;
+                }
+
+                if (modelKey && modelKey !== 'none') {
+                    try {
+                        const statusRes = await fetch('/api/premium/models-status');
+                        const status = await statusRes.json();
+
+                        let modelReady = false;
+                        if (modelKey === 'asr_whisper' && status.asr_whisper) {
+                            modelReady = status.asr_whisper.ready;
+                        } else if (modelKey === 'gemma' && status.gemma) {
+                            modelReady = status.gemma.ready && (status.mmproj ? status.mmproj.ready : true);
+                        }
+
+                        if (!modelReady) {
+                            const userConfirmed = confirm(consentText || "Для роботи цієї функції потрібно завантажити додаткові нейромережеві моделі. Рекомендовано Wi-Fi. Завантажити зараз?");
+                            if (!userConfirmed) {
+                                checkbox.checked = false;
+                                await save(field, false);
+                                return;
+                            }
+                            // User consented to download
+                            const dlRes = await fetch('/api/premium/download-models', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    target: downloadTarget,
+                                    consent_accepted: true,
+                                    gemma_terms_accepted: true
+                                })
+                            });
+                            const dlData = await dlRes.json();
+                            alert(dlData.message || "Завантаження моделей розпочато у фоні.");
+                        }
+                    } catch (e) {
+                        console.warn("Could not verify model status:", e);
+                    }
+                }
+
+                await save(field, true);
+            };
+
             const agentEl = document.getElementById("bs-agent");
-            if (agentEl) agentEl.addEventListener("change", () => save("enable_agent_editor", agentEl.checked));
+            if (agentEl) agentEl.addEventListener("change", () => checkAndConsentModel(
+                "enable_agent_editor",
+                agentEl,
+                "gemma",
+                "Для роботи цієї функції потрібні моделі Gemma 3 4B та Vision Projector (~3.5 ГБ). Рекомендовано Wi-Fi. Завантажити зараз?",
+                "gemma"
+            ));
             const resEl = document.getElementById("bs-resolution");
             if (resEl) resEl.addEventListener("change", () => save("manga_resolution", resEl.value));
             const honEl = document.getElementById("bs-honorifics");
@@ -1399,7 +1452,13 @@
             const mqmEl = document.getElementById("bs-mqm");
             if (mqmEl) mqmEl.addEventListener("change", () => save("enable_mqm_review", mqmEl.checked));
             const asrEl = document.getElementById("bs-asr");
-            if (asrEl) asrEl.addEventListener("change", () => save("enable_asr_verify", asrEl.checked));
+            if (asrEl) asrEl.addEventListener("change", () => checkAndConsentModel(
+                "enable_asr_verify",
+                asrEl,
+                "asr_whisper",
+                "Для роботи цієї функції потрібно завантажити додаткові нейромережеві моделі (наприклад, Whisper для розпізнавання мовлення, ~245 МБ). Рекомендовано Wi-Fi. Завантажити зараз?",
+                "asr"
+            ));
         }
 
         function closeBookSettings() {

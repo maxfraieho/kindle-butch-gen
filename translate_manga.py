@@ -7,9 +7,11 @@ import sys
 # JS ReferenceError (fixed separately), not CPU contention - the phone
 # now has a cooler and can sustain more cores. Cap at 6/8 to match
 # mapaki's own established precedent, leaving 2 cores of headroom.
-os.environ.setdefault("OMP_NUM_THREADS", "6")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "6")
-os.environ.setdefault("MKL_NUM_THREADS", "6")
+_detected_cpus = max(1, (os.cpu_count() or 8) - 2)
+num_cpus_str = str(_detected_cpus)
+os.environ.setdefault("OMP_NUM_THREADS", num_cpus_str)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", num_cpus_str)
+os.environ.setdefault("MKL_NUM_THREADS", num_cpus_str)
 
 import re
 import argparse
@@ -24,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import requests
 import cv2
-cv2.setNumThreads(6)
+cv2.setNumThreads(_detected_cpus)
 
 repo_dir = os.path.dirname(os.path.abspath(__file__))
 if repo_dir not in sys.path:
@@ -60,7 +62,7 @@ def log(msg):
     print(f"[{Path(__file__).name}] {msg}")
 
 def download_detector_model():
-    model_dir = "/data/data/com.termux/files/home/kindle-butch-gen/models/comic_text_detector"
+    model_dir = os.path.join(repo_dir, "models", "comic_text_detector")
     os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, "detector.pt")
     if not os.path.exists(model_path):

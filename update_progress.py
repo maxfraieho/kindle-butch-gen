@@ -6,7 +6,7 @@ import urllib.request
 from datetime import datetime
 
 # Configuration
-REPO_DIR = "/data/data/com.termux/files/home/kindle-butch-gen"
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 CHUNKS_DIR = os.path.join(REPO_DIR, "books/vibe-programming/audio/chunks_styletts2")
 STATE_FILE = os.path.join(REPO_DIR, "books/vibe-programming/audiobook_progress_state.json")
 MCP_URL = "http://192.168.3.184:49374/mcp"

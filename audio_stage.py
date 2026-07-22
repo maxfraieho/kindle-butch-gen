@@ -381,9 +381,9 @@ def main():
                             to_stressify.append(mc)
 
                     if to_stressify:
-                        log(f"Running batch stressifier on {len(to_stressify)} new chunks in PRoot container...")
-                        temp_input = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_unstressed.json"
-                        temp_output = "/data/data/com.termux/files/home/kindle-butch-gen/books/temp_stressed.json"
+                        log(f"Запуск пакетного розставлення наголосів (stressifier) для {len(to_stressify)} нових фрагментів у середовищі PRoot...")
+                        temp_input = os.path.join(repo_dir, "books", "temp_unstressed.json")
+                        temp_output = os.path.join(repo_dir, "books", "temp_stressed.json")
                         
                         with open(temp_input, "w", encoding="utf-8") as f:
                             json.dump({
@@ -392,7 +392,7 @@ def main():
                             }, f, ensure_ascii=False, indent=2)
                         cmd_stress = [
                             "proot-distro", "login", "ubuntu", "--",
-                            "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py"
+                            "python3", os.path.join(repo_dir, "bin", "stressify_batch.py")
                         ]
                         subprocess.run(cmd_stress, stdin=subprocess.DEVNULL, check=True)
                         
@@ -414,20 +414,20 @@ def main():
                             try:
                                 with open(stress_cache_path, "w", encoding="utf-8") as f:
                                     json.dump(stress_cache, f, ensure_ascii=False, indent=2)
-                                log("Saved updated stress cache.")
+                                log("Збережено оновлений кеш наголосів.")
                             except Exception as e:
-                                log(f"Warning: Failed to save stress cache: {e}")
+                                log(f"Попередження: Не вдалося зберегти кеш наголосів: {e}")
                         else:
-                            log("Warning: temp_stressed.json not found. Proceeding with raw text.")
+                            log("Попередження: temp_stressed.json не знайдено. Продовження з вихідним текстом.")
                             
                         if os.path.exists(temp_input):
                             os.remove(temp_input)
                         if os.path.exists(temp_output):
                             os.remove(temp_output)
                     else:
-                        log("All chunks already exist in stress cache. Skipping stressifier.")
+                        log("Усі фрагменти вже є в кеші наголосів. Пропуск розстановки наголосів.")
                 except Exception as e:
-                    log(f"Warning: Preprocessing (stressifier/NFD) failed: {e}. Proceeding with raw text.")
+                    log(f"Попередження: Попередня обробка (stressifier/NFD) завершилася з помилкою: {e}. Продовження з вихідним текстом.")
 
             # Prepare payload for tts_helper.py
             # TASK-23: kbg_web/app.py's edit_regenerate_audio writes queued
@@ -453,7 +453,7 @@ def main():
                 payload["noise_w"] = noise_w
             payload_json = json.dumps(payload, ensure_ascii=False)
 
-            helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
+            helper_path = os.path.join(repo_dir, "bin", "tts_helper.py")
             
             # Call tts_helper.py natively in Termux
             cmd = [
@@ -508,37 +508,47 @@ def main():
 
     # Run ASR verification loop if enabled
     if paths.get("enable_asr_verify", False):
-        log("Running ASR verification on newly synthesized chunks...")
-        try:
-            from common.asr_verify import verify_chunk, append_to_stress_queue
-            
-            model_dir = os.path.join(repo_dir, "models", "sherpa-onnx-whisper-small-int8")
-            queue_path = os.path.join(paths["book_dir"], "asr_stress_queue.json")
-            
-            if unique_missing_chunks:
-                log(f"Analyzing {len(unique_missing_chunks)} new chunks using Whisper...")
-                for mc in unique_missing_chunks:
-                    chunk_hash = mc["hash"]
-                    chunk_text = mc["text"]
-                    audio_path = os.path.join(chunks_dir, f"{chunk_hash}.wav")
-                    
-                    if os.path.exists(audio_path):
-                        flag = verify_chunk(
-                            chunk_id=chunk_hash,
-                            audio_path=audio_path,
-                            original_text=chunk_text,
-                            model_dir=model_dir,
-                            cer_threshold=0.15,
-                            language=target_lang,
-                        )
-                        if flag["mismatch"]:
-                            append_to_stress_queue(flag, queue_path)
-                            log(f"  ASR Mismatch on {chunk_hash} (CER: {flag['char_error_rate']:.4f}). "
-                                f"Ref: '{chunk_text}' | Hyp: '{flag['transcribed_text']}'")
-            else:
-                log("No new chunks were synthesized in this run. Skipping ASR analysis.")
-        except Exception as e:
-            log(f"Warning: ASR verification loop failed: {e}")
+        model_dir = os.path.join(repo_dir, "models", "sherpa-onnx-whisper-small-int8")
+        alt_model_dir = os.path.expanduser("~/models/sherpa-onnx-whisper-small-int8")
+        target_model_dir = model_dir if os.path.exists(model_dir) else alt_model_dir
+
+        encoder_ok = any(os.path.isfile(os.path.join(target_model_dir, f)) and os.path.getsize(os.path.join(target_model_dir, f)) > 10000000 for f in ["small-encoder.int8.onnx", "encoder.int8.onnx", "encoder.onnx"] if os.path.exists(os.path.join(target_model_dir, f)))
+        decoder_ok = any(os.path.isfile(os.path.join(target_model_dir, f)) and os.path.getsize(os.path.join(target_model_dir, f)) > 10000000 for f in ["small-decoder.int8.onnx", "decoder.int8.onnx", "decoder.onnx"] if os.path.exists(os.path.join(target_model_dir, f)))
+        tokens_ok = any(os.path.isfile(os.path.join(target_model_dir, f)) and os.path.getsize(os.path.join(target_model_dir, f)) > 10000 for f in ["small-tokens.txt", "tokens.txt"] if os.path.exists(os.path.join(target_model_dir, f)))
+
+        if not (os.path.exists(target_model_dir) and encoder_ok and decoder_ok and tokens_ok):
+            log("Попередження: Прапорець enable_asr_verify увімкнено, але моделі Whisper ASR відсутні або не повністю завантажені. Пропуск верифікації наголосів.")
+        else:
+            log("Running ASR verification on newly synthesized chunks...")
+            try:
+                from common.asr_verify import verify_chunk, append_to_stress_queue
+                
+                queue_path = os.path.join(paths["book_dir"], "asr_stress_queue.json")
+                
+                if unique_missing_chunks:
+                    log(f"Analyzing {len(unique_missing_chunks)} new chunks using Whisper...")
+                    for mc in unique_missing_chunks:
+                        chunk_hash = mc["hash"]
+                        chunk_text = mc["text"]
+                        audio_path = os.path.join(chunks_dir, f"{chunk_hash}.wav")
+                        
+                        if os.path.exists(audio_path):
+                            flag = verify_chunk(
+                                chunk_id=chunk_hash,
+                                audio_path=audio_path,
+                                original_text=chunk_text,
+                                model_dir=target_model_dir,
+                                cer_threshold=0.15,
+                                language=target_lang,
+                            )
+                            if flag["mismatch"]:
+                                append_to_stress_queue(flag, queue_path)
+                                log(f"  ASR Mismatch on {chunk_hash} (CER: {flag['char_error_rate']:.4f}). "
+                                    f"Ref: '{chunk_text}' | Hyp: '{flag['transcribed_text']}'")
+                else:
+                    log("No new chunks were synthesized in this run. Skipping ASR analysis.")
+            except Exception as e:
+                log(f"Warning: ASR verification loop failed: {e}")
 
     # Create ffmpeg list file with silence and fade-out
     log("Preparing chunks with fade-out and silence padding...")

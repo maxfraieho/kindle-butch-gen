@@ -434,22 +434,22 @@ def add_book_api():
     is_manga = bool(data.get("is_manga", False))
     
     if not slug or not pdf_path or not title or not authors or not lang:
-        return jsonify({"status": "error", "message": "All fields are required"}), 400
+        return jsonify({"status": "error", "message": "Усі поля є обов'язковими"}), 400
         
     if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
         
     if source_lang == "auto":
-        return jsonify({"status": "error", "message": "Auto-detect source language is not supported for local PDF paths. Please select the correct language."}), 400
+        return jsonify({"status": "error", "message": "Автовизначення вихідної мови не підтримується для локальних PDF шляхів. Будь ласка, оберіть мову вручну."}), 400
         
     if not os.path.exists(pdf_path):
-        return jsonify({"status": "error", "message": "Source PDF file not found"}), 400
+        return jsonify({"status": "error", "message": "Вихідний PDF-файл не знайдено"}), 400
         
     try:
         # Create folder structure
         paths = resolve_book_paths(repo_dir, slug)
         if os.path.exists(paths["config_path"]):
-            return jsonify({"status": "error", "message": "Book with this slug already exists. Use a different slug or delete the existing book first"}), 409
+            return jsonify({"status": "error", "message": "Книга з таким ідентифікатором вже існує. Використовуйте інший slug або видаліть існуючу книгу"}), 409
         book_dir = paths["book_dir"]
         
         os.makedirs(book_dir, exist_ok=True)
@@ -463,7 +463,7 @@ def add_book_api():
         ext = ""
         if os.path.isdir(pdf_path):
             if not is_manga:
-                return jsonify({"status": "error", "message": "Source path is a directory. Directory sources are only supported for Manga."}), 400
+                return jsonify({"status": "error", "message": "Вихідний шлях є директорією. Джерело-директорія підтримується лише для манґи."}), 400
             dest_dir = os.path.join(book_dir, "source")
             shutil.copytree(pdf_path, dest_dir, dirs_exist_ok=True)
             pages = len([f for f in os.listdir(dest_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
@@ -598,7 +598,7 @@ def parse_metadata_api():
 @app.route("/api/upload", methods=["POST"])
 def upload_file_api():
     if "file" not in request.files:
-        return jsonify({"status": "error", "message": "No file uploaded"}), 400
+        return jsonify({"status": "error", "message": "Файл не завантажено"}), 400
         
     uploaded_file = request.files["file"]
     slug = request.form.get("slug", "").strip()
@@ -608,23 +608,23 @@ def upload_file_api():
     source_lang = request.form.get("source_lang", "").strip() or lang
     
     if not slug or not title or not authors or not lang:
-        return jsonify({"status": "error", "message": "All fields (slug, title, authors, lang) are required"}), 400
+        return jsonify({"status": "error", "message": "Усі поля (slug, назва, автори, мова) є обов'язковими"}), 400
         
     if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
         
     paths = resolve_book_paths(repo_dir, slug)
     if os.path.exists(paths["config_path"]):
-        return jsonify({"status": "error", "message": "Book with this slug already exists. Use a different slug or delete the existing book first"}), 409
+        return jsonify({"status": "error", "message": "Книга з таким ідентифікатором вже існує. Використовуйте інший slug або видаліть існуючу книгу"}), 409
         
     filename = uploaded_file.filename
     ext = os.path.splitext(filename)[1].lower()
     if ext != ".epub" and source_lang == "auto":
-        return jsonify({"status": "error", "message": "Auto-detect source language is only supported for EPUB files. Please select the correct language."}), 400
+        return jsonify({"status": "error", "message": "Автовизначення вихідної мови підтримується лише для EPUB файлів. Будь ласка, оберіть мову вручну."}), 400
         
     manga_extensions = [".cbz", ".cbr", ".cb7", ".zip", ".rar"]
     if ext not in [".pdf", ".epub", ".txt", ".md"] + manga_extensions:
-        return jsonify({"status": "error", "message": f"Unsupported file extension '{ext}'"}), 400
+        return jsonify({"status": "error", "message": f"Непідтримуване розширення файлу '{ext}'"}), 400
         
     try:
         is_manga = ext in manga_extensions or request.form.get("is_manga", "false").lower() == "true"
@@ -721,11 +721,11 @@ def upload_file_api():
 @app.route("/api/run/<slug>", methods=["POST"])
 def run_conversion_api(slug):
     if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
         
     paths = resolve_book_paths(repo_dir, slug)
     if not os.path.exists(paths["book_dir"]):
-        return jsonify({"status": "error", "message": "Book directory not found"}), 404
+        return jsonify({"status": "error", "message": "Директорію книги не знайдено"}), 404
         
     data = request.get_json() or {}
     force = data.get("force", False)
@@ -741,7 +741,7 @@ def run_conversion_api(slug):
 
     if is_running:
         if not force:
-            return jsonify({"status": "error", "message": "Conversion is already running"}), 400
+            return jsonify({"status": "error", "message": "Конвертація вже виконується"}), 400
         # force=true: kill existing process and continue
         try:
             if slug in active_processes:
@@ -824,7 +824,7 @@ def run_conversion_api(slug):
         # Run translate_manga.py inside PRoot Ubuntu container
         cmd = [
             "proot-distro", "login", "ubuntu", "--", 
-            "python3", "-u", "/data/data/com.termux/files/home/kindle-butch-gen/translate_manga.py",
+            "python3", "-u", os.path.join(repo_dir, "translate_manga.py"),
             "--input", manga_input,
             "--output", manga_output,
             "--lang", cfg.get("source_lang", "en"),
@@ -933,14 +933,14 @@ def run_conversion_api(slug):
 @app.route("/api/stop/<slug>", methods=["POST"])
 def stop_conversion_api(slug):
     if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
         
     if slug not in active_processes:
-        return jsonify({"status": "error", "message": "No process running for this book"}), 400
+        return jsonify({"status": "error", "message": "Немає активного процесу для цієї книги"}), 400
         
     proc = active_processes[slug]
     if proc.poll() is not None:
-        return jsonify({"status": "error", "message": "Process has already terminated"}), 400
+        return jsonify({"status": "error", "message": "Процес вже завершено"}), 400
         
     try:
         proc.terminate()
@@ -954,20 +954,20 @@ def stop_conversion_api(slug):
 
         paths = resolve_book_paths(repo_dir, slug)
         with open(paths["log_path"], "a", encoding="utf-8") as f:
-            f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Conversion process terminated by user ---\n")
+            f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Процес конвертації зупинено користувачем ---\n")
 
-        return jsonify({"status": "success", "message": "Process terminated successfully"})
+        return jsonify({"status": "success", "message": "Процес успішно зупинено"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/delete/<slug>", methods=["POST"])
 def delete_book_api(slug):
     if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
 
     paths = resolve_book_paths(repo_dir, slug)
     if not os.path.exists(paths["book_dir"]):
-        return jsonify({"status": "error", "message": "Book directory not found"}), 404
+        return jsonify({"status": "error", "message": "Директорію книги не знайдено"}), 404
 
     is_running = False
     if slug in active_processes:
@@ -978,24 +978,24 @@ def delete_book_api(slug):
         is_running = True
 
     if is_running:
-        return jsonify({"status": "error", "message": "Stop the conversion before deleting this book"}), 400
+        return jsonify({"status": "error", "message": "Зупиніть конвертацію перед видаленням цієї книги"}), 400
 
     try:
         shutil.rmtree(paths["book_dir"])
         active_processes.pop(slug, None)
         completed_copied.discard(slug)
-        return jsonify({"status": "success", "message": f"Book '{slug}' deleted"})
+        return jsonify({"status": "success", "message": f"Книгу '{slug}' видалено"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/status/<slug>")
 def status_api(slug):
     if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Invalid slug format"}), 400
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
         
     paths = resolve_book_paths(repo_dir, slug)
     if not os.path.exists(paths["book_dir"]):
-        return jsonify({"status": "error", "message": "Book directory not found"}), 404
+        return jsonify({"status": "error", "message": "Директорію книги не знайдено"}), 404
         
     # Check running status
     is_running = False
@@ -1185,7 +1185,7 @@ def tts_preview(slug):
             try:
                 cmd_stress = [
                     "proot-distro", "login", "ubuntu", "--",
-                    "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py",
+                    "python3", os.path.join(repo_dir, "bin", "stressify_batch.py"),
                     "--inline", text
                 ]
                 res_stress = subprocess.run(cmd_stress, capture_output=True, text=True, timeout=15)
@@ -1212,7 +1212,7 @@ def tts_preview(slug):
                 payload["voice_quality"] = voice_quality
                 payload["noise_scale"] = noise_scale
                 payload["noise_w"] = noise_w
-            helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
+            helper_path = os.path.join(repo_dir, "bin", "tts_helper.py")
             cmd = [
                 sys.executable, helper_path
             ]
@@ -1271,20 +1271,21 @@ def browse_fs():
     home when Android storage isn't accessible (e.g. Flask autostarted
     via Termux:Boot before storage mounted, or termux-setup-storage never
     run), with a hint the UI shows verbatim."""
-    ALLOWED_ROOTS = ["/storage/emulated/0", "/data/data/com.termux/files/home"]
+    termux_home = os.environ.get("TERMUX_HOME", os.path.expanduser("~"))
+    ALLOWED_ROOTS = ["/storage/emulated/0", termux_home]
     requested = request.args.get("path")
     path = os.path.abspath(requested or "/storage/emulated/0")
     if not any(path.startswith(root) for root in ALLOWED_ROOTS):
-        return jsonify({"error": "Path outside allowed roots"}), 403
+        return jsonify({"error": "Доступ за межами дозволених каталогів заборонено"}), 403
 
     hint = None
     if requested is None and not os.path.isdir(path):
         # Default root unavailable - fall back instead of failing.
-        path = "/data/data/com.termux/files/home"
+        path = termux_home
         hint = ("Сховище Android недоступне (виконайте termux-setup-storage "
                 "або перевідкрийте Termux) — показано домашню теку Termux.")
     if not os.path.isdir(path):
-        return jsonify({"error": f"Not a directory: {path}"}), 400
+        return jsonify({"error": f"Каталог не існує: {path}"}), 400
     try:
         entries = []
         for item in sorted(os.listdir(path)):
@@ -1834,11 +1835,14 @@ def character_thumbnail_delete_api(slug, char_id):
     return jsonify({"status": "success", "message": "Зображення видалено."})
 
 @app.route("/api/premium/model-status")
-def premium_model_status_api():
-    """TASK-65 onboarding: lets the premium-welcome dialog show real
+@app.route("/api/premium/models-status")
+def premium_models_status_api():
+    """TASK-65 onboarding & ASR/MQM model check: return each premium model's
     download state (present / partial with byte progress / absent)."""
-    model_dir = os.path.expanduser("~/models/gemma3-4b")
-    def _f(name):
+    gemma_dir = os.path.expanduser("~/models/gemma3-4b")
+    whisper_dir = os.path.expanduser("~/models/sherpa-onnx-whisper-small-int8")
+    
+    def _f(model_dir, name):
         done = os.path.join(model_dir, name)
         part = done + ".part"
         if os.path.exists(done):
@@ -1846,19 +1850,37 @@ def premium_model_status_api():
         if os.path.exists(part):
             return {"ready": False, "bytes": os.path.getsize(part)}
         return {"ready": False, "bytes": 0}
+
+    gemma_status = _f(gemma_dir, "gemma-3-4b-it-Q4_K_M.gguf")
+    mmproj_status = _f(gemma_dir, "mmproj-model-f16.gguf")
+
+    w_enc = _f(whisper_dir, "small-encoder.int8.onnx")
+    w_dec = _f(whisper_dir, "small-decoder.int8.onnx")
+    w_tok = _f(whisper_dir, "small-tokens.txt")
+    asr_ready = w_enc["ready"] and w_dec["ready"] and w_tok["ready"]
+    asr_bytes = w_enc["bytes"] + w_dec["bytes"] + w_tok["bytes"]
+
     downloading = subprocess.run(["pgrep", "-f", "download_premium_models"],
                                  capture_output=True).returncode == 0
     return jsonify({
-        "gemma": _f("gemma-3-4b-it-Q4_K_M.gguf"),
-        "mmproj": _f("mmproj-model-f16.gguf"),
+        "gemma": gemma_status,
+        "mmproj": mmproj_status,
+        "asr_whisper": {
+            "ready": asr_ready,
+            "bytes": asr_bytes,
+            "expected_bytes": 245000000,
+            "encoder": w_enc,
+            "decoder": w_dec,
+            "tokens": w_tok
+        },
         "downloading": downloading,
-        "total_expected_bytes": 3500000000,
+        "total_expected_bytes": 3745000000,
     })
 
 @app.route("/api/premium/download-models", methods=["POST"])
 def premium_download_models_api():
-    """TASK-65 onboarding: kick off the detached, resumable premium
-    vision-model download. Entitlement-gated like every premium action."""
+    """Kick off the detached, resumable premium model download (Gemma / ASR Whisper).
+    Entitlement-gated like every premium action."""
     try:
         from common.support_profile import is_entitled
         if not is_entitled("cast_registry"):
@@ -1866,24 +1888,30 @@ def premium_download_models_api():
                             "message": "Розширена можливість: /premium у @GetVydraBot"}), 403
     except Exception:
         return jsonify({"status": "error", "message": "Entitlement check unavailable"}), 403
-    # Gemma Terms consent must be explicitly given in the onboarding
-    # dialog before we fetch the weights (flow-down obligation).
+    
     data = request.get_json(silent=True) or {}
-    if not data.get("gemma_terms_accepted"):
+    consent_given = data.get("consent_accepted") or data.get("gemma_terms_accepted")
+    if not consent_given:
         return jsonify({"status": "error", "message":
-                        "Потрібно прийняти умови Gemma перед завантаженням."}), 400
+                        "Потрібно надати згоду перед завантаженням моделей."}), 400
+
     if subprocess.run(["pgrep", "-f", "download_premium_models"],
                       capture_output=True).returncode == 0:
         return jsonify({"status": "already_running",
-                        "message": "Завантаження вже триває."})
+                        "message": "Завантаження моделей вже триває у фоні."})
+
+    target = data.get("target", "all")
+    if target not in ["all", "gemma", "asr", "whisper"]:
+        target = "all"
+
     log_path = os.path.expanduser("~/premium-model-download.log")
-    env = dict(os.environ, GEMMA_TERMS_ACCEPTED="1")
+    env = dict(os.environ, CONSENT_ACCEPTED="1", GEMMA_TERMS_ACCEPTED="1")
     with open(log_path, "w") as lf:
         subprocess.Popen(
-            ["bash", os.path.join(repo_dir, "bin", "download_premium_models.sh")],
+            ["bash", os.path.join(repo_dir, "bin", "download_premium_models.sh"), f"--{target}"],
             stdout=lf, stderr=subprocess.STDOUT, start_new_session=True, env=env)
     return jsonify({"status": "started",
-                    "message": "Завантаження моделей (~3.5ГБ) стартувало у фоні."})
+                    "message": f"Завантаження моделей ({target}) стартувало у фоні."})
 
 def _heavy_state():
     """One source of truth for 'which heavy model is busy right now'.
@@ -2309,8 +2337,8 @@ def self_update():
 def get_models_info():
     import socket
     import glob
-    settings = load_global_settings()
-    translation_model = settings.get("translation_model", "/data/data/com.termux/files/home/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf")
+    default_model = os.path.join(os.path.expanduser("~"), "models", "hy-mt2", "Hy-MT2-7B-Q4_K_M.gguf")
+    translation_model = settings.get("translation_model", default_model)
 
     models_dir = os.path.expanduser("~/models")
     available = []
@@ -2870,7 +2898,7 @@ def edit_regenerate_audio(slug, chunk_hash):
             try:
                 cmd_stress = [
                     "proot-distro", "login", "ubuntu", "--",
-                    "python3", "/data/data/com.termux/files/home/kindle-butch-gen/bin/stressify_batch.py",
+                    "python3", os.path.join(repo_dir, "bin", "stressify_batch.py"),
                     "--inline", tts_text
                 ]
                 res_stress = subprocess.run(cmd_stress, capture_output=True, text=True, timeout=15)
@@ -2879,7 +2907,7 @@ def edit_regenerate_audio(slug, chunk_hash):
             except Exception as e:
                 print(f"Warning: inline stressifier failed during regenerate-audio: {e}", file=sys.stderr)
     else:
-        return jsonify({"status": "error", "message": "No pending edit found for this chunk — save an edit first"}), 400
+        return jsonify({"status": "error", "message": "Не знайдено редагування для цього фрагмента — спочатку збережіть редагування"}), 400
 
     import hashlib
     new_hash = hashlib.sha256(tts_text.encode("utf-8")).hexdigest()
@@ -2911,7 +2939,7 @@ def edit_regenerate_audio(slug, chunk_hash):
                 json.dump(queued, f, ensure_ascii=False, indent=2)
         return jsonify({
             "status": "queued",
-            "message": "Generation is currently in progress for this book - your edit is saved and will be synthesized automatically."
+            "message": "Конвертація для цієї книги зараз триває — ваші зміни збережені та будуть синтезовані автоматично."
         })
 
     tts_engine = paths.get("tts_engine", "supertonic3")
@@ -2929,7 +2957,7 @@ def edit_regenerate_audio(slug, chunk_hash):
         payload["voice_quality"] = paths.get("tts_voice_quality", "x_low")
         payload["noise_scale"] = paths.get("tts_noise_scale", 0.667)
         payload["noise_w"] = paths.get("tts_noise_w", 0.8)
-    helper_path = "/data/data/com.termux/files/home/kindle-butch-gen/bin/tts_helper.py"
+    helper_path = os.path.join(repo_dir, "bin", "tts_helper.py")
     res = subprocess.run([sys.executable, helper_path], input=json.dumps(payload, ensure_ascii=False),
                           capture_output=True, text=True)
     if res.returncode != 0:
@@ -3330,7 +3358,7 @@ def edit_regenerate_manga_page(slug, page_filename):
 
     cmd = [
         "proot-distro", "login", "ubuntu", "--",
-        "python3", "-u", "/data/data/com.termux/files/home/kindle-butch-gen/translate_manga.py",
+        "python3", "-u", os.path.join(repo_dir, "translate_manga.py"),
         "--input", manga_input,
         "--output", manga_output,
         "--lang", cfg.get("source_lang", "en"),
