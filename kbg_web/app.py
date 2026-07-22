@@ -2259,10 +2259,26 @@ def self_update():
         }), 409
 
     try:
-        subprocess.run(["git", "fetch", "origin"], cwd=repo_dir,
-                       capture_output=True, text=True, timeout=90, check=True)
+        # Check SSH remote 'server-projects' first to avoid git-remote-https signal 11 in Termux
+        remote_used = "server-projects"
+        fetch_res = subprocess.run(
+            ["git", "fetch", "server-projects"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=30
+        )
+        if fetch_res.returncode != 0:
+            remote_used = "origin"
+            fetch_res2 = subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=repo_dir, capture_output=True, text=True, timeout=60
+            )
+            if fetch_res2.returncode != 0:
+                err = (fetch_res2.stderr or fetch_res2.stdout or fetch_res.stderr or "").strip()
+                if "signal 11" in err or "SEGV" in err:
+                    err = "Git HTTPS transport crash in Termux. Please update via SSH or local repository."
+                return jsonify({"status": "error", "message": f"git fetch failed: {err}"}), 500
+
         behind = int(subprocess.run(
-            ["git", "rev-list", "--count", "HEAD..origin/master"],
+            ["git", "rev-list", "--count", f"HEAD..{remote_used}/master"],
             cwd=repo_dir, capture_output=True, text=True, timeout=15, check=True
         ).stdout.strip())
         current = subprocess.run(
@@ -2279,10 +2295,13 @@ def self_update():
     if behind == 0:
         return jsonify({"status": "up_to_date", "version": current})
 
+    env_vars = os.environ.copy()
+    env_vars["UPDATE_REMOTE"] = remote_used
+
     subprocess.Popen(
         ["bash", os.path.join(repo_dir, "bin", "self-update.sh")],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        cwd=repo_dir, start_new_session=True,
+        cwd=repo_dir, start_new_session=True, env=env_vars
     )
     return jsonify({"status": "updating", "behind": behind, "version": current})
 
