@@ -1287,6 +1287,19 @@
             if (btnEl) btnEl.textContent = d.local_disabled ? 'Увімкнути локально' : 'Вимкнути локально';
         }
 
+        // Auto-open modal helper for direct URL previews & screenshot testing
+        window.addEventListener("DOMContentLoaded", () => {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get("modal") === "settings") {
+                setTimeout(() => openBookSettings(params.get("book") || "vibe-programming"), 600);
+            } else if (params.get("modal") === "onboard") {
+                setTimeout(() => {
+                    const m = document.getElementById("premiumOnboardModal");
+                    if (m) m.classList.add("active");
+                }, 600);
+            }
+        });
+
         // TASK-56: per-book settings modal - Cast Registry stays a LINK to
         // the "Cast & Context" tab (its own dedicated UI already exists
         // there, deliberately not duplicated here), everything else
