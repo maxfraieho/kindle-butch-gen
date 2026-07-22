@@ -120,6 +120,144 @@ diag() { # $1=PASS|WARN|FAIL $2=label $3=detail
     esac
 }
 
+run_x86_deploy() {
+    log "Розгортання Vydra на x86_64 (WSL2 / Linux CUDA)..."
+    SUDO_CMD=""
+    if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+        SUDO_CMD="sudo"
+    fi
+
+    # Auto-fix .wslconfig invalid keys
+    if [ -d "/mnt/c/Users" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+        for wslcfg in /mnt/c/Users/*/.wslconfig; do
+            if [ -f "$wslcfg" ] && grep -q "wsl2\.systemd" "$wslcfg" 2>/dev/null; then
+                log "Виявлено некоректний ключ 'wsl2.systemd' у $wslcfg — виправляю на 'systemd'..."
+                sed -i 's/wsl2\.systemd/systemd/g' "$wslcfg" 2>/dev/null || true
+                success "Конфігурацію .wslconfig виправлено автоматично."
+            fi
+        done
+    fi
+
+    if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+        log "Встановлення первинних утиліт (git, curl)..."
+        if command -v apt-get >/dev/null 2>&1; then
+            DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get update -y >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y git curl >/dev/null 2>&1 || true
+        elif command -v dnf >/dev/null 2>&1; then
+            $SUDO_CMD dnf install -y git curl >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # Memory & Disk check
+    MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+    MEM_GB=$((MEM_KB / 1024 / 1024))
+    FREE_GB=$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {print int($4/1024/1024)}' || echo 0)
+
+    CUDA_SUPPORTED=false
+    GPU_INFO="CPU Mode"
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 || echo "")
+        if [ -n "$GPU_NAME" ]; then
+            CUDA_SUPPORTED=true
+            GPU_INFO="NVIDIA $GPU_NAME (nvidia-smi)"
+        fi
+    fi
+    if [ "$CUDA_SUPPORTED" = "false" ]; then
+        if [ -d "/usr/lib/wsl/lib" ] || [ -e "/dev/dxg" ] || [ -e "/dev/nvidia0" ]; then
+            CUDA_SUPPORTED=true
+            GPU_INFO="NVIDIA CUDA Pass-through (WSL2 / Linux)"
+        fi
+    fi
+
+    echo -e "  ${GREEN}[INFO]${NC} Архітектура: $(uname -m)"
+    echo -e "  ${GREEN}[INFO]${NC} Оперативна пам'ять: ${MEM_GB}GB"
+    echo -e "  ${GREEN}[INFO]${NC} Вільне місце: ${FREE_GB}GB"
+    if [ "$CUDA_SUPPORTED" = "true" ]; then
+        echo -e "  ${GREEN}[PASS]${NC} GPU Прискорення: ${GPU_INFO} — CUDA буде активовано"
+    else
+        echo -e "  ${YELLOW}[WARN]${NC} GPU Прискорення: не виявлено — обчислення будуть на CPU"
+    fi
+
+    log "Встановлення системних пакетів..."
+    if command -v apt-get >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get update -y
+        DEBIAN_FRONTEND=noninteractive $SUDO_CMD apt-get install -y --no-install-recommends \
+            git curl wget python3 python3-pip python3-venv python3-dev \
+            build-essential cmake ninja-build \
+            ffmpeg calibre tesseract-ocr tesseract-ocr-ukr \
+            libfreetype6-dev libjpeg-dev zlib1g-dev libpng-dev unrar-free p7zip-full
+    elif command -v dnf >/dev/null 2>&1; then
+        $SUDO_CMD dnf install -y git curl wget python3 python3-pip gcc gcc-c++ cmake ninja-build ffmpeg calibre tesseract tesseract-langpack-ukr
+    fi
+
+    PROJECT_DIR="$HOME/kindle-butch-gen"
+    if [ -d "$PROJECT_DIR/.git" ]; then
+        git -C "$PROJECT_DIR" pull --ff-only || true
+    elif [ -f "./deploy.sh" ] && [ -d "./kbg_web" ]; then
+        PROJECT_DIR="$(pwd)"
+    else
+        git clone "https://github.com/maxfraieho/kindle-butch-gen.git" "$PROJECT_DIR"
+    fi
+    cd "$PROJECT_DIR"
+    chmod +x kbg.sh || true
+
+    log "Збирання llama.cpp..."
+    if [ ! -x "$HOME/llama.cpp/build/bin/llama-server" ]; then
+        if [ ! -d "$HOME/llama.cpp/.git" ]; then
+            git clone --depth 1 https://github.com/ggerganov/llama.cpp.git "$HOME/llama.cpp"
+        fi
+        cd "$HOME/llama.cpp"
+        rm -rf build && mkdir -p build && cd build
+        CMAKE_FLAGS="-DLLAMA_CURL=OFF"
+        if [ "$CUDA_SUPPORTED" = "true" ]; then CMAKE_FLAGS="$CMAKE_FLAGS -DGGML_CUDA=ON"; fi
+        cmake .. $CMAKE_FLAGS
+        make -j"$(nproc)" llama-server llama-cli
+        cd "$HOME"
+    fi
+
+    log "Налаштування Python..."
+    cd "$PROJECT_DIR"
+    PIP_EXTRA=""
+    python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>/dev/null && PIP_EXTRA="--break-system-packages" || true
+    pip install --upgrade pip $PIP_EXTRA || true
+    if [ "$CUDA_SUPPORTED" = "true" ]; then
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 $PIP_EXTRA || true
+    else
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu $PIP_EXTRA || true
+    fi
+    pip install Flask flask-httpauth requests tqdm marisa-trie blinker Pillow pytesseract num2words opencv-python-headless pyyaml $PIP_EXTRA || true
+
+    mkdir -p "$HOME/models/hy-mt2"
+    MODEL_HY="$HOME/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf"
+    if [ ! -f "$MODEL_HY" ] || [ $(wc -c < "$MODEL_HY" 2>/dev/null || echo 0) -lt 1000000000 ]; then
+        log "Завантаження моделі перекладу Hy-MT2-7B (~4.4 GB)..."
+        curl -L -C - -o "$MODEL_HY" "https://huggingface.co/TencentARC/Hy-MT2-7B-GGUF/resolve/main/Hy-MT2-7B-Q4_K_M.gguf" || true
+    fi
+
+    if [ "$AUTOSTART" = "true" ]; then
+        log "Запуск сервісів..."
+        if ! pgrep -f "llama-server.*8081" >/dev/null; then
+            nohup "$HOME/llama.cpp/build/bin/llama-server" -m "$MODEL_HY" -c 4096 --port 8081 > "$HOME/llama-boot.log" 2>&1 &
+        fi
+        if ! pgrep -f "python3 kbg_web/app.py" >/dev/null; then
+            (cd "$PROJECT_DIR" && nohup python3 kbg_web/app.py --port 5000 > "$HOME/kbg-flask.log" 2>&1 &)
+        fi
+    fi
+
+    echo -e "${GREEN}=====================================================================${NC}"
+    echo -e "${GREEN}🎉 Vydra x86 (WSL2 / CUDA) УСПІШНО РОЗГОРНУТО ТА ГОТОВА ДО РОБОТИ!${NC}"
+    echo -e "${GREEN}=====================================================================${NC}"
+    echo -e " 🌐 Веб-панель:              ${BLUE}http://localhost:5000${NC}"
+    echo -e " 🤖 Модельний сервер LLM:   ${BLUE}http://localhost:8081${NC}"
+    echo -e " 📂 Папка проєкту:           ${BLUE}${PROJECT_DIR}${NC}"
+    echo -e "${GREEN}=====================================================================${NC}"
+    exit 0
+}
+
+if [ "${PREFIX:-}" != *com.termux* ] && { [ "$(uname -m)" = "x86_64" ] || [ "$(uname -m)" = "amd64" ]; }; then
+    run_x86_deploy "$@"
+fi
+
 case "$(uname -m)" in
     aarch64) diag PASS "Архітектура" "aarch64" ;;
     *) diag FAIL "Архітектура" "$(uname -m) — потрібен aarch64 (64-бітний Android)" ;;
