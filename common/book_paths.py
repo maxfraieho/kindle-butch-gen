@@ -77,6 +77,8 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         "page_ranges": config.get("page_ranges", []),
         "generate_audiobook": config.get("generate_audiobook", False),
         "enable_asr_verify": config.get("enable_asr_verify", False),
+        "enable_mqm_review": config.get("enable_mqm_review", False),
+        "enable_agent_editor": config.get("enable_agent_editor", False),
         "tts_voice": config.get("tts_voice", "lada"),
         "tts_voice_quality": config.get("tts_voice_quality", "x_low"),
         "tts_speaker_id": int(config.get("tts_speaker_id", 2)),

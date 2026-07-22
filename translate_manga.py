@@ -2220,6 +2220,23 @@ def main():
             except Exception:
                 pass
         log("Manga translation completed successfully!")
+        
+        # Agent Editor stage for manga (if enabled)
+        cfg_manga = {}
+        try:
+            cfg_manga = json.load(open(os.path.join(book_dir, "config.json"), encoding="utf-8"))
+        except Exception:
+            pass
+        if cfg_manga.get("enable_agent_editor"):
+            log("Triggering Agent Editor vision scan for manga...")
+            send_heartbeat(slug, "старт", stage="агент-редактор")
+            agent_script = os.path.join(repo_dir, "bin", "agent_editor.py")
+            if os.path.exists(agent_script):
+                try:
+                    subprocess.run(["python3", agent_script, "--book", slug], check=False)
+                except Exception as e:
+                    log(f"Warning: Agent Editor scan encountered issues: {e}")
+
         # TASK-57: tell Appwrite this book's heartbeat tracking is over -
         # runs even when the loop above made zero send_heartbeat() calls
         # (a resumed run where every page was already done), which is the

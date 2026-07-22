@@ -135,7 +135,7 @@ def main():
                 custom_cfg = json.load(f)
             log(f"Overriding book paths with custom config from {args.config}", log_path)
             for k, v in custom_cfg.items():
-                if k in ["title", "authors", "target_lang", "source_lang", "page_ranges", "generate_audiobook", "tts_voice", "tts_voice_quality"]:
+                if k in ["title", "authors", "target_lang", "source_lang", "page_ranges", "generate_audiobook", "enable_asr_verify", "enable_mqm_review", "enable_agent_editor", "tts_voice", "tts_voice_quality"]:
                     paths[k] = v
                 elif k == "pdf_path":
                     paths["pdf_path"] = os.path.abspath(v)
@@ -447,6 +447,19 @@ def main():
                 log(f"Copied MP3 audiobook file to {audio_dest_dir}.", log_path)
             except Exception as e:
                 log(f"Warning: Failed to copy audiobook to {audio_dest_dir}: {e}", log_path)
+
+    # 6. Agent Editor stage (if enabled for this book)
+    if paths.get("enable_agent_editor"):
+        log("Triggering Agent Editor vision scan...", log_path)
+        send_heartbeat(slug, "старт", stage="агент-редактор")
+        agent_script = os.path.join(repo_dir, "bin", "agent_editor.py")
+        if os.path.exists(agent_script):
+            cmd_agent = ["python3", agent_script, "--book", slug]
+            success_agent = run_command_streaming(cmd_agent, log_path, prefix="[AgentEditor] ")
+            if not success_agent:
+                log("Warning: Agent Editor scan skipped or encountered non-fatal issues.", log_path)
+        else:
+            log("Warning: Agent Editor script bin/agent_editor.py not found.", log_path)
                 
     log("=== Pipeline run fully completed successfully! ===", log_path)
 
