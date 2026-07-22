@@ -457,7 +457,7 @@
                 return `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:140px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px;">⏸ Зупинити переклад</button>`;
             } else if (primaryFile) {
                 return `
-                    <a href="/view/${book.slug}" class="btn btn-primary" style="flex:1; min-width:130px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px; text-decoration:none; text-align:center; display:inline-flex; align-items:center; justify-content:center; gap:0.4rem;">📖 Читати / Переглянути</a>
+                    <a href="/view/${book.slug}" class="btn btn-primary" style="flex:1; min-width:130px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px; text-decoration:none; text-align:center; display:inline-flex; align-items:center; justify-content:center; gap:0.4rem;">📖 Читати / Редагувати</a>
                     <a class="btn btn-success" style="flex:1; min-width:130px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px; text-decoration:none; text-align:center; display:inline-flex; align-items:center; justify-content:center; gap:0.4rem;" href="/api/download/${book.slug}/${encodeURIComponent(primaryFile)}" target="_blank">⬇️ Завантажити (${primaryFile.split('.').pop().toUpperCase()})</a>
                 `;
             } else {
@@ -814,7 +814,7 @@
                                                 ? `<button onclick="rerunConversion('${book.slug}')" class="dropdown-item">🔄 Перекласти заново</button>`
                                                 : ''
                                             }
-                                            ${!(book.output_files && book.output_files.length > 0) && !book.is_running ? `<a href="/view/${book.slug}" class="dropdown-item">📖 Переглянути сторінки</a>` : ''}
+                                            ${!(book.output_files && book.output_files.length > 0) && !book.is_running ? `<a href="/view/${book.slug}" class="dropdown-item">📖 Читати / Редагувати</a>` : ''}
                                             <button onclick="toggleBookTerminal('${book.slug}', '${book.title}')" class="dropdown-item">🧾 Технічний журнал</button>
                                             ${!book.is_running
                                                 ? `<button onclick="deleteBook('${book.slug}', '${book.title.replace(/'/g, "\'")}')" class="dropdown-item text-danger">🗑️ Видалити книгу</button>`
