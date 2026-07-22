@@ -418,34 +418,30 @@
         // /api/update checks the remote; "updating" means the server is
         // about to restart itself, so we poll until it's back and reload.
         async function runSelfUpdate() {
-            const btn = document.getElementById('selfUpdateBtn');
-            const orig = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '⏳ Checking…';
+            window.closeHeaderMenu();
+            const activeToast = showToast('⏳ Перевіряємо наявність оновлень Vydra...', 'info', 0);
             try {
                 const r = await fetch('/api/update', { method: 'POST' });
                 const d = await r.json();
+                activeToast.remove();
                 if (d.status === 'up_to_date') {
-                    btn.innerHTML = '✅ Up to date';
-                    setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
+                    showToast(`✅ Vydra вже має найновішу версію (${d.version || 'актуальна'})`, 'success', 5000);
                 } else if (d.status === 'busy') {
-                    alert(d.message);
-                    btn.innerHTML = orig; btn.disabled = false;
+                    showToast(`⚠️ ${d.message}`, 'warning', 6000);
                 } else if (d.status === 'updating') {
-                    btn.innerHTML = '🔄 Оновлюємо… сервіс перезапускається';
+                    showToast(`🔄 Оновлення запущено (${d.behind} нових комітів). Перезапускаємо сервіс...`, 'info', 20000);
                     const poll = setInterval(async () => {
                         try {
                             const c = await fetch('/api/settings', { cache: 'no-store' });
                             if (c.ok) { clearInterval(poll); location.reload(); }
-                        } catch (e) { /* server still down - keep polling */ }
+                        } catch (e) { /* keep polling */ }
                     }, 3000);
                 } else {
-                    alert('Update error: ' + (d.message || r.status));
-                    btn.innerHTML = orig; btn.disabled = false;
+                    showToast(`❌ Помилка оновлення: ${d.message || r.status}`, 'error', 7000);
                 }
             } catch (e) {
-                alert('Update failed: ' + e);
-                btn.innerHTML = orig; btn.disabled = false;
+                activeToast.remove();
+                showToast(`❌ Не вдалося виконяти оновлення: ${e}`, 'error', 7000);
             }
         }
 
@@ -1826,3 +1822,25 @@
             const dropdown = document.getElementById('headerSettingsDropdown');
             if (dropdown) dropdown.classList.remove('active');
         };
+
+        function showToast(msg, type = 'info', duration = 4000) {
+            let container = document.querySelector('.toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span>${msg}</span>`;
+            container.appendChild(toast);
+
+            if (duration > 0) {
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateY(-10px) scale(0.95)';
+                    setTimeout(() => toast.remove(), 300);
+                }, duration);
+            }
+            return toast;
+        }
