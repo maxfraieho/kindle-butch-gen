@@ -1805,9 +1805,9 @@
 
             async function showPageViewerTab() {
                 tabContent.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <label for="chapter-select" style="font-weight: 600; color: var(--text-secondary); min-width: 120px;">Select Page/File:</label>
-                        <select id="chapter-select" style="background: #18181b; color: white; border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; flex-grow: 1; outline: none; font-family: inherit; font-size: 0.95rem; cursor: pointer;">
+                    <div class="viewer-controls" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <label for="chapter-select" style="font-weight: 600; color: var(--text-secondary);">Select Page/File:</label>
+                        <select id="chapter-select" class="form-select" style="background: #18181b; color: white; border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; flex-grow: 1; outline: none; font-family: inherit; font-size: 0.95rem; cursor: pointer; max-width: 100%; min-width: 0;">
                             <option value="">-- Loading files from EPUB... --</option>
                         </select>
                     </div>
