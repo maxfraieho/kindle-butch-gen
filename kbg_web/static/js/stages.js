@@ -120,7 +120,7 @@
                 const book = books.find(b => b.slug === slug);
                 if (book) {
                     document.getElementById("book-title").textContent = book.title;
-                    document.getElementById("book-slug").textContent = `Author: ${book.authors} | Target: ${book.target_lang.toUpperCase()} | Engine: ${book.tts_engine}`;
+                    document.getElementById("book-slug").textContent = `Автор: ${book.authors} | Мова: ${book.target_lang.toUpperCase()} | Рушій: ${book.tts_engine}`;
                     isManga = book.is_manga || false;
                 }
 
@@ -1405,10 +1405,11 @@
             }
 
             area.innerHTML = `
-                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem;">
-                    <button class="tab-btn active" id="tab-paragraphs" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📋 Paragraphs & Audio</button>
-                    <button class="tab-btn" id="tab-page-viewer" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📖 Full Page Viewer</button>
-                    <button class="tab-btn" id="tab-cast" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">🧬 Cast & Context</button>
+                <div class="tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <button class="tab-btn active" id="tab-paragraphs" style="color: var(--primary); border-bottom: 2px solid var(--primary); padding: 0.5rem 1rem;">📋 Текст та Аудіо</button>
+                    <button class="tab-btn" id="tab-page-viewer" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📖 Перегляд сторінок</button>
+                    <button class="tab-btn" id="tab-pending" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">📝 Черга правок</button>
+                    <button class="tab-btn" id="tab-cast" style="color: var(--text-secondary); padding: 0.5rem 1rem; border-bottom: 2px solid transparent;">🧬 Персонажі та Контекст</button>
                 </div>
                 <div id="tab-content-area"></div>
             `;
@@ -1416,35 +1417,44 @@
             const tabContent = document.getElementById("tab-content-area");
             const btnParagraphs = document.getElementById("tab-paragraphs");
             const btnPageViewer = document.getElementById("tab-page-viewer");
+            const btnPending = document.getElementById("tab-pending");
             const btnCast = document.getElementById("tab-cast");
 
+            const resetTabStyles = () => {
+                [btnParagraphs, btnPageViewer, btnPending, btnCast].forEach(b => {
+                    if (b) { b.style.color = "var(--text-secondary)"; b.style.borderBottomColor = "transparent"; }
+                });
+            };
+
             btnParagraphs.addEventListener("click", () => {
+                resetTabStyles();
                 btnParagraphs.style.color = "var(--primary)";
                 btnParagraphs.style.borderBottomColor = "var(--primary)";
-                btnPageViewer.style.color = "var(--text-secondary)";
-                btnPageViewer.style.borderBottomColor = "transparent";
-                btnCast.style.color = "var(--text-secondary)";
-                btnCast.style.borderBottomColor = "transparent";
                 showParagraphsTab();
             });
 
             btnPageViewer.addEventListener("click", () => {
+                resetTabStyles();
                 btnPageViewer.style.color = "var(--primary)";
                 btnPageViewer.style.borderBottomColor = "var(--primary)";
-                btnParagraphs.style.color = "var(--text-secondary)";
-                btnParagraphs.style.borderBottomColor = "transparent";
-                btnCast.style.color = "var(--text-secondary)";
-                btnCast.style.borderBottomColor = "transparent";
                 showPageViewerTab();
             });
 
+            btnPending.addEventListener("click", () => {
+                resetTabStyles();
+                btnPending.style.color = "var(--primary)";
+                btnPending.style.borderBottomColor = "var(--primary)";
+                showParagraphsTab();
+                const pendingFilterBtn = document.querySelector('.filter-btn[data-filter="pending-edits"]');
+                if (pendingFilterBtn) {
+                    pendingFilterBtn.click();
+                }
+            });
+
             btnCast.addEventListener("click", () => {
+                resetTabStyles();
                 btnCast.style.color = "var(--primary)";
                 btnCast.style.borderBottomColor = "var(--primary)";
-                btnParagraphs.style.color = "var(--text-secondary)";
-                btnParagraphs.style.borderBottomColor = "transparent";
-                btnPageViewer.style.color = "var(--text-secondary)";
-                btnPageViewer.style.borderBottomColor = "transparent";
                 renderCastTab(tabContent);
             });
 
@@ -1456,17 +1466,17 @@
                 tabContent.innerHTML = `
                     <div class="filters" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <button class="filter-btn active" data-filter="all">Show All</button>
-                            <button class="filter-btn" data-filter="audio">With Audio Only</button>
-                            <button class="filter-btn" data-filter="no-audio">Without Audio Only</button>
-                            <button class="filter-btn" data-filter="pending-edits">📝 Pending Edits</button>
+                            <button class="filter-btn active" data-filter="all">Показати все</button>
+                            <button class="filter-btn" data-filter="audio">Лише з аудіо</button>
+                            <button class="filter-btn" data-filter="no-audio">Лише без аудіо</button>
+                            <button class="filter-btn" data-filter="pending-edits">📝 Черга правок</button>
                         </div>
                         <div class="pagination-controls" style="display: flex; align-items: center; gap: 0.8rem; background: rgba(255,255,255,0.02); padding: 0.3rem 0.6rem; border-radius: 8px; border: 1px solid var(--border-color);">
-                            <button class="nav-btn" id="para-prev-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage <= 1 ? 'disabled' : ''}>← Prev</button>
-                            <span id="para-page-indicator" style="font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; font-family: monospace;">Page ${currentParagraphsPage}/${totalPages} (${totalChunks} chunks)</span>
-                            <button class="nav-btn" id="para-next-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage >= totalPages ? 'disabled' : ''}>Next →</button>
+                            <button class="nav-btn" id="para-prev-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage <= 1 ? 'disabled' : ''}>← Попередня</button>
+                            <span id="para-page-indicator" style="font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; font-family: monospace;">Сторінка ${currentParagraphsPage}/${totalPages} (${totalChunks} фрагментів)</span>
+                            <button class="nav-btn" id="para-next-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" ${currentParagraphsPage >= totalPages ? 'disabled' : ''}>Наступна →</button>
                             <input type="number" id="para-page-jump" min="1" max="${totalPages}" placeholder="#" style="width: 3.5rem; padding: 0.4rem 0.5rem; font-size: 0.85rem; background: #18181b; color: white; border: 1px solid var(--border-color); border-radius: 6px; text-align: center;">
-                            <button class="nav-btn" id="para-jump-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Go</button>
+                            <button class="nav-btn" id="para-jump-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Перейти</button>
                         </div>
                     </div>
                     <div class="book-stages-list" id="paragraphs-list"></div>
@@ -1492,11 +1502,11 @@
                         card.style = `animation: fadeInUp 400ms var(--ease-out-snappy) forwards; animation-delay: ${visibleIndex * 15}ms; opacity: 0; animation-fill-mode: forwards;`;
                         card.innerHTML = `
                             <div class="card-meta">
-                                <span>Paragraph #${absoluteIdx} | Hash: ${p.hash.substring(0, 8)}...</span>
+                                <span>Фрагмент #${absoluteIdx} | Хеш: ${p.hash.substring(0, 8)}...</span>
                                 <span style="display:flex; gap:0.5rem; align-items:center;">
-                                    <button class="nav-btn" style="padding:0.25rem 0.6rem; font-size:0.78rem;" onclick="toggleEditForm('${p.hash}')">✏️ Edit</button>
+                                    <button class="nav-btn" style="padding:0.25rem 0.6rem; font-size:0.78rem;" onclick="toggleEditForm('${p.hash}')">✏️ Редагувати</button>
                                     <span class="badge ${p.has_audio ? 'badge-audio' : 'badge-no-audio'}">
-                                        ${p.has_audio ? 'Audio Synthesized' : 'No Audio'}
+                                        ${p.has_audio ? 'Аудіо синтезовано' : 'Без аудіо'}
                                     </span>
                                 </span>
                             </div>
@@ -1506,28 +1516,28 @@
                             </div>
                             <div class="grid-stages">
                                 <div class="stage-box original-stage">
-                                    <div class="stage-title">Original (RU / EN)</div>
+                                    <div class="stage-title">Оригінал (RU / EN)</div>
                                     <div class="stage-content">${p.original}</div>
                                 </div>
                                 <div class="stage-box translated-stage">
-                                    <div class="stage-title">Translated & Accents (UK)</div>
+                                    <div class="stage-title">Переклад та Наголоси (UK)</div>
                                     <div class="stage-content stage-stressed">${p.stressed}</div>
                                 </div>
                             </div>
                             ${p.has_audio ? `
                             <div class="audio-wrapper">
-                                <span class="audio-label">🔊 Listen Segment Preview:</span>
+                                <span class="audio-label">🔊 Прослухати фрагмент:</span>
                                 <audio controls id="audio-player-${p.hash}" src="/api/preview/audio/${slug}/${p.hash}"></audio>
                             </div>
                             ` : ''}
                             <div id="edit-form-${p.hash}" class="edit-form" style="display:none; margin-top:1rem; padding-top:1rem; border-top:1px dashed var(--border-color);">
-                                <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.3rem;">Translated text</label>
+                                <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.3rem;">Перекладений текст</label>
                                 <textarea id="edit-translated-${p.hash}" class="edit-textarea" style="width:100%; min-height:70px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(p.translated)}</textarea>
-                                <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin:0.6rem 0 0.3rem;">Stress marks</label>
+                                <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin:0.6rem 0 0.3rem;">Розстановка наголосів</label>
                                 <textarea id="edit-stress-${p.hash}" class="edit-textarea" style="width:100%; min-height:70px; box-sizing:border-box; background:#18181b; color:#fff; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem; font-family:inherit;">${escapeHtml(p.stressed)}</textarea>
                                 <div style="display:flex; align-items:center; gap:0.6rem; margin-top:0.6rem; flex-wrap:wrap;">
-                                    <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveEdit('${p.hash}')">Save</button>
-                                    <button class="nav-btn" id="regen-audio-btn-${p.hash}" style="padding:0.4rem 0.9rem; display:none;" onclick="regenerateAudio('${p.hash}')">🔊 Regenerate audio</button>
+                                    <button class="nav-btn" style="padding:0.4rem 0.9rem;" onclick="saveEdit('${p.hash}')">Зберегти</button>
+                                    <button class="nav-btn" id="regen-audio-btn-${p.hash}" style="padding:0.4rem 0.9rem; display:none;" onclick="regenerateAudio('${p.hash}')">🔊 Пересинтезувати аудіо</button>
                                     <span id="edit-status-${p.hash}" style="font-size:0.8rem; color:var(--text-secondary);"></span>
                                 </div>
                             </div>

@@ -291,38 +291,17 @@
                 btn.textContent = d.local_disabled
                     ? 'Увімкнути локально' : 'Вимкнути локально';
                 const prem = document.getElementById('premiumStatus');
-                // Single entitlement unlocks both features - see support_config.json's
-                // premium_features (vision_qa removed as a stale duplicate, TASK-56).
-                const names = { cast_registry: 'Cast Registry + Агент-редактор' };
                 if (d.entitlements && d.entitlements.length) {
                     prem.style.display = '';
-                    prem.textContent = '💎 Розширені можливості активовано: ' +
-                        d.entitlements.map(e => names[e] || e).join(', ') +
-                        ' — перемикачі з\'являться в налаштуваннях книги з наступним оновленням';
-                    // TASK-65: first-time premium onboarding dialog -
-                    // model download, cooling warning, usage docs link.
+                    prem.textContent = '💎 Преміум активовано: Cast Registry, Агент-редактор, MQM.';
                     if (localStorage.getItem('vydra_premium_onboarded') !== '1') {
                         openPremiumOnboarding();
                     }
                 } else { prem.style.display = 'none'; }
-                // TASK-71: no linked telegram_id = premium/support checks
-                // silently never activate (fail-closed by design) - show
-                // the one-time prompt until it's set.
                 const linkRow = document.getElementById('telegramLinkRow');
                 if (linkRow) linkRow.style.display = d.telegram_id ? 'none' : 'flex';
-                // TASK-73: free-tier device count, shown only once linked
-                // (unlinked installs always report count 0 - not useful yet).
                 const devStatus = document.getElementById('deviceStatus');
-                if (devStatus && d.telegram_id && d.device_count > 0) {
-                    devStatus.style.display = '';
-                    if (d.device_over_limit) {
-                        devStatus.innerHTML = `📱 Пристроїв: ${d.device_count}/${d.device_limit} ⚠️ ` +
-                            `понад безкоштовний ліміт — зайві пристрої не отримують сповіщень про зупинку. ` +
-                            `Розширені можливості знімають ліміт.`;
-                    } else {
-                        devStatus.textContent = `📱 Пристроїв: ${d.device_count}/${d.device_limit}`;
-                    }
-                } else if (devStatus) { devStatus.style.display = 'none'; }
+                if (devStatus) { devStatus.style.display = 'none'; }
             } catch (e) { /* card simply stays hidden */ }
         }
 
