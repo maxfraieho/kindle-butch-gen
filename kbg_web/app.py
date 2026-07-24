@@ -2402,28 +2402,22 @@ def _read_llama_pid():
     return pid
 
 def _stop_llama_server():
-    """Stop the tracked llama-server (if any) and always clear the PID
-    file afterward, so a stale/dead entry never lingers and blocks a
-    future start."""
+    """Stop all running llama-server instances and clear PID files
+    to enforce single-model policy and prevent memory OOM / overheating."""
     import signal
     import time
     pid = _read_llama_pid()
     if pid:
         try:
             os.kill(pid, signal.SIGTERM)
-            for _ in range(10):
-                time.sleep(0.3)
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    break
-            else:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
         except OSError:
             pass
+    # Force kill any lingering llama-server processes across all ports
+    try:
+        subprocess.run(["pkill", "-9", "-f", "llama-server"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    time.sleep(1)
     if os.path.exists(LLAMA_PID_FILE):
         try:
             os.remove(LLAMA_PID_FILE)
