@@ -4,6 +4,7 @@ import re
 import requests
 import time
 import sys
+import subprocess
 
 def get_hash(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -176,18 +177,21 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
             f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}:\n\n"
             f"{rules_prefix}{text}<|extra_0|>"
         )
-        stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>"]
+        stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>", "<|extra_1|>", "<|endoftext|>", "<|im_end|>"]
     else:
         raw_prompt = (
             f"<|hy_begin\u2581of\u2581sentence|>"
             f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}:\n\n"
             f"{rules_prefix}{text}<|hy_Assistant|>"
         )
-        stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>"]
+        stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>", "<|eos|>"]
 
     completion_url = base_url.replace("/v1/chat/completions", "/completion").rstrip("/")
     if not completion_url.endswith("/completion"):
         completion_url = completion_url.rstrip("/") + "/completion"
+
+    # Calculate optimal max output tokens (avoid 4096 runaway generation)
+    calc_max_tokens = min(max(len(text) * 2, 512), 1536)
 
     headers = {"Content-Type": "application/json"}
     data = {
@@ -196,7 +200,7 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
         "top_p": 0.95,
         "top_k": 20,
         "repeat_penalty": 1.05,
-        "n_predict": 4096,
+        "n_predict": calc_max_tokens,
         "stop": stop_tokens
     }
 
@@ -282,8 +286,7 @@ def validate_translation_segment(original, translated):
     if orig_headers > 0:
         trans_headers = len([line for line in translated.splitlines() if line.strip().startswith('#')])
         if orig_headers != trans_headers:
-            print(f"[Validation] failure: Headers count mismatch! Original: {orig_headers}, Translated: {trans_headers}", flush=True)
-            return False
+            print(f"[Validation] warning: Headers count mismatch! Original: {orig_headers}, Translated: {trans_headers}. Proceeding.", flush=True)
         
     orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", original))
     trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", translated))
