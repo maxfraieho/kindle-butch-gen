@@ -115,7 +115,7 @@ def wait_for_server_ready(api_url, max_wait=300, wait_interval=5):
 
 
 def _is_hy_mt2_model(api_url):
-    base = api_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+    base = api_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").replace("/v1", "").replace("/completion", "").rstrip("/")
     # Try props endpoint first
     try:
         props_resp = requests.get(f"{base}/props", timeout=5)
@@ -160,7 +160,7 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
     source_lang_full = lang_map.get(source_lang, "English" if source_lang == "en" else "Russian")
     target_lang_full = lang_map.get(target_lang, "Ukrainian")
 
-    clean_base = base_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+    clean_base = base_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").replace("/v1", "").replace("/completion", "").rstrip("/")
     chat_url = f"{clean_base}/v1/chat/completions"
 
     rules_prefix = f"{cast_rules}\n\n" if cast_rules else ""
