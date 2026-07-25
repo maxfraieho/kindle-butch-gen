@@ -321,7 +321,7 @@ def _maybe_mqm_review(segment, result, api_url, source_lang, target_lang, book_d
 
 def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_retries=3, source_lang="ru", book_dir=None):
     temp = 0.1
-    xml_segment = to_xml_format(segment)
+    xml_segment = segment
     orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", segment))
     last_translated = None
 
