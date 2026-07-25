@@ -117,13 +117,21 @@ def main():
         subprocess.run(["pkill", "-f", "llama-serve[r]"], capture_output=True)
         time.sleep(3)
 
+    # run_conversion_batches.py's own log() helper already appends every
+    # line to log_path itself, so also teeing its stdout into the same file
+    # here double-writes every line (see kbg_web/app.py's /api/run starter,
+    # fixed the same way for the same reason). translate_epub.py/
+    # translate_manga.py have no such internal writer, so for those this
+    # redirect is still their only sink and must stay.
+    child_writes_own_log = any("run_conversion_batches.py" in str(part) for part in cmd)
+
     # start_new_session=True: same reasoning as TASK-40's regen-timeout fix -
     # this process should survive independently of whatever shell/session
     # .bashrc itself is running under.
     proc = subprocess.Popen(
         cmd,
-        stdout=log_file,
-        stderr=subprocess.STDOUT if log_path else subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL if child_writes_own_log else log_file,
+        stderr=log_file if child_writes_own_log else (subprocess.STDOUT if log_path else subprocess.DEVNULL),
         cwd=cwd,
         start_new_session=True,
     )

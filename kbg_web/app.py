@@ -901,12 +901,21 @@ def run_conversion_api(slug):
             f.write(f"Command: {' '.join(cmd)}\n\n")
             
         log_file = open(log_path, "a", encoding="utf-8")
-        
+
+        # run_conversion_batches.py's own log() helper already appends every
+        # line to log_path itself (so plain CLI runs, with nobody else
+        # capturing their stdout, still get a persisted log). Also teeing
+        # its stdout into the same file here double-writes every single
+        # line - that's why conversion_progress.log had each line appear
+        # twice. translate_epub.py/translate_manga.py have no such internal
+        # writer, so this redirect is still their only sink and must stay.
+        child_writes_own_log = "run_conversion_batches.py" in cmd
+
         # Start background subprocess
         proc = subprocess.Popen(
             cmd,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL if child_writes_own_log else log_file,
+            stderr=log_file if child_writes_own_log else subprocess.STDOUT,
             cwd=repo_dir,
             text=True
         )
