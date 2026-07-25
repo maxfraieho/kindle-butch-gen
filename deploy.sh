@@ -225,7 +225,7 @@ run_x86_deploy() {
     else
         pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu $PIP_EXTRA || true
     fi
-    pip install Flask flask-httpauth requests tqdm marisa-trie blinker Pillow pytesseract num2words opencv-python-headless pyyaml $PIP_EXTRA || true
+    pip install Flask flask-httpauth requests tqdm marisa-trie blinker Pillow pytesseract num2words opencv-python-headless pyyaml pypdf $PIP_EXTRA || true
 
     mkdir -p "$HOME/models/hy-mt2"
     MODEL_HY="$HOME/models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf"
@@ -355,7 +355,7 @@ pip install --upgrade pip --break-system-packages || true
 # OnePlus 15 install): nothing host-side imports it (it runs in the
 # container, installed there as stress-uk), yet it drags stanza -> numpy
 # -> source builds that cannot succeed on bionic (ninja/spawn.h death).
-pip install Flask flask-httpauth requests tqdm marisa-trie blinker --break-system-packages
+pip install Flask flask-httpauth requests tqdm marisa-trie blinker pypdf --break-system-packages
 success "Termux host packages installed."
 
 # -------------------------------------------------------------

@@ -123,7 +123,13 @@ def get_pdf_page_count(pdf_path):
                 return int(matches[-1])
     except Exception:
         pass
-    return 10  # Fallback
+    raise RuntimeError(
+        f"Could not determine page count for {pdf_path}: pypdf is not "
+        "installed and no /Count marker was found in the raw PDF bytes "
+        "(likely a compressed xref/object stream). Install pypdf "
+        "(`pip install pypdf`) rather than guessing a page count, since a "
+        "wrong guess silently truncates the whole book."
+    )
 
 def calculate_progress(slug):
     paths = resolve_book_paths(repo_dir, slug)
