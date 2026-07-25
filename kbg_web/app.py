@@ -20,6 +20,7 @@ from common.edit_patch import patch_batch_translation
 from common.file_lock import file_lock
 from kbg_web.status_helper import calculate_progress, get_pdf_page_count
 from kbg_web import edit_store
+from kbg_web.mode_switcher import mode_bp
 
 TTS_ENGINES = {
     "supertonic3": {
@@ -33,6 +34,7 @@ TTS_ENGINES = {
 }
 
 app = Flask(__name__)
+app.register_blueprint(mode_bp)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB - 200MB blocked real manga volumes (high-res scan CBZ routinely exceeds 200MB)
 
 # TASK-62: persistent secret key (survives Flask restarts) - a key that
