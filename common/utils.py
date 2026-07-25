@@ -83,6 +83,7 @@ def wait_for_server_ready(api_url, max_wait=300, wait_interval=5):
     health_url = f"{test_url}/health"
     
     print(f"[Translation] Checking connection to server at {test_url}...", flush=True)
+    auto_started = False
     for attempt in range(max_wait // wait_interval):
         try:
             res = requests.get(health_url, timeout=5)
@@ -95,8 +96,22 @@ def wait_for_server_ready(api_url, max_wait=300, wait_interval=5):
                 print(f"[Translation] Translation server returned status {res.status_code}... waiting {wait_interval}s...", flush=True)
         except Exception as e:
             print(f"[Translation] Waiting for translation server to start/recover: {e}", flush=True)
+            if attempt >= 1 and not auto_started:
+                # Auto-heal: launch translation server if not responding
+                auto_started = True
+                script_path = os.path.expanduser("~/start-translation-server.sh")
+                if not os.path.exists(script_path):
+                    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    script_path = os.path.join(repo_root, "bin", "start-translation-server.sh")
+                if os.path.exists(script_path):
+                    print(f"[Translation] Auto-healing: Launching translation server via {script_path}...", flush=True)
+                    try:
+                        subprocess.Popen(["bash", script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except Exception as launch_err:
+                        print(f"[Translation] Failed to auto-launch server: {launch_err}", flush=True)
         time.sleep(wait_interval)
     return False
+
 
 def _is_hy_mt2_model(api_url):
     base = api_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
@@ -158,17 +173,15 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
     rules_prefix = f"{cast_rules}\n\n" if cast_rules else ""
     if is_7b_format:
         raw_prompt = (
-            f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}. "
-            f"First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. "
-            f"Then, after closing the tag, output ONLY the translation with no further explanation or commentary:\n\n{rules_prefix}{text}<|extra_0|>"
+            f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}:\n\n"
+            f"{rules_prefix}{text}<|extra_0|>"
         )
         stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>"]
     else:
         raw_prompt = (
             f"<|hy_begin\u2581of\u2581sentence|>"
-            f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}. "
-            f"First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. "
-            f"Then, after closing the tag, output ONLY the translation with no further explanation or commentary:\n\n{rules_prefix}{text}<|hy_Assistant|>"
+            f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}:\n\n"
+            f"{rules_prefix}{text}<|hy_Assistant|>"
         )
         stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>"]
 
@@ -381,6 +394,13 @@ def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_ret
         if validate_translation_segment(segment, rescued):
             _maybe_mqm_review(segment, rescued, api_url, source_lang, target_lang, book_dir)
             return rescued
+        else:
+            print("[Translation] Warning: Segment validation failed after all retries. Proceeding with best-effort translation.", flush=True)
+            _maybe_mqm_review(segment, rescued, api_url, source_lang, target_lang, book_dir)
+            return rescued
 
-    print("[Translation] Error: Segment validation failed after all retries. Translation failed.", flush=True)
+    if last_translated:
+        return last_translated
+
+    print("[Translation] Error: Segment translation completely failed.", flush=True)
     return None

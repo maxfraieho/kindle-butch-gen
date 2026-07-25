@@ -58,16 +58,22 @@
                     <div class="glass-card" style="padding:1rem;">
                         <div style="font-weight:600; margin-bottom:0.5rem;">🇨🇭 Швейцарські опитування</div>
                         <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:0.8rem;">
-                            Gemma 3 4B vision + Chrome (Swiss proxy)
+                            Gemma 3 4B vision + Chrome (SOCKS5 Swiss proxy)
                         </div>
-                        <select id="surveyProfile" style="width:100%; margin-bottom:0.5rem; padding:0.4rem; border-radius:6px;">
-                            <option value="arno">Арно (син)</option>
-                            <option value="annet">Аннет (дружина)</option>
+                        <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.2rem;">👤 Акаунт / Профіль:</label>
+                        <select id="surveyProfile" style="width:100%; margin-bottom:0.6rem; padding:0.45rem; border-radius:6px; background:#1e1e2d; color:#fff; border:1px solid #333;">
+                            <option value="arno">Арно Дюбуа (Гланд, 25р.)</option>
+                            <option value="annet">Аннет Буонасьє (Гланд, 52р.)</option>
                         </select>
-                        <input id="surveyUrl" type="text" placeholder="URL опитування"
-                               style="width:100%; margin-bottom:0.5rem; padding:0.4rem; border-radius:6px; box-sizing:border-box;">
+                        <label style="font-size:0.8rem; color:var(--text-secondary); display:block; margin-bottom:0.2rem;">🌐 Сайт опитувань / URL:</label>
+                        <input id="surveyUrl" type="text" value="https://meinungsplatz.ch/" placeholder="https://meinungsplatz.ch/"
+                               style="width:100%; margin-bottom:0.6rem; padding:0.45rem; border-radius:6px; background:#1e1e2d; color:#fff; border:1px solid #333; box-sizing:border-box;">
+                        <label style="font-size:0.8rem; display:flex; align-items:center; gap:0.4rem; margin-bottom:0.8rem; cursor:pointer;">
+                            <input id="surveyDryRun" type="checkbox" checked style="width:auto; margin:0;">
+                            🛡️ Режим без фінальної відправки (--dry-run)
+                        </label>
                         <button class="btn btn-primary" style="width:100%; padding:0.5rem; border-radius:8px; cursor:pointer;"
-                                onclick="switchMode('survey')">Активувати</button>
+                                onclick="switchMode('survey')">Запустити опитування</button>
                     </div>
 
                 </div>
@@ -105,6 +111,7 @@
         if (target === "survey") {
             body.profile = document.getElementById("surveyProfile").value;
             body.url = document.getElementById("surveyUrl").value.trim();
+            body.dry_run = document.getElementById("surveyDryRun").checked;
             if (!body.url) {
                 statusEl.textContent = "⚠️ Вкажіть URL опитування.";
                 return;

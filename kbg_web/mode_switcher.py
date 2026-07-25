@@ -116,8 +116,10 @@ def api_mode_switch():
             subprocess.Popen(["bash", LLM_SWITCH, "bonsai", "-f"],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
         elif target == "survey":
-            subprocess.Popen(["bash", LLM_SWITCH, "survey", profile, url, "-f"],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            cmd = ["bash", LLM_SWITCH, "survey", profile, url, "-f"]
+            if data.get("dry_run", True):
+                cmd.append("--dry-run")
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
 
         return jsonify({"status": "success", "message": f"Перемикання на '{target}' запущено"})
     except Exception as e:

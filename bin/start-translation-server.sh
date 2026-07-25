@@ -20,11 +20,19 @@ PID_FILE="${1:-$HOME/llama-server-8081.pid}"
 
 echo "$(date): Запуск моделі перекладу Hy-MT2-7B на порту $PORT..."
 
-cd ~/llama.cpp/build/bin
+LLAMA_DIR="$HOME/llama.cpp/build/bin"
+DEVICE_ARG=""
+if [ -d "$HOME/llama.cpp-multibackend/build/bin" ]; then
+  LLAMA_DIR="$HOME/llama.cpp-multibackend/build/bin"
+  DEVICE_ARG="--device Vulkan0"
+fi
+
+cd "$LLAMA_DIR"
 nohup ./llama-server \
   -m "$MODEL" \
   -c 4096 \
   -ngl 99 \
+  $DEVICE_ARG \
   --parallel 1 \
   -t 4 \
   --no-mmap \

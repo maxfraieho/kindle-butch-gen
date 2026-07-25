@@ -238,6 +238,19 @@ def calculate_progress(slug):
             marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
             if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
                 completed_marker_pages += (end - start + 1)
+            else:
+                marker_log = os.path.join(batch_out_dir, "marker_run.log")
+                if os.path.exists(marker_log):
+                    try:
+                        with open(marker_log, "r", encoding="utf-8", errors="replace") as lf:
+                            log_txt = lf.read()
+                            matches = [int(m) for m in re.findall(r"(?:page|pg|p\.)\s*(\d+)", log_txt, re.IGNORECASE)]
+                            valid_pages = [p for p in matches if start <= p <= end]
+                            if valid_pages:
+                                cur_p = max(valid_pages)
+                                completed_marker_pages += max(0, cur_p - start + 1)
+                    except Exception:
+                        pass
         marker_percent = (completed_marker_pages / total_pages * 100) if total_pages > 0 else 0.0
     
     # 2. Translation Progress
