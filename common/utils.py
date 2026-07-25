@@ -157,65 +157,42 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
         "ru": "Russian",
         "en": "English"
     }
-    source_lang_full = lang_map.get(source_lang, "Russian")
+    source_lang_full = lang_map.get(source_lang, "English" if source_lang == "en" else "Russian")
     target_lang_full = lang_map.get(target_lang, "Ukrainian")
 
-    base = base_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
-    is_7b_format = False
-    
-    try:
-        props = requests.get(f"{base}/props", timeout=15).json()
-        tmpl = props.get("chat_template", "") or props.get("model_alias", "") or props.get("model_path", "")
-        is_7b_format = "startoftext" in tmpl or "extra_0" in tmpl or "7b" in tmpl.lower()
-        print(f"[Translation] Format detection: is_7b_format={is_7b_format} (derived from template/alias/path)", flush=True)
-    except Exception as e:
-        print(f"[Translation] Format detection warning: failed to fetch props: {e}. Defaulting to 1.8B format.", flush=True)
+    clean_base = base_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+    chat_url = f"{clean_base}/v1/chat/completions"
 
     rules_prefix = f"{cast_rules}\n\n" if cast_rules else ""
-    if is_7b_format:
-        raw_prompt = (
-            f"<|startoftext|>Translate the following text from {source_lang_full} to {target_lang_full}:\n\n"
-            f"{rules_prefix}{text}<|extra_0|>"
-        )
-        stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>", "<|extra_1|>", "<|endoftext|>", "<|im_end|>"]
-    else:
-        raw_prompt = (
-            f"<|hy_begin\u2581of\u2581sentence|>"
-            f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}:\n\n"
-            f"{rules_prefix}{text}<|hy_Assistant|>"
-        )
-        stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>", "<|eos|>"]
+    system_msg = f"You are a professional translator. Translate the text from {source_lang_full} to {target_lang_full} accurately. Preserve all Markdown formatting, links, and placeholders (such as __IMAGE_LINE_0__, __LINK_URL_1__) exactly. Output ONLY the {target_lang_full} translation."
 
-    completion_url = base_url.replace("/v1/chat/completions", "/completion").rstrip("/")
-    if not completion_url.endswith("/completion"):
-        completion_url = completion_url.rstrip("/") + "/completion"
-
-    # Calculate optimal max output tokens (avoid 4096 runaway generation)
     calc_max_tokens = min(max(len(text) * 2, 512), 1536)
 
     headers = {"Content-Type": "application/json"}
     data = {
-        "prompt": raw_prompt,
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"{rules_prefix}{text}"}
+        ],
         "temperature": temperature,
         "top_p": 0.95,
         "top_k": 20,
-        "repeat_penalty": 1.05,
-        "n_predict": calc_max_tokens,
-        "stop": stop_tokens
+        "repeat_penalty": 1.1,
+        "max_tokens": calc_max_tokens
     }
 
     while True:
         try:
-            resp = requests.post(completion_url, headers=headers, json=data, timeout=600)
+            resp = requests.post(chat_url, headers=headers, json=data, timeout=600)
             if resp.status_code == 503:
                 print("[Translation] Server returned 503 (model loading). Waiting...", flush=True)
                 wait_for_server_ready(base_url)
                 continue
             if resp.status_code != 200:
-                print(f"[Translation] Hy-MT2 /completion error: {resp.status_code} - {resp.text[:200]}", flush=True)
+                print(f"[Translation] Hy-MT2 chat error: {resp.status_code} - {resp.text[:200]}", flush=True)
                 return None
             result = resp.json()
-            translated = result.get("content", "").strip()
+            translated = result["choices"][0]["message"]["content"].strip()
             cleaned = clean_translation_text(translated)
             return cleaned if cleaned else None
         except Exception as e:
@@ -227,7 +204,7 @@ def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang
         raise ConnectionError(f"Translation server at {api_url} is not reachable.")
 
     if _is_hy_mt2_model(api_url):
-        print("[Translation] Detected Hy-MT2 model — using raw /completion endpoint", flush=True)
+        print("[Translation] Detected Hy-MT2 model — using chat completions endpoint", flush=True)
         return translate_text_hy_mt2(text, api_url, source_lang=source_lang,
                                      target_lang=target_lang, temperature=0.1, cast_rules=cast_rules)
 
@@ -280,6 +257,10 @@ def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang
 
 def validate_translation_segment(original, translated):
     if not translated:
+        return False
+
+    if any("\u4e00" <= c <= "\u9fff" for c in translated):
+        print("[Validation] failure: Translated segment contains unexpected Chinese characters (hallucination)!", flush=True)
         return False
 
     orig_headers = len([line for line in original.splitlines() if line.strip().startswith('#')])
