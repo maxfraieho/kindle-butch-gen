@@ -33,6 +33,7 @@ if repo_dir not in sys.path:
     sys.path.insert(0, repo_dir)
 from kbg_web import edit_store
 from common.book_paths import resolve_book_paths
+from common.utils import _is_hy_mt2_model, clean_translation_text
 
 # Import our TextDetector and natsort (installed in PRoot container)
 try:
@@ -764,6 +765,23 @@ def match_bubbles_iou(old_entries, new_entries, iou_threshold=0.5):
 _UPPER_RATIO_THRESHOLD = 0.7
 
 
+def _line_looks_garbled(text):
+    """Mirrors common/utils.py's validate_translation_segment garbled/
+    hallucination checks (Chinese-character detection + low-letter-ratio
+    symbol soup) for a single manga translated line - same failure modes
+    observed there apply here since both paths hit the same Hy-MT2
+    model."""
+    if not text:
+        return False
+    if any("一" <= c <= "鿿" for c in text):
+        return True
+    non_space = sum(1 for c in text if not c.isspace())
+    letters = sum(1 for c in text if c.isalpha())
+    if non_space >= 8 and letters / non_space < 0.5:
+        return True
+    return False
+
+
 def _normalize_sentence_case(text, glossary):
     """If most of the string's letters are uppercase, treat the whole
     thing as mis-cased and rewrite it: lowercase everything, then
@@ -971,6 +989,38 @@ The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting 
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
 {glossary_rules}{cast_rules}{tone_rules}{honorific_rule}"""
 
+    # 2026-07-25: this function used to be the ONLY translation call path
+    # in the whole project - it POSTed plain ChatML ("messages": [...])
+    # to /v1/chat/completions regardless of model. That is exactly the
+    # same-day regression common/utils.py's translate_text_hy_mt2 was
+    # found and reverted for today: Hy-MT2 was never trained on ChatML,
+    # it expects its own control-token /completion prompt, and without
+    # that it hallucinates (Chinese-character/symbol-soup garbage) with
+    # zero output validation here to catch it before it lands on a
+    # rendered manga page. This port mirrors translate_text_hy_mt2's
+    # native-prompt approach (same is_7b_format detection, same control
+    # tokens) for the Hy-MT2 case, and adds the same Chinese-char/
+    # garbled-ratio rejection per translated line - a rejected line falls
+    # back to the original-language text via the existing
+    # "fill missing with original" step below, same safety contract as
+    # the book pipeline's translate_segment_with_retry.
+    is_hy_mt2 = _is_hy_mt2_model(api_url)
+    is_7b_format = False
+    completion_url = api_url
+    stop_tokens = []
+    if is_hy_mt2:
+        base = api_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").replace("/v1", "").replace("/completion", "").rstrip("/")
+        try:
+            props = requests.get(f"{base}/props", timeout=15).json()
+            tmpl = props.get("chat_template", "") or props.get("model_alias", "") or props.get("model_path", "")
+            is_7b_format = "startoftext" in tmpl or "extra_0" in tmpl or "7b" in tmpl.lower()
+        except Exception as e:
+            log(f"Hy-MT2 format detection warning: failed to fetch props: {e}. Defaulting to 1.8B format.")
+        completion_url = base + "/completion"
+        stop_tokens = (["<|eos|>", "<|startoftext|>", "<|extra_0|>"] if is_7b_format
+                       else ["<|hy_User|>", "<|hy_begin▁of▁sentence|>", "<|endoftext|>"])
+        log(f"Detected Hy-MT2 model - using raw /completion endpoint (is_7b_format={is_7b_format})")
+
     # Retry with backoff on transient failures - notably 503 "Loading
     # model", which fires reliably when translate_manga.py starts (e.g.
     # via the auto-resume-on-restart path) before llama-server has
@@ -986,20 +1036,35 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
     backoff = [2, 4, 8, 15] + [15] * 15
     for attempt in range(max_attempts):
         try:
-            response = requests.post(
-                api_url,
-                json={
+            if is_hy_mt2:
+                if is_7b_format:
+                    raw_prompt = f"<|startoftext|>{system_prompt}\n\n{prompt_list}<|extra_0|>"
+                else:
+                    raw_prompt = f"<|hy_begin▁of▁sentence|><|hy_User|>{system_prompt}\n\n{prompt_list}<|hy_Assistant|>"
+                req_json = {
+                    "prompt": raw_prompt,
+                    "temperature": 0.1,
+                    "top_p": 0.95,
+                    "top_k": 20,
+                    "repeat_penalty": 1.05,
+                    "n_predict": 4096,
+                    "stop": stop_tokens,
+                }
+            else:
+                req_json = {
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt_list}
                     ],
                     "temperature": 0.2
-                },
-                timeout=300
-            )
+                }
+            response = requests.post(completion_url, json=req_json, timeout=300)
             if response.status_code == 200:
                 res_json = response.json()
-                content = res_json["choices"][0]["message"]["content"].strip()
+                if is_hy_mt2:
+                    content = clean_translation_text(res_json.get("content", "")).strip()
+                else:
+                    content = res_json["choices"][0]["message"]["content"].strip()
                 lines = content.split("\n")
 
                 for line in lines:
@@ -1011,6 +1076,9 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
                         try:
                             idx = int(parts[0].strip()) - 1
                             val = _normalize_sentence_case(parts[1].strip(), glossary)
+                            if _line_looks_garbled(val):
+                                log(f"Rejecting garbled/hallucinated translation for line {idx+1}: {val!r}")
+                                continue
                             if 0 <= idx < len(remaining):
                                 result[remaining[idx]] = val
                         except ValueError:

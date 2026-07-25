@@ -288,10 +288,15 @@ def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang
             print(f"[Translation] API request failed: {e}. Checking server status...", flush=True)
             wait_for_server_ready(api_url)
 
-def validate_translation_segment(original, translated):
+def _translation_text_quality_ok(translated):
+    """Chinese-hallucination + garbled-symbol-soup checks, split out of
+    validate_translation_segment so translate_segment_with_retry can also
+    ask 'is this attempt's TEXT actually fine, independent of
+    placeholders' - lets it tell a real hallucination (worth burning
+    retries on) apart from a placeholder-only miss (not worth retrying,
+    the rescue step below fixes that deterministically)."""
     if not translated:
         return False
-
     if any("\u4e00" <= c <= "\u9fff" for c in translated):
         print("[Validation] failure: Translated segment contains unexpected Chinese characters (hallucination)!", flush=True)
         return False
@@ -308,6 +313,11 @@ def validate_translation_segment(original, translated):
     if non_space >= 8 and letters / non_space < 0.5:
         print("[Validation] failure: Translated segment looks garbled (too few letters, likely not real text)!", flush=True)
         print(f"  Translated segment: {translated!r}", flush=True)
+        return False
+    return True
+
+def validate_translation_segment(original, translated):
+    if not _translation_text_quality_ok(translated):
         return False
 
     orig_headers = len([line for line in original.splitlines() if line.strip().startswith('#')])
@@ -405,6 +415,17 @@ def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_ret
             return translated
         else:
             print(f"[Translation] Segment validation failed on attempt {attempt+1}.", flush=True)
+            # 2026-07-25: if the text itself is fine (no hallucination/
+            # garbling) and only the placeholder set is off, burning the
+            # remaining retries re-generating from scratch never helps -
+            # the rescue step below (append missing / strip extra
+            # placeholders) fixes it deterministically regardless of
+            # which attempt's text it starts from. Stop here instead of
+            # paying for 2 more full generations just to reach the same
+            # rescue path with equivalent input.
+            if _translation_text_quality_ok(translated):
+                print("[Translation] Failure was placeholder-only (translation text itself is fine) - skipping remaining retries, going straight to placeholder rescue.", flush=True)
+                break
 
     # If all attempts failed, rescue by adjusting missing/extra placeholders
     if last_translated:

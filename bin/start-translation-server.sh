@@ -20,12 +20,18 @@ PID_FILE="${1:-$HOME/llama-server-8081.pid}"
 
 echo "$(date): Запуск моделі перекладу Hy-MT2-7B на порту $PORT..."
 
+# 2026-07-25: the Vulkan backend (llama.cpp-multibackend, built 2026-07-24,
+# GGML_VULKAN=ON) was silently preferred here whenever that build directory
+# existed. Confirmed live, same model/prompt/params, real book segment:
+# Vulkan produces immediate Chinese-character/symbol-soup hallucination
+# (n_predict exhausted, garbage the whole way); the OpenCL build
+# (llama.cpp/build/bin, GGML_OPENCL=ON, built 2026-07-17 - the version the
+# user confirms worked correctly) produces fluent, on-language Ukrainian
+# for the same input. Root cause not fully isolated (likely a Vulkan
+# quantized-kernel numerical-precision bug on this Adreno GPU for this
+# model/quant), but the fix is unambiguous: never prefer Vulkan here.
 LLAMA_DIR="$HOME/llama.cpp/build/bin"
 DEVICE_ARG=""
-if [ -d "$HOME/llama.cpp-multibackend/build/bin" ]; then
-  LLAMA_DIR="$HOME/llama.cpp-multibackend/build/bin"
-  DEVICE_ARG="--device Vulkan0"
-fi
 
 cd "$LLAMA_DIR"
 nohup ./llama-server \

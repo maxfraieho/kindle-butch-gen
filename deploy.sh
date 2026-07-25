@@ -534,12 +534,23 @@ fi
 
 # The launcher production autostart actually calls - install if absent
 # (never overwrite: the production phone's copy may carry local tuning).
+# 2026-07-25: this silent-skip is exactly why a real fix (-c 4096, then
+# separately the Vulkan->OpenCL backend revert) sat unused in bin/ for
+# hours while the live server kept running the stale $HOME copy - nobody
+# noticed because there was no signal the two had diverged. Diff-check
+# added below so drift is at least visible, without changing the
+# never-auto-overwrite behavior itself.
 if [ ! -f "$HOME/start-translation-server.sh" ]; then
     cp "$PROJECT_DIR/bin/start-translation-server.sh" "$HOME/start-translation-server.sh"
     chmod +x "$HOME/start-translation-server.sh"
     success "start-translation-server.sh installed to \$HOME."
 else
-    log "start-translation-server.sh already present in \$HOME - not overwriting."
+    if ! diff -q "$PROJECT_DIR/bin/start-translation-server.sh" "$HOME/start-translation-server.sh" >/dev/null 2>&1; then
+        log "WARNING: \$HOME/start-translation-server.sh differs from bin/start-translation-server.sh in the repo - the deployed copy is STALE and NOT auto-updated (local tuning is assumed intentional). Review the diff and 'cp bin/start-translation-server.sh ~/start-translation-server.sh' manually if the repo version has a fix you need live:"
+        diff "$PROJECT_DIR/bin/start-translation-server.sh" "$HOME/start-translation-server.sh" || true
+    else
+        log "start-translation-server.sh already present in \$HOME and matches the repo version - not overwriting."
+    fi
 fi
 
 # -------------------------------------------------------------
