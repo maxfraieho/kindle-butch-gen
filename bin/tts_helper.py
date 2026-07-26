@@ -379,7 +379,17 @@ def run_styletts2(payload):
 
     # Initialize Session
     sess_options = onnxruntime.SessionOptions()
-    sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['NnapiExecutionProvider', 'CPUExecutionProvider'])
+    try:
+        sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['NnapiExecutionProvider', 'CPUExecutionProvider'])
+    except Exception as e:
+        # NNAPI's session-level init can hard-fail (not just fall back to
+        # CPU) on this device, e.g. ANEURALNETWORKS_OP_FAILED from
+        # model.cc's NNMemory registration - confirmed live 2026-07-25,
+        # killing the whole audiobook stage before any chunk was
+        # synthesized. Retry CPU-only rather than letting the entire book's
+        # narration die on a delegate-init failure.
+        print(f"[TTSHelper] NNAPI provider init failed ({e}); retrying with CPU-only ONNX Runtime.", flush=True)
+        sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['CPUExecutionProvider'])
     s_prev = np.load(style_path).astype(np.float32)
 
     # Load cache dynamically

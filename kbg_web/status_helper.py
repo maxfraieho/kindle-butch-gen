@@ -262,10 +262,12 @@ def calculate_progress(slug):
     # 2. Translation Progress
     should_translate = paths["target_lang"] != paths["source_lang"]
     merged_translated = os.path.join(book_dir, "translated", f"merged_translated_{paths['target_lang']}.md")
-    if not should_translate or (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0):
+    if not should_translate:
         translation_percent = 100.0
     elif not has_pdf or not page_ranges:
-        translation_percent = 0.0
+        # No per-batch data to check against (no-PDF resume path) - the
+        # merged file's mere existence is the only signal available here.
+        translation_percent = 100.0 if (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0) else 0.0
     else:
         translate_cache = {}
         if os.path.exists(paths["translate_cache"]):
@@ -416,7 +418,7 @@ def add_book(slug, pdf_path, title, authors, lang, source_lang="ru", is_manga=Fa
     
     if ext == ".pdf":
         pages = get_pdf_page_count(dest_file)
-        page_ranges = [[1, pages]]
+        page_ranges = [[0, pages - 1]] if pages > 0 else []
     else:
         pages = 0
         page_ranges = []
