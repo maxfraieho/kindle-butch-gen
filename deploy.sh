@@ -22,6 +22,54 @@ error() {
     exit 1
 }
 
+# Fix an upstream llama.cpp/Termux build break, found 2026-07-26 on a clean
+# device redeploy: vendor/sheredom/subprocess.h unconditionally calls
+# posix_spawn_file_actions_addchdir_np() on any non-Apple platform, but
+# Android's Bionic libc does not provide it (upstream sheredom/subprocess.h
+# issue #66, closed WillNotFix - maintainer: "I'd want users to #ifdef it").
+# This used to only break the optional, best-effort llama-mtmd-cli target
+# (see the "premium Vision-QA" comment further down) - but mtmd is now a
+# hard dependency of llama-server itself, so a fresh clone fails to build
+# the REQUIRED binary without this patch. Applied idempotently right after
+# each `git clone` of llama.cpp, before cmake/make, so the ~10-20min compile
+# never has to fail and restart to discover this.
+patch_subprocess_h_for_bionic() {
+    local f="$HOME/llama.cpp/vendor/sheredom/subprocess.h"
+    [ -f "$f" ] || return 0
+    grep -q '__BIONIC__' "$f" 2>/dev/null && return 0
+    python3 - "$f" <<'PYEOF' || log "subprocess.h patch failed to apply (non-fatal, will surface as a build error if actually needed)"
+import sys
+path = sys.argv[1]
+with open(path, "r") as fh:
+    content = fh.read()
+old = """#else
+#if defined(__APPLE__) && defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    posix_error = posix_spawn_file_actions_addchdir_np(&actions, process_cwd);"""
+new = """#elif defined(__ANDROID__) || defined(__BIONIC__)
+    /* vydra-termux-deploy patch: Android Bionic lacks
+     * posix_spawn_file_actions_addchdir[_np] (upstream sheredom/subprocess.h#66,
+     * closed WillNotFix). Skip cwd-changing rather than fail to build; this
+     * project never relies on process_cwd on this platform. */
+    posix_error = 0;
+#else
+#if defined(__APPLE__) && defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    posix_error = posix_spawn_file_actions_addchdir_np(&actions, process_cwd);"""
+if old not in content:
+    print("WARN: subprocess.h patch target text not found (upstream file may have changed) - skipping, build may fail", file=sys.stderr)
+    sys.exit(0)
+content = content.replace(old, new, 1)
+with open(path, "w") as fh:
+    fh.write(content)
+print("subprocess.h patched for Android Bionic (mtmd/llama-server build fix).")
+PYEOF
+}
+
 AUTOSTART=false
 # -y/--yes or KBG_DEPLOY_YES=1 env var: fully non-interactive single-command
 # deploy - every model download and the autostart prompt default to "do it"
@@ -517,6 +565,7 @@ else
     if [ ! -d "$HOME/llama.cpp/.git" ]; then
         git clone --depth 1 https://github.com/ggerganov/llama.cpp.git "$HOME/llama.cpp"
     fi
+    patch_subprocess_h_for_bionic
     cd "$HOME/llama.cpp"
     # 4th finding of the first outside install (OnePlus 15 / Snapdragon 8
     # Elite 2): -mcpu=native code paths for the newest ARMv9 cores ICE the
