@@ -154,7 +154,83 @@ def _get_pdf_page_count_uncached(pdf_path):
         "wrong guess silently truncates the whole book."
     )
 
+# Real incident, 2026-07-26: the uncached function below re-derives
+# translation progress by reading the FULL extracted book text, protecting
+# placeholders, re-splitting it into segments (~550 for a real 374-page
+# technical PDF), and hashing every single segment to check membership in
+# translate_cache - then does an equivalent full re-chunk + per-chunk hash
+# pass for TTS/stress progress. Measured live: 17-18 SECONDS per call for
+# one book. list_books()/status_api() call this for EVERY book on EVERY 5s
+# dashboard poll (see kbg_web/app.py) even when nothing is converting -
+# the dominant cause of "opening the dashboard is unbearably slow".
+# Cache keyed on the mtimes of every file whose content could change the
+# result: unchanged mtimes (the common idle case) return the cached dict
+# instantly; the moment translate_cache.json/tts_cache/etc actually change
+# (a real conversion progressing) the key changes and it recomputes for
+# real, so live progress during an active run still updates correctly.
+_progress_cache = {}
+
+
+def _progress_cache_key(slug, paths, book_dir):
+    candidates = [
+        paths.get("config_path"),
+        os.path.join(paths.get("cache_dir", book_dir), "epub_progress.json"),
+        os.path.join(book_dir, "manga_progress.json"),
+        paths.get("translate_cache"),
+    ]
+    pdf_path = paths.get("pdf_path")
+    page_ranges = paths.get("page_ranges") or []
+    if pdf_path:
+        pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
+        for start, end in page_ranges:
+            batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
+            candidates.append(os.path.join(batch_out_dir, pdf_basename, f"{pdf_basename}.md"))
+            candidates.append(os.path.join(batch_out_dir, "marker_run.log"))
+    for voice_slug in ("styletts2", "supertonic-3-tts-int8"):
+        candidates.append(os.path.join(paths.get("cache_dir", book_dir), f"tts_cache_{voice_slug}.json"))
+    target_lang = paths.get("target_lang", "")
+    source_lang = paths.get("source_lang", "")
+    candidates.append(os.path.join(book_dir, "translated", f"stress_cache_{target_lang}.json"))
+    translated_dir = paths.get("translated_dir", book_dir)
+    candidates.append(os.path.join(translated_dir, f"merged_translated_{target_lang}.md"))
+    candidates.append(os.path.join(translated_dir, f"merged_source_{source_lang}.md"))
+
+    mtimes = []
+    for f in candidates:
+        if not f:
+            continue
+        try:
+            mtimes.append((f, os.path.getmtime(f)))
+        except OSError:
+            mtimes.append((f, None))
+    return (slug, tuple(mtimes))
+
+
 def calculate_progress(slug):
+    paths = resolve_book_paths(repo_dir, slug)
+    book_dir = paths["book_dir"]
+    if not os.path.exists(book_dir):
+        return {
+            "marker_percent": 0.0,
+            "translation_percent": 0.0,
+            "tts_percent": 0.0,
+            "error": "Book directory does not exist"
+        }
+
+    cache_key = _progress_cache_key(slug, paths, book_dir)
+    if cache_key in _progress_cache:
+        return _progress_cache[cache_key]
+
+    result = _calculate_progress_uncached(slug)
+    _progress_cache[cache_key] = result
+    # Drop stale entries for this slug so the dict doesn't grow forever
+    # across a long conversion where the key changes on every real update.
+    for k in [k for k in list(_progress_cache.keys()) if k[0] == slug and k != cache_key]:
+        del _progress_cache[k]
+    return result
+
+
+def _calculate_progress_uncached(slug):
     paths = resolve_book_paths(repo_dir, slug)
     book_dir = paths["book_dir"]
     if not os.path.exists(book_dir):
