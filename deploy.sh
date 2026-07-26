@@ -966,6 +966,52 @@ else
     fi
 fi
 
+# 4. Check/Download Whisper ASR model (used by common/asr_verify.py to
+# transcribe synthesized TTS audio and verify it matches the source text).
+# Gap found 2026-07-26: the model directory sherpa-onnx-whisper-small-int8/
+# existed only because it was placed on the original device by hand back in
+# 2024 - deploy.sh never provisioned it, so a fresh device silently lacks it.
+# asr_verify.py is a standalone QA module, not yet wired into the live
+# translate/synthesize pipeline, so a failure here must not sink the deploy.
+WHISPER_DIR="$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small-int8"
+WHISPER_ARCHIVE="$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small.tar.bz2"
+WHISPER_SIZE=639387718
+WHISPER_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-small.tar.bz2"
+
+if [ -f "$WHISPER_DIR/small-encoder.int8.onnx" ] && [ -f "$WHISPER_DIR/small-decoder.int8.onnx" ] && [ -f "$WHISPER_DIR/small-tokens.txt" ]; then
+    success "Whisper ASR model (small, int8) already present at $WHISPER_DIR."
+else
+    echo -e "\n${BLUE}[DEPL]${NC} Whisper ASR model (small, ~610MB) is missing."
+    echo "This model is optional - it is only used by the asr_verify.py QA module"
+    echo "(TTS output verification), which is not yet wired into the live pipeline."
+    echo -n -e "${BLUE}[DEPL]${NC} Do you want to download the Whisper ASR model? (y/N): "
+    read -r whisper_choice || whisper_choice=""   # EOF-safe: set -e must not kill a non-interactive run
+    case "$whisper_choice" in
+        [yY]|[yY][eE][sS])
+            if check_and_download "Whisper small ASR archive" "$WHISPER_ARCHIVE" "$WHISPER_URL" "$WHISPER_SIZE"; then
+                log "Extracting Whisper ASR model archive..."
+                tar -xf "$WHISPER_ARCHIVE" -C "$HOME/kindle-butch-gen/models"
+                # Upstream archive extracts to sherpa-onnx-whisper-small/ (no
+                # "-int8" suffix) - rename to match this device's established
+                # directory name so any hand-written path elsewhere still resolves.
+                if [ -d "$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small" ]; then
+                    rm -rf "$WHISPER_DIR"
+                    mv "$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small" "$WHISPER_DIR"
+                fi
+                if [ -f "$WHISPER_DIR/small-encoder.int8.onnx" ]; then
+                    success "Whisper ASR model extracted successfully."
+                    rm -f "$WHISPER_ARCHIVE"
+                else
+                    error "Extraction failed or produced an unexpected layout. Check $HOME/kindle-butch-gen/models manually."
+                fi
+            fi
+            ;;
+        *)
+            log "Whisper ASR model download skipped (asr_verify.py QA module will be unavailable)."
+            ;;
+    esac
+fi
+
 log "Deployment complete!"
 echo -e "\n${GREEN}===================================================================${NC}"
 echo -e " kindle-butch-gen is deployed!"
