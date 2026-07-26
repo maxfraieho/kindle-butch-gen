@@ -106,6 +106,27 @@ def main():
         if not llama_running:
             print(f"[AutoResume] Llama translation server autostart is disabled and server is not running. "
                   f"Skipping auto-resume of translation for '{slug}' to prevent overloading the device.")
+            # Real incident, 2026-07-26: this early return used to leave
+            # .active_conversion.json completely untouched, so the dashboard
+            # (which only reads that file's mere presence + is_book_process_
+            # running) kept showing the book as "in progress" forever with a
+            # frozen progress bar - no process was ever actually running
+            # again, and nothing told the user why. Mark the state itself as
+            # stalled (kept on disk, not deleted, so a manual resume can
+            # still reuse the exact saved cmd/cwd/log_path) so kbg_web/app.py
+            # can surface a real "stopped, resume manually" banner instead of
+            # a silently-frozen spinner.
+            try:
+                state["stalled"] = True
+                state["stalled_reason"] = (
+                    "Автозапуск сервера перекладу вимкнено в налаштуваннях, а сам сервер "
+                    "не працює. Автовідновлення після перезапуску Termux пропущено, щоб не "
+                    "перевантажити пристрій ще раз. Натисніть «Відновити», щоб продовжити вручну."
+                )
+                with open(STATE_PATH, "w", encoding="utf-8") as f:
+                    json.dump(state, f, ensure_ascii=False)
+            except Exception as e:
+                print(f"[AutoResume] Could not mark state as stalled: {e}", file=sys.stderr)
             return
 
     NEEDS_LLAMA_STOPPED = ("agent_editor.py", "cast_ner_prepass.py")

@@ -234,6 +234,25 @@ def _clear_active_conversion_state(slug=None):
     except Exception as e:
         print(f"[AutoResume] Warning: failed to clear active-conversion state: {e}")
 
+
+def _get_stall_info(slug):
+    # bin/resume_active_conversion.py marks the saved state "stalled" (and
+    # leaves it on disk instead of clearing it) when it deliberately skips
+    # relaunching a translation because autostart_llama is off and the
+    # server isn't already up - see that file for the real incident this
+    # fixes. Only meaningful once the caller has already confirmed
+    # is_running is False for this slug (a live process always wins).
+    try:
+        if not os.path.exists(ACTIVE_CONVERSION_STATE_PATH):
+            return False, None
+        with open(ACTIVE_CONVERSION_STATE_PATH, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        if state.get("slug") == slug and state.get("stalled"):
+            return True, state.get("stalled_reason")
+    except Exception:
+        pass
+    return False, None
+
 _CONVERSION_SCRIPTS = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py")
 
 
@@ -388,12 +407,16 @@ def list_books():
                     completed_copied.add(entry)
             if not is_running:
                 is_running = is_book_process_running(entry)
-                    
+
+            stalled, stalled_reason = (False, None)
+            if not is_running:
+                stalled, stalled_reason = _get_stall_info(entry)
+
             # Calculate progress
             prog = calculate_progress(entry)
             if "error" in prog:
                 prog = {"marker_percent": 0.0, "translation_percent": 0.0, "stress_percent": 0.0, "tts_percent": 0.0, "overall_percent": 0.0}
-                
+
             # Scan output files
             output_dir = os.path.join(entry_path, "output")
             output_files = []
@@ -408,6 +431,8 @@ def list_books():
                 "authors": authors,
                 "target_lang": target_lang,
                 "is_running": is_running,
+                "stalled": stalled,
+                "stalled_reason": stalled_reason,
                 "progress": prog,
                 "output_files": sorted(output_files),
                 "is_manga": cfg.get("is_manga", False),
@@ -1021,12 +1046,16 @@ def status_api(slug):
             completed_copied.add(slug)
     if not is_running:
         is_running = is_book_process_running(slug)
-            
+
+    stalled, stalled_reason = (False, None)
+    if not is_running:
+        stalled, stalled_reason = _get_stall_info(slug)
+
     # Calculate progress percentages
     prog = calculate_progress(slug)
     if "error" in prog:
         return jsonify({"status": "error", "message": prog["error"]}), 400
-        
+
     # Read the last 30 lines of the progress log
     log_lines = []
     log_path = paths["log_path"]
@@ -1041,6 +1070,8 @@ def status_api(slug):
     return jsonify({
         "slug": slug,
         "is_running": is_running,
+        "stalled": stalled,
+        "stalled_reason": stalled_reason,
         "marker_percent": prog["marker_percent"],
         "translation_percent": prog["translation_percent"],
         "stress_percent": prog["stress_percent"],
@@ -1048,6 +1079,66 @@ def status_api(slug):
         "overall_percent": prog.get("overall_percent", 0.0),
         "logs": log_lines
     })
+
+@app.route("/api/resume-stalled/<slug>", methods=["POST"])
+def resume_stalled_conversion_api(slug):
+    # Companion fix to bin/resume_active_conversion.py's stalled-state
+    # marking (see that file + _get_stall_info above): relaunches the EXACT
+    # saved cmd/cwd/log_path from .active_conversion.json, same as a normal
+    # /api/run start. Deliberately does NOT try to start llama-server itself
+    # first - the resumed pipeline (run_conversion_batches.py/
+    # translate_manga.py/translate_epub.py) already has its own auto-heal
+    # retry loop that detects the server is down and starts it, proven live
+    # 2026-07-26 mid-run. This just needs to be a conscious user click
+    # instead of an unconditional auto-resume, which is the whole point of
+    # the stall guard this is unblocking.
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
+
+    if slug in active_processes and active_processes[slug].poll() is None:
+        return jsonify({"status": "error", "message": "Процес вже виконується"}), 400
+
+    if not os.path.exists(ACTIVE_CONVERSION_STATE_PATH):
+        return jsonify({"status": "error", "message": "Немає збереженого стану для відновлення"}), 400
+
+    try:
+        with open(ACTIVE_CONVERSION_STATE_PATH, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Не вдалося прочитати збережений стан: {e}"}), 500
+
+    if state.get("slug") != slug or not state.get("stalled"):
+        return jsonify({"status": "error", "message": "Ця книга не позначена як зупинена"}), 400
+
+    cmd = state.get("cmd")
+    cwd = state.get("cwd")
+    log_path = state.get("log_path")
+    if not cmd or not cwd:
+        return jsonify({"status": "error", "message": "Збережений стан пошкоджений (немає команди)"}), 500
+
+    child_writes_own_log = any("run_conversion_batches.py" in str(part) for part in cmd)
+    try:
+        log_file = open(log_path, "a", encoding="utf-8") if log_path else subprocess.DEVNULL
+        if log_path:
+            log_file.write(f"\n\n--- Manually resumed via dashboard at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            log_file.flush()
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL if child_writes_own_log else log_file,
+            stderr=log_file if child_writes_own_log else (subprocess.STDOUT if log_path else subprocess.DEVNULL),
+            cwd=cwd,
+            start_new_session=True,
+        )
+        active_processes[slug] = proc
+        completed_copied.discard(slug)
+        # Overwrite with the plain (non-stalled) shape - same helper used by
+        # every normal start, naturally drops the stalled/stalled_reason
+        # fields since they were never part of its written schema.
+        _write_active_conversion_state(slug, cmd, cwd, log_path)
+        return jsonify({"status": "success", "message": "Відновлення запущено"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/download/<slug>/<filename>")
 def download_output_file(slug, filename):
