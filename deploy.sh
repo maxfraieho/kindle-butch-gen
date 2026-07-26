@@ -23,6 +23,15 @@ error() {
 }
 
 AUTOSTART=false
+# -y/--yes or KBG_DEPLOY_YES=1 env var: fully non-interactive single-command
+# deploy - every model download and the autostart prompt default to "do it"
+# instead of the safety-first "skip"/"keep" defaults used on bare EOF. Added
+# 2026-07-26 because the per-model defaults were inconsistent under a plain
+# `bash deploy.sh < /dev/null` (translation model silently skipped while
+# TTS/StyleTTS2 silently downloaded) - this makes "one command, everything
+# provisioned" an explicit, intentional mode instead of an accident of EOF
+# fallthrough.
+YES="${KBG_DEPLOY_YES:-false}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -31,13 +40,20 @@ while [[ $# -gt 0 ]]; do
             AUTOSTART=true
             shift
             ;;
+        -y|--yes)
+            YES=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: $0 [-a|--autostart]"
+            echo "Usage: $0 [-a|--autostart] [-y|--yes]"
+            echo "  -y, --yes  Non-interactive: download all models (incl. optional ones)"
+            echo "             and enable autostart without prompting. Same as"
+            echo "             KBG_DEPLOY_YES=1."
             exit 0
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [-a|--autostart]"
+            echo "Usage: $0 [-a|--autostart] [-y|--yes]"
             exit 1
             ;;
     esac
@@ -46,10 +62,13 @@ done
 log "Starting deployment of kindle-butch-gen on OnePlus 13..."
 
 # Ask interactively if not passed as CLI argument
-if [ "$AUTOSTART" = "false" ]; then
+if [ "$YES" = "true" ] && [ "$AUTOSTART" = "false" ]; then
+    AUTOSTART=true
+    log "Autostart configuration enabled (--yes)."
+elif [ "$AUTOSTART" = "false" ]; then
     echo -n -e "${BLUE}[DEPL]${NC} Do you want to configure automatic startup of services (sshd, llama-server, web server) on Termux launch? (y/N): "
     read -r choice || choice=""   # EOF-safe: set -e must not kill a non-interactive run
-    case "$choice" in 
+    case "$choice" in
         [yY]|[yY][eE][sS])
             AUTOSTART=true
             log "Autostart configuration enabled."
@@ -884,13 +903,19 @@ fi
 if [ ! -f "$MODEL_PATH" ]; then
     echo -e "\n${BLUE}[DEPL]${NC} Translation model Hy-MT2-7B-Q4_K_M.gguf (4.4GB) is missing."
     echo "This model is required for translating book texts."
-    echo "Please choose an option:"
-    echo "  1) Download the default model from Hugging Face (~4.4GB)"
-    echo "  2) Paste a custom download link"
-    echo "  3) Skip downloading for now"
-    echo -n -e "${BLUE}[DEPL]${NC} Enter choice [1-3]: "
-    read -r model_choice || model_choice=""   # EOF-safe: set -e must not kill a non-interactive run
-    
+
+    if [ "$YES" = "true" ]; then
+        model_choice="1"
+        log "Non-interactive (--yes): downloading the default translation model."
+    else
+        echo "Please choose an option:"
+        echo "  1) Download the default model from Hugging Face (~4.4GB)"
+        echo "  2) Paste a custom download link"
+        echo "  3) Skip downloading for now"
+        echo -n -e "${BLUE}[DEPL]${NC} Enter choice [1-3]: "
+        read -r model_choice || model_choice=""   # EOF-safe: set -e must not kill a non-interactive run
+    fi
+
     case "$model_choice" in
         1)
             check_and_download "Hy-MT2-7B GGUF Model" "$MODEL_PATH" "$HY_MT2_URL" "$HY_MT2_SIZE"
@@ -984,8 +1009,15 @@ else
     echo -e "\n${BLUE}[DEPL]${NC} Whisper ASR model (small, ~610MB) is missing."
     echo "This model is optional - it is only used by the asr_verify.py QA module"
     echo "(TTS output verification), which is not yet wired into the live pipeline."
-    echo -n -e "${BLUE}[DEPL]${NC} Do you want to download the Whisper ASR model? (y/N): "
-    read -r whisper_choice || whisper_choice=""   # EOF-safe: set -e must not kill a non-interactive run
+
+    if [ "$YES" = "true" ]; then
+        whisper_choice="y"
+        log "Non-interactive (--yes): downloading the Whisper ASR model too."
+    else
+        echo -n -e "${BLUE}[DEPL]${NC} Do you want to download the Whisper ASR model? (y/N): "
+        read -r whisper_choice || whisper_choice=""   # EOF-safe: set -e must not kill a non-interactive run
+    fi
+
     case "$whisper_choice" in
         [yY]|[yY][eE][sS])
             if check_and_download "Whisper small ASR archive" "$WHISPER_ARCHIVE" "$WHISPER_URL" "$WHISPER_SIZE"; then
