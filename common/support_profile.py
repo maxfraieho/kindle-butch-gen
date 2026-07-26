@@ -135,10 +135,35 @@ def _fetch_entitlements_remote():
         return None
 
 
+# Real incident, 2026-07-26: the dashboard polls /api/books every 5s, and
+# list_books() calls is_entitled() once per poll - that's a live HTTPS
+# round-trip to Appwrite every 5 seconds, forever, for a value that almost
+# never changes mid-session. Measured contributing to sustained ~30-35%
+# CPU/thread buildup on the phone with nothing else running. A short
+# in-process cache (NOT the on-disk _ENTITLEMENT_CACHE above, which is a
+# 7-day failure fallback, not a freshness throttle) skips the network call
+# entirely when a live result was fetched within the last _LIVE_CACHE_TTL_S.
+_LIVE_CACHE_TTL_S = 30
+_live_entitlements_cache = {"ts": 0.0, "ents": None}
+
+
+def _fetch_entitlements_remote_cached():
+    """Same contract as _fetch_entitlements_remote() (None on failure)."""
+    now = time.time()
+    if (_live_entitlements_cache["ents"] is not None
+            and (now - _live_entitlements_cache["ts"]) < _LIVE_CACHE_TTL_S):
+        return _live_entitlements_cache["ents"]
+    ents = _fetch_entitlements_remote()
+    if ents is not None:
+        _live_entitlements_cache["ts"] = now
+        _live_entitlements_cache["ents"] = ents
+    return ents
+
+
 def get_entitlements():
     """List of active entitlements - live, or fresh (<7d) grace cache on
     failure, else empty. Display-oriented twin of is_entitled()."""
-    ents = _fetch_entitlements_remote()
+    ents = _fetch_entitlements_remote_cached()
     if ents is not None:
         try:
             with open(_ENTITLEMENT_CACHE, "w", encoding="utf-8") as f:
@@ -159,7 +184,7 @@ def get_entitlements():
 def is_entitled(feature):
     """True iff the profile has `feature` - live, or from a fresh (<7d)
     grace cache when the live read fails. Everything else is False."""
-    ents = _fetch_entitlements_remote()
+    ents = _fetch_entitlements_remote_cached()
     if ents is not None:
         try:
             with open(_ENTITLEMENT_CACHE, "w", encoding="utf-8") as f:

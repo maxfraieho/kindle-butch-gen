@@ -100,7 +100,30 @@ def split_paragraph_to_chunks(text, max_chars=1000):
         chunks.append(" ".join(curr_group))
     return chunks
 
+# Real incident, 2026-07-26: calculate_progress() (called for EVERY book on
+# EVERY 5s dashboard poll via /api/books) re-derives the page count from
+# scratch each time - re-parsing the PDF's xref/page-tree even though a
+# book's page count never changes after upload. Measured contributing to
+# sustained high CPU on the phone with nothing actually converting. Cache
+# keyed by (path, mtime) so an edited/replaced file still gets re-counted.
+_page_count_cache = {}
+
+
 def get_pdf_page_count(pdf_path):
+    try:
+        mtime = os.path.getmtime(pdf_path)
+    except OSError:
+        mtime = None
+    cache_key = (pdf_path, mtime)
+    if mtime is not None and cache_key in _page_count_cache:
+        return _page_count_cache[cache_key]
+    count = _get_pdf_page_count_uncached(pdf_path)
+    if mtime is not None:
+        _page_count_cache[cache_key] = count
+    return count
+
+
+def _get_pdf_page_count_uncached(pdf_path):
     try:
         import pypdf
         reader = pypdf.PdfReader(pdf_path)
