@@ -479,7 +479,7 @@ def add_book_api():
             
             if ext == ".pdf":
                 pages = get_pdf_page_count(dest_file)
-                page_ranges = [[1, pages]]
+                page_ranges = [[0, pages - 1]] if pages > 0 else []
             else:
                 pages = 0
                 page_ranges = []
@@ -650,14 +650,14 @@ def upload_file_api():
             if ext == ".pdf":
                 pdf_path = f"books/{slug}/{slug}.pdf"
                 pages = get_pdf_page_count(dest_manga)
-                page_ranges = [[1, pages]]
+                page_ranges = [[0, pages - 1]] if pages > 0 else []
         else:
             if ext == ".pdf":
                 pdf_path = f"books/{slug}/{slug}.pdf"
                 dest_pdf = os.path.join(book_dir, f"{slug}.pdf")
                 uploaded_file.save(dest_pdf)
                 pages = get_pdf_page_count(dest_pdf)
-                page_ranges = [[1, pages]]
+                page_ranges = [[0, pages - 1]] if pages > 0 else []
                 
             elif ext == ".epub":
                 temp_epub_path = os.path.join(book_dir, f"uploaded_temp.epub")
