@@ -728,7 +728,17 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu -
 # a pip RECORD file - pip cannot uninstall it and hard-fails the whole
 # line ("Cannot uninstall numpy... installed by debian", found live on
 # the ubuntu-test staging run). Overlay-install instead of uninstalling.
-pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words --break-system-packages --ignore-installed
+#
+# --extra-index-url .../whl/cpu (found 2026-07-26): --ignore-installed
+# above also makes pip disregard the CPU-only torch installed one line up,
+# so resolving transformers/marker-pdf/manga-ocr/mokuro's own unconstrained
+# torch dependency pulled the full default-PyPI CUDA build instead - ~2.7GB
+# of nvidia_cudnn/nvidia_nccl/triton/etc wheels for hardware this device
+# doesn't have, caught mid-download before anything CUDA actually got
+# installed. Adding the CPU wheel index here (not --index-url, which would
+# replace the default index and break resolution of the non-torch packages
+# entirely) lets pip satisfy torch from the same CPU-only source instead.
+pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words --extra-index-url https://download.pytorch.org/whl/cpu --break-system-packages --ignore-installed
 
 echo "=== [Ubuntu Setup Completed] ==="
 EOF
