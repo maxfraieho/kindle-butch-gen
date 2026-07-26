@@ -2442,6 +2442,7 @@ def get_models_info():
     import socket
     import glob
     default_model = os.path.join(os.path.expanduser("~"), "models", "hy-mt2", "Hy-MT2-7B-Q4_K_M.gguf")
+    settings = load_global_settings()
     translation_model = settings.get("translation_model", default_model)
 
     models_dir = os.path.expanduser("~/models")
