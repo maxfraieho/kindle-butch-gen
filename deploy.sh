@@ -991,57 +991,46 @@ else
     fi
 fi
 
-# 4. Check/Download Whisper ASR model (used by common/asr_verify.py to
-# transcribe synthesized TTS audio and verify it matches the source text).
-# Gap found 2026-07-26: the model directory sherpa-onnx-whisper-small-int8/
-# existed only because it was placed on the original device by hand back in
-# 2024 - deploy.sh never provisioned it, so a fresh device silently lacks it.
-# asr_verify.py is a standalone QA module, not yet wired into the live
-# translate/synthesize pipeline, so a failure here must not sink the deploy.
-WHISPER_DIR="$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small-int8"
-WHISPER_ARCHIVE="$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small.tar.bz2"
-WHISPER_SIZE=639387718
-WHISPER_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-small.tar.bz2"
+# 4. Check/Download premium AI models (Gemma 3 4B vision + Whisper ASR)
+# via the project's own consent-gated downloader, bin/download_premium_models.sh.
+# Gap found 2026-07-26: that script already correctly provisions both
+# ~/models/gemma3-4b (powers Agent-Editor / Cast Registry) and
+# ~/models/sherpa-onnx-whisper-small-int8 (ASR accent verification loop),
+# but deploy.sh never called it, so a fresh device silently lacked both.
+# (An earlier version of this step tried to hand-roll just the Whisper
+# part and wrote it to the wrong, never-checked path - kindle-butch-gen/
+# models/... instead of ~/models/... - before this script was found;
+# delegating to the existing, already-correct downloader avoids repeating
+# that mistake.)
+PREMIUM_SCRIPT="$HOME/kindle-butch-gen/bin/download_premium_models.sh"
+if [ -f "$PREMIUM_SCRIPT" ]; then
+    echo -e "\n${BLUE}[DEPL]${NC} Premium AI models (Gemma 3 4B vision ~3.3GB + Whisper ASR ~360MB)"
+    echo "power Agent-Editor / Cast Registry and ASR accent verification."
+    echo "Downloading them requires accepting Google's Gemma Terms of Use"
+    echo "(https://ai.google.dev/gemma/terms) and the Whisper/sherpa-onnx license."
 
-if [ -f "$WHISPER_DIR/small-encoder.int8.onnx" ] && [ -f "$WHISPER_DIR/small-decoder.int8.onnx" ] && [ -f "$WHISPER_DIR/small-tokens.txt" ]; then
-    success "Whisper ASR model (small, int8) already present at $WHISPER_DIR."
-else
-    echo -e "\n${BLUE}[DEPL]${NC} Whisper ASR model (small, ~610MB) is missing."
-    echo "This model is optional - it is only used by the asr_verify.py QA module"
-    echo "(TTS output verification), which is not yet wired into the live pipeline."
-
-    if [ "$YES" = "true" ]; then
-        whisper_choice="y"
-        log "Non-interactive (--yes): downloading the Whisper ASR model too."
+    if [ "${CONSENT_ACCEPTED:-0}" = "1" ]; then
+        log "CONSENT_ACCEPTED=1 already set - running premium model downloader non-interactively."
+        bash "$PREMIUM_SCRIPT" --all || log "Premium model download failed or was incomplete - re-run bin/download_premium_models.sh later."
+    elif [ "$YES" = "true" ]; then
+        # -y/--yes covers convenience defaults, not third-party ToS acceptance -
+        # that needs its own explicit, informed opt-in.
+        log "Non-interactive (--yes) does not by itself accept third-party model ToS."
+        log "Re-run with CONSENT_ACCEPTED=1 (or use the web dashboard) to fetch premium models."
     else
-        echo -n -e "${BLUE}[DEPL]${NC} Do you want to download the Whisper ASR model? (y/N): "
-        read -r whisper_choice || whisper_choice=""   # EOF-safe: set -e must not kill a non-interactive run
+        echo -n -e "${BLUE}[DEPL]${NC} Accept the terms and download premium models now? (y/N): "
+        read -r premium_choice || premium_choice=""   # EOF-safe: set -e must not kill a non-interactive run
+        case "$premium_choice" in
+            [yY]|[yY][eE][sS])
+                CONSENT_ACCEPTED=1 bash "$PREMIUM_SCRIPT" --all || log "Premium model download failed or was incomplete - re-run bin/download_premium_models.sh later."
+                ;;
+            *)
+                log "Premium model download skipped. Run bin/download_premium_models.sh (or use the web dashboard) later if needed."
+                ;;
+        esac
     fi
-
-    case "$whisper_choice" in
-        [yY]|[yY][eE][sS])
-            if check_and_download "Whisper small ASR archive" "$WHISPER_ARCHIVE" "$WHISPER_URL" "$WHISPER_SIZE"; then
-                log "Extracting Whisper ASR model archive..."
-                tar -xf "$WHISPER_ARCHIVE" -C "$HOME/kindle-butch-gen/models"
-                # Upstream archive extracts to sherpa-onnx-whisper-small/ (no
-                # "-int8" suffix) - rename to match this device's established
-                # directory name so any hand-written path elsewhere still resolves.
-                if [ -d "$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small" ]; then
-                    rm -rf "$WHISPER_DIR"
-                    mv "$HOME/kindle-butch-gen/models/sherpa-onnx-whisper-small" "$WHISPER_DIR"
-                fi
-                if [ -f "$WHISPER_DIR/small-encoder.int8.onnx" ]; then
-                    success "Whisper ASR model extracted successfully."
-                    rm -f "$WHISPER_ARCHIVE"
-                else
-                    error "Extraction failed or produced an unexpected layout. Check $HOME/kindle-butch-gen/models manually."
-                fi
-            fi
-            ;;
-        *)
-            log "Whisper ASR model download skipped (asr_verify.py QA module will be unavailable)."
-            ;;
-    esac
+else
+    log "bin/download_premium_models.sh not found - skipping premium model provisioning."
 fi
 
 log "Deployment complete!"
