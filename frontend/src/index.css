@@ -35,11 +35,20 @@
   --shadow-emerald: 0 0 20px rgba(16, 185, 129, 0.25);
 }
 
-/* Global Reset & Font Smoothing (make-interfaces-feel-better principle #8) */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Global Reset & Font Smoothing (make-interfaces-feel-better principle #8)
+   Wrapped in @layer base: Tailwind v4's generated utilities live inside
+   @layer utilities, and per the CSS Cascade Layers spec, unlayered rules
+   always beat layered ones regardless of selector specificity. An unlayered
+   `* { padding: 0 }` here was silently nullifying every Tailwind padding/
+   margin utility app-wide (p-*, px-*, py-*, space-y-*, gap relies on margin
+   in some places) - confirmed via getComputedStyle on production returning
+   0px padding on elements with p-6/px-4 classes present in the DOM. */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html, body {
