@@ -101,8 +101,9 @@ export const SettingsView: React.FC = () => {
     try {
       await apiFetch('/api/settings/output-root', {
         method: 'POST',
-        body: JSON.stringify({ output_root: outputRoot }),
+        body: JSON.stringify({ path: outputRoot }),
       });
+
       alert('Шлях збереження оновлено!');
     } catch (err: any) {
       alert(`Помилка збереження: ${err.message}`);
