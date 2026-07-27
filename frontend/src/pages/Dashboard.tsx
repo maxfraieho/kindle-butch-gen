@@ -5,7 +5,8 @@ import { Button } from '../components/ui/Button';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
-import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle } from 'lucide-react';
+import { BookSettingsModal } from './BookSettingsModal';
+import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const Dashboard: React.FC = () => {
@@ -16,6 +17,7 @@ export const Dashboard: React.FC = () => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [serverPath, setServerPath] = useState('');
   const [addingBook, setAddingBook] = useState(false);
+  const [settingsSlug, setSettingsSlug] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const fetchBooks = async () => {
@@ -223,6 +225,15 @@ export const Dashboard: React.FC = () => {
                     >
                       Етапи
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon={<Settings2 className="w-3.5 h-3.5" />}
+                      onClick={(e) => { e.stopPropagation(); setSettingsSlug(book.slug); }}
+                      title="Налаштування книги"
+                    >
+                      Налаштування
+                    </Button>
                   </div>
 
                   <button
@@ -308,6 +319,14 @@ export const Dashboard: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Per-book Settings Modal */}
+      <BookSettingsModal
+        slug={settingsSlug}
+        bookTitle={books.find((b) => b.slug === settingsSlug)?.title}
+        isOpen={settingsSlug !== null}
+        onClose={() => setSettingsSlug(null)}
+      />
     </div>
   );
 };

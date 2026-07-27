@@ -1348,6 +1348,26 @@ for cand in glob.glob(os.path.join(book_dir, "translated", "merged*_*.md")) + \
 
 ---
 
+## [x] TASK-90: Per-book Settings Modal у React Dashboard (портування openBookSettings з dashboard.js)
+
+* **Problem:** React Dashboard (frontend/src/pages/Dashboard.tsx) не мав жодного entry-point для налаштувань конкретної книги — ні кнопки, ні модального вікна. Вся ця функціональність існувала лише у старому Jinja/JS-інтерфейсі (`openBookSettings()` у `kbg_web/static/js/dashboard.js`, ~рядок 1333–1521) і була доступна тільки через `/legacy/dashboard`.
+* **Solution:** Чисте Frontend-портування (нульові зміни у backend). Реалізовано:
+  1. **`frontend/src/pages/BookSettingsModal.tsx`** — новий компонент, що реалізує весь функціонал `openBookSettings()`:
+     - GET `/api/book-settings/<slug>` при відкритті для завантаження поточних налаштувань;
+     - POST `/api/book-settings/<slug>` best-effort для кожної зміни (той самий підхід, що в JS-оригіналі);
+     - **Manga-only поля** (показуються лише при `is_manga: true`): посилання на Cast & Context tab (`/view/<slug>#cast`) і select e-reader resolution з 7 варіантами (verbatim value/label з оригінального JS);
+     - **Keep honorifics** (безкоштовно, завжди): чекбокс `keep_honorifics`;
+     - **Premium section** з amber-бордером: ASR-верифікація (`enable_asr_verify`), MQM-рецензія (`enable_mqm_review`), Агент-редактор (`enable_agent_editor`);
+     - Premium gating: при `entitled: false` — чекбокси disabled + текст "🔒 Потребує підтримки — @GetVydraBot" (verbatim з оригіналу), ніколи не приховуються;
+     - **Model-download consent flow** для ASR (Whisper ~245MB) і Agent Editor (Gemma 3 4B ~3.5GB): `GET /api/premium/models-status` → confirm() → `POST /api/premium/download-models` (consent_accepted+gemma_terms_accepted); MQM — без download-gate, як у оригіналі;
+     - Loading spinner при початковому fetch; error state при невдачі.
+  2. **`frontend/src/pages/Dashboard.tsx`** — додано кнопку "Налаштування" з іконкою Settings2 до action-row кожної book-card (поруч з "Етапи"), та монтування `<BookSettingsModal>` внизу компонента.
+* **API:** Використано існуючі endpoints без змін: `GET/POST /api/book-settings/<slug>`, `GET /api/premium/models-status`, `POST /api/premium/download-models`.
+* **Visual language:** Відповідає existing React Card/Button/Modal/Badge стилістиці (Tailwind, slate/emerald palette). Amber border/glow для premium section відповідає кольоровій схемі оригіналу (#f0b429).
+* **Status:** Build чистий (tsc + vite, 0 TS помилок, підтверджено повторно). Live-browser E2E-перевірка (chrome-devtools MCP) не була завершена до кінця сесії — агент завис на цьому кроці (2.5 год без прогресу, headless Pi без реального дисплея) і був зупинений; коміт зроблено на основі чистого білду й ручного рев'ю коду, без підтвердженого live-рендеру.
+
+---
+
 ## Відхилено дослідженням (НЕ робити, задокументовано для довідки):
 - **Vision-аналіз обкладинок/ілюстрацій EPUB** - низька рентабельність, ризик OOM без співмірної користі (текст перших сторінок для Cast Registry вже дає точніші дані для тону).
 - **Back-translation для семантичної перевірки** - подвоює час генерації, "Paradox of Poetic Intent" (буквальний збіг ігнорує стилістику). MQM-рефлексія (TASK-88) кращий баланс.
