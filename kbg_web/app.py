@@ -3917,13 +3917,19 @@ def api_all_downloads():
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def spa_fallback(path):
-    """Serve React SPA index.html from static/dist for non-API routes."""
+    """Serve React SPA index.html or assets from static/dist for non-API routes."""
     if path.startswith("api/"):
         return jsonify({"status": "error", "message": "API endpoint not found"}), 404
     
     dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
-    index_path = os.path.join(dist_dir, "index.html")
     
+    # Serve requested static asset files (JS, CSS, icons) directly from static/dist
+    if path:
+        target_file = os.path.join(dist_dir, path)
+        if os.path.isfile(target_file):
+            return send_file(target_file)
+
+    index_path = os.path.join(dist_dir, "index.html")
     if os.path.exists(index_path):
         return send_file(index_path)
     
