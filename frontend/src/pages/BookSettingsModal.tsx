@@ -16,6 +16,8 @@ interface BookSettings {
   keep_honorifics: boolean;
   manga_resolution: string;
   enable_mqm_review: boolean;
+  batch_pages: number;
+  cooldown_seconds: number;
   entitled: boolean;
 }
 
@@ -77,7 +79,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
 
   // ---- best-effort save (user can retry by reopening, same as old UI) ----
   const save = useCallback(
-    async (field: string, value: boolean | string) => {
+    async (field: string, value: boolean | string | number) => {
       if (!slug) return;
       try {
         await apiFetch(`/api/book-settings/${slug}`, {
@@ -90,6 +92,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
     },
     [slug],
   );
+
 
   // ---- model-download consent flow, ported verbatim from dashboard.js ----
   const checkAndConsentModel = useCallback(
@@ -165,6 +168,26 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
     },
     [save],
   );
+
+  // ---- batch size and cooldown handlers ----
+  const handleBatchPages = useCallback(
+    (value: number) => {
+      const clamped = Math.max(1, Math.min(500, value));
+      setSettings((prev) => prev ? { ...prev, batch_pages: clamped } : prev);
+      save('batch_pages', clamped);
+    },
+    [save],
+  );
+
+  const handleCooldownSeconds = useCallback(
+    (value: number) => {
+      const clamped = Math.max(0, Math.min(3600, value));
+      setSettings((prev) => prev ? { ...prev, cooldown_seconds: clamped } : prev);
+      save('cooldown_seconds', clamped);
+    },
+    [save],
+  );
+
 
   // ---------------------------------------------------------------------------
   // Render helpers
@@ -271,6 +294,48 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
             </span>
           </label>
         </div>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Batching & Cooldown Pause (Per-book settings)                      */}
+        {/* ------------------------------------------------------------------ */}
+        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4 space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="bs-batch-pages" className="block text-xs font-semibold text-slate-200">
+              📦 Сторінок на батч (1–500)
+            </label>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Кількість сторінок PDF, яка обробляється за один прогін розпізнавання та перекладу.
+            </p>
+            <input
+              id="bs-batch-pages"
+              type="number"
+              min={1}
+              max={500}
+              value={settings.batch_pages ?? 50}
+              onChange={(e) => handleBatchPages(parseInt(e.target.value, 10) || 50)}
+              className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-sm px-3 py-2 focus:outline-none focus:border-emerald-400 font-mono transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1.5 pt-3 border-t border-slate-700/40">
+            <label htmlFor="bs-cooldown" className="block text-xs font-semibold text-slate-200">
+              ❄️ Пауза між батчами, сек. (охолодження, 0–3600)
+            </label>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Пауза для охолодження процесора між батчами (0 = без паузи).
+            </p>
+            <input
+              id="bs-cooldown"
+              type="number"
+              min={0}
+              max={3600}
+              value={settings.cooldown_seconds ?? 30}
+              onChange={(e) => handleCooldownSeconds(parseInt(e.target.value, 10) || 0)}
+              className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-sm px-3 py-2 focus:outline-none focus:border-emerald-400 font-mono transition-colors"
+            />
+          </div>
+        </div>
+
 
         {/* ------------------------------------------------------------------ */}
         {/* Premium section                                                     */}

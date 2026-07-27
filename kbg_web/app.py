@@ -1562,8 +1562,11 @@ def get_book_settings_api(slug):
         "keep_honorifics": bool(cfg.get("keep_honorifics")),
         "manga_resolution": cfg.get("manga_resolution", "1280x1920"),
         "enable_mqm_review": bool(cfg.get("enable_mqm_review")),
+        "batch_pages": int(cfg.get("batch_pages", 50)),
+        "cooldown_seconds": int(cfg.get("cooldown_seconds", 30)),
         "entitled": entitled,
     })
+
 
 @app.route("/api/book-settings/<slug>", methods=["POST"])
 def set_book_settings_api(slug):
@@ -1608,8 +1611,25 @@ def set_book_settings_api(slug):
         cfg["enable_mqm_review"] = bool(data["enable_mqm_review"])
     if "enable_asr_verify" in data:
         cfg["enable_asr_verify"] = bool(data["enable_asr_verify"])
+    if "batch_pages" in data:
+        try:
+            bp = int(data["batch_pages"])
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "batch_pages має бути цілим числом"}), 400
+        if not (1 <= bp <= 500):
+            return jsonify({"status": "error", "message": "batch_pages має бути в межах 1-500"}), 400
+        cfg["batch_pages"] = bp
+    if "cooldown_seconds" in data:
+        try:
+            cd = int(data["cooldown_seconds"])
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "cooldown_seconds має бути цілим числом"}), 400
+        if not (0 <= cd <= 3600):
+            return jsonify({"status": "error", "message": "cooldown_seconds має бути в межах 0-3600"}), 400
+        cfg["cooldown_seconds"] = cd
 
     _atomic_write_json(cfg_path, cfg, ensure_ascii=False, indent=2)
+
     return jsonify({"status": "success"})
 
 @app.route("/api/characters/<slug>/scan", methods=["POST"])

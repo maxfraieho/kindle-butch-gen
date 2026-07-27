@@ -5,7 +5,9 @@ import shutil
 import subprocess
 import argparse
 import json
+import time
 from datetime import datetime
+
 
 # Add the repo root to sys.path so we can import from common
 repo_dir = os.path.dirname(os.path.abspath(__file__))
@@ -135,8 +137,9 @@ def main():
                 custom_cfg = json.load(f)
             log(f"Overriding book paths with custom config from {args.config}", log_path)
             for k, v in custom_cfg.items():
-                if k in ["title", "authors", "target_lang", "source_lang", "page_ranges", "generate_audiobook", "enable_asr_verify", "enable_mqm_review", "enable_agent_editor", "tts_voice", "tts_voice_quality"]:
+                if k in ["title", "authors", "target_lang", "source_lang", "page_ranges", "batch_pages", "cooldown_seconds", "generate_audiobook", "enable_asr_verify", "enable_mqm_review", "enable_agent_editor", "tts_voice", "tts_voice_quality"]:
                     paths[k] = v
+
                 elif k == "pdf_path":
                     paths["pdf_path"] = os.path.abspath(v)
                 elif k == "cover":
@@ -213,13 +216,32 @@ def main():
             
         pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
         
-        page_ranges = paths.get("page_ranges")
-        if not page_ranges:
+        raw_page_ranges = paths.get("page_ranges")
+        batch_pages = paths.get("batch_pages", 50)
+        cooldown_seconds = paths.get("cooldown_seconds", 30)
+
+        if not raw_page_ranges:
             log("Warning: No page_ranges defined in config.json. Pipeline cannot run batches.", log_path)
             sys.exit(1)
-            
+
+        # Rechunk into batch_pages-sized ranges regardless of how page_ranges was
+        # originally stored, so changing batch_pages in Settings takes effect on
+        # the next run without needing to touch book-creation code.
+        all_pages = []
+        for s, e in raw_page_ranges:
+            all_pages.extend(range(s, e + 1))
+        all_pages = sorted(set(all_pages))
+
+        page_ranges = []
+        if batch_pages and batch_pages > 0:
+            for i in range(0, len(all_pages), batch_pages):
+                chunk = all_pages[i:i + batch_pages]
+                page_ranges.append([chunk[0], chunk[-1]])
+        else:
+            page_ranges = raw_page_ranges
+
         success = True
-        
+
         # 1. Run marker single-page extraction for each range
         for batch_idx, (start, end) in enumerate(page_ranges):
             send_heartbeat(slug, f"блок {batch_idx + 1}/{len(page_ranges)} (стор. {start}-{end})",
@@ -263,6 +285,10 @@ def main():
             # TASK-23: batch boundary — the natural point to check for live
             # edits against already-completed batches before moving on.
             apply_pending_text_edits(slug, paths["batches_dir"], suffix, log_path)
+
+            if cooldown_seconds > 0 and batch_idx < len(page_ranges) - 1:
+                log(f"Пауза {cooldown_seconds}с між батчами (охолодження)...", log_path)
+                time.sleep(cooldown_seconds)
 
         if not success:
             log("Pipeline aborted due to batch extraction/translation failures.", log_path)

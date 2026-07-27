@@ -75,7 +75,10 @@ def resolve_book_paths(repo_dir, slug, config_path=None):
         "target_lang": target_lang,
         "source_lang": source_lang,
         "page_ranges": config.get("page_ranges", []),
+        "batch_pages": int(config.get("batch_pages", 50)),
+        "cooldown_seconds": int(config.get("cooldown_seconds", 30)),
         "generate_audiobook": config.get("generate_audiobook", False),
+
         "enable_asr_verify": config.get("enable_asr_verify", False),
         "enable_mqm_review": config.get("enable_mqm_review", False),
         "enable_agent_editor": config.get("enable_agent_editor", False),
