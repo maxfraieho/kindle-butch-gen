@@ -195,7 +195,7 @@ def api_auth_check():
 
 @app.before_request
 def require_login():
-    if request.endpoint in ("login", "static", "api_auth_login", "api_auth_logout", "api_auth_check"):
+    if request.endpoint in ("login", "static", "api_auth_login", "api_auth_logout", "api_auth_check", "spa_fallback"):
         return
     if session.get("user") in users_data:
         return
