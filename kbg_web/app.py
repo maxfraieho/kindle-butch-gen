@@ -2788,6 +2788,22 @@ def preview_asr_quality_flags(slug):
         return jsonify({"status": "error", "message": f"Failed to read ASR quality flags: {e}"}), 500
     return jsonify({"status": "success", "flags": flags})
 
+@app.route("/api/preview/mqm-quality-flags/<slug>")
+def preview_mqm_quality_flags(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    mqm_path = os.path.join(paths["book_dir"], "translation_quality_flags.json")
+    if not os.path.exists(mqm_path):
+        return jsonify({"status": "success", "flags": []})
+    try:
+        with open(mqm_path, "r", encoding="utf-8") as f:
+            flags = json.load(f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read MQM quality flags: {e}"}), 500
+    return jsonify({"status": "success", "flags": flags})
+
+
 @app.route("/api/preview/book/<slug>")
 def preview_book_stages(slug):
     if not validate_slug(slug):
@@ -3254,6 +3270,26 @@ def edit_stress_discard(slug, chunk_hash):
             return jsonify({"status": "error", "message": f"Failed to modify ASR queue: {e}"}), 500
             
     return jsonify({"status": "success"})
+
+@app.route("/api/edit/mqm-discard/<slug>/<segment_id>", methods=["POST"])
+def edit_mqm_discard(slug, segment_id):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid parameters"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    mqm_path = os.path.join(paths["book_dir"], "translation_quality_flags.json")
+    if os.path.exists(mqm_path):
+        try:
+            with open(mqm_path, "r", encoding="utf-8") as f:
+                flags = json.load(f)
+            new_flags = [flag for flag in flags if flag.get("segment_id") != segment_id]
+            tmp_path = mqm_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(new_flags, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, mqm_path)
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Failed to modify MQM queue: {e}"}), 500
+    return jsonify({"status": "success"})
+
 
 @app.route("/api/edit/manga-text/<slug>/<page_filename>", methods=["PUT"])
 def edit_manga_text(slug, page_filename):
