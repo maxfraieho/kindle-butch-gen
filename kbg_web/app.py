@@ -166,18 +166,36 @@ def logout():
     return redirect(url_for("login"))
 
 
-# TASK-62: session-cookie auth replaces bare HTTP Basic Auth as the
-# primary mechanism - mobile Chrome in particular does NOT reliably
-# persist Basic Auth credentials across page reloads (confirmed live:
-# "пароль не зберігається, доводиться постійно вводити"), while a
-# signed session cookie with a 365-day lifetime behaves like every other
-# website's "stay logged in". Basic Auth is kept as a fallback so curl/
-# scripts (and this session's own SSH-based testing) keep working
-# unchanged - a valid Basic Auth header also upgrades the browser to a
-# persistent session automatically, so it only has to happen once.
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "")
+    password = data.get("password", "")
+    if verify_password(username, password):
+        session.clear()
+        session["user"] = username
+        session.permanent = True
+        return jsonify({"status": "ok", "user": username})
+    return jsonify({"status": "error", "message": "Невірний логін або пароль"}), 401
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    session.clear()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/auth/check", methods=["GET"])
+def api_auth_check():
+    user = session.get("user")
+    if user and user in users_data:
+        return jsonify({"authenticated": True, "user": user})
+    return jsonify({"authenticated": False}), 401
+
+
 @app.before_request
 def require_login():
-    if request.endpoint in ("login", "static"):
+    if request.endpoint in ("login", "static", "api_auth_login", "api_auth_logout", "api_auth_check"):
         return
     if session.get("user") in users_data:
         return
@@ -3883,6 +3901,24 @@ def api_all_downloads():
                         })
                         
     return jsonify(all_files)
+
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def spa_fallback(path):
+    """Serve React SPA index.html from static/dist for non-API routes."""
+    if path.startswith("api/"):
+        return jsonify({"status": "error", "message": "API endpoint not found"}), 404
+    
+    dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
+    index_path = os.path.join(dist_dir, "index.html")
+    
+    if os.path.exists(index_path):
+        return send_file(index_path)
+    
+    # Fallback to legacy Jinja2 dashboard if React SPA isn't built yet
+    return dashboard()
+
 
 if __name__ == "__main__":
     import argparse

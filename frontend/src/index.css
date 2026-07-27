@@ -1,0 +1,114 @@
+/* Emerald Slate Studio Theme Tokens & Global Polish */
+
+:root {
+  /* Color Tokens */
+  --bg-base: #090d16;
+  --bg-surface: #111827;
+  --bg-surface-elevated: #161e31;
+  --bg-glass: rgba(17, 24, 39, 0.75);
+  
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(16, 185, 129, 0.5);
+  --border-glass: rgba(255, 255, 255, 0.12);
+
+  --accent-primary: #10b981;    /* Emerald */
+  --accent-primary-hover: #059669;
+  --accent-secondary: #06b6d4;  /* Cyan */
+  --accent-amber: #f59e0b;      /* Status Gold */
+  --accent-danger: #ef4444;     /* QA Red */
+  
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
+
+  /* Typography */
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Layered Shadows (make-interfaces-feel-better principle #3) */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-emerald: 0 0 20px rgba(16, 185, 129, 0.25);
+}
+
+/* Global Reset & Font Smoothing (make-interfaces-feel-better principle #8) */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Tabular Numbers for Counters & Timers (make-interfaces-feel-better principle #9) */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* Text Wrapping (make-interfaces-feel-better principle #10) */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* Tactile Feedback: Scale on Press (make-interfaces-feel-better principle #12) */
+.active-scale {
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.active-scale:active {
+  transform: scale(0.96);
+}
+
+/* Minimum Hit Area (make-interfaces-feel-better principle #16) */
+.min-touch-target {
+  min-width: 48px;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Image Outline (make-interfaces-feel-better principle #11) */
+.img-outline {
+  outline: 1px solid rgba(255, 255, 255, 0.1);
+  outline-offset: -1px;
+}
+
+/* Glassmorphism Surface */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: #1f293d;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+}
