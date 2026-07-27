@@ -30,9 +30,9 @@ export const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#080d1a] flex items-center justify-center p-4 selection:bg-emerald-500 selection:text-slate-950">
-      <div className="w-full max-w-md space-y-6">
+      <div className="w-full max-w-md">
         {/* Branding Header */}
-        <div className="text-center space-y-3">
+        <div className="text-center space-y-3 mb-8">
           <div className="relative inline-block">
             <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 blur-md opacity-40 animate-pulse" />
             <div className="relative p-3.5 rounded-2xl bg-[#131c2e] border border-slate-700/60 shadow-xl">
@@ -59,20 +59,22 @@ export const Login: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
                 Логін
               </label>
-              <div className="relative flex items-center">
-                <User className="w-4 h-4 absolute left-3.5 text-emerald-400 z-10 pointer-events-none" />
+              <div className="flex items-center rounded-xl bg-[#090e1c] border border-slate-700/80 focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400 transition-colors">
+                <span className="pl-3.5 flex items-center pointer-events-none">
+                  <User className="w-4 h-4 text-emerald-400" />
+                </span>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Введіть логін"
                   required
-                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors text-sm font-medium"
+                  className="flex-1 pl-2.5 pr-4 py-3 bg-transparent text-white placeholder-slate-500 focus:outline-none text-sm font-medium"
                 />
               </div>
             </div>
@@ -81,15 +83,17 @@ export const Login: React.FC = () => {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
                 Пароль
               </label>
-              <div className="relative flex items-center">
-                <KeyRound className="w-4 h-4 absolute left-3.5 text-emerald-400 z-10 pointer-events-none" />
+              <div className="flex items-center rounded-xl bg-[#090e1c] border border-slate-700/80 focus-within:border-emerald-400 focus-within:ring-1 focus-within:ring-emerald-400 transition-colors">
+                <span className="pl-3.5 flex items-center pointer-events-none">
+                  <KeyRound className="w-4 h-4 text-emerald-400" />
+                </span>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Введіть пароль"
                   required
-                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors text-sm font-medium"
+                  className="flex-1 pl-2.5 pr-4 py-3 bg-transparent text-white placeholder-slate-500 focus:outline-none text-sm font-medium"
                 />
               </div>
             </div>
@@ -106,7 +110,7 @@ export const Login: React.FC = () => {
           </form>
         </Card>
 
-        <p className="text-center text-xs text-slate-400 font-mono">
+        <p className="text-center text-xs text-slate-400 font-mono mt-8">
           Vydra self-hosted • Termux & Linux Ready
         </p>
       </div>

@@ -117,11 +117,11 @@ export const DownloadsView: React.FC = () => {
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="h-20 animate-pulse bg-slate-900/40" />
+            <Card key={i} className="h-20 p-5 animate-pulse bg-slate-900/40" />
           ))}
         </div>
       ) : filteredItems.length === 0 ? (
-        <Card className="text-center py-12">
+        <Card className="text-center py-12 px-4">
           <Download className="w-10 h-10 text-slate-500 mx-auto mb-3" />
           <p className="text-sm text-slate-400">Файлів не знайдено</p>
         </Card>

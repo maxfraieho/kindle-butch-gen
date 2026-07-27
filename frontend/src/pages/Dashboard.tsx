@@ -99,7 +99,7 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#131c2e] p-5 rounded-2xl border border-slate-700/60 shadow-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6 bg-[#131c2e] p-6 sm:p-8 rounded-3xl border border-slate-700/60 shadow-xl">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
             Бібліотека книг
@@ -131,9 +131,9 @@ export const Dashboard: React.FC = () => {
 
       {/* Book Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map((i) => (
-            <Card key={i} className="h-48 animate-pulse bg-[#131c2e] border-slate-800" />
+            <Card key={i} className="h-48 p-6 animate-pulse bg-[#131c2e] border-slate-800" />
           ))}
         </div>
       ) : books.length === 0 ? (
@@ -157,7 +157,7 @@ export const Dashboard: React.FC = () => {
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {books.map((book) => {
             const isRunning = book.status === 'running' || book.status === 'in_progress';
             const isCompleted = book.status === 'completed' || book.progress === 100;
@@ -168,7 +168,7 @@ export const Dashboard: React.FC = () => {
                 key={book.slug}
                 hoverable
                 onClick={() => navigate(`/view/${book.slug}`)}
-                className="bg-[#131c2e] border border-slate-700/60 hover:border-emerald-500/50 flex flex-col justify-between space-y-4 shadow-xl transition-all"
+                className="bg-[#131c2e] border border-slate-700/60 hover:border-emerald-500/50 flex flex-col justify-between space-y-5 p-6 shadow-xl transition-all"
               >
                 {/* Header info */}
                 <div className="space-y-2">
@@ -194,7 +194,7 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* Actions Footer */}
-                <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between pt-4 mt-auto border-t border-slate-800/80">
                   <div className="flex items-center gap-2">
                     {isRunning ? (
                       <Button

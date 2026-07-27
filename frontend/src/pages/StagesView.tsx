@@ -103,11 +103,11 @@ export const StagesView: React.FC = () => {
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="h-24 animate-pulse bg-slate-900/40" />
+            <Card key={i} className="h-24 p-5 animate-pulse bg-slate-900/40" />
           ))}
         </div>
       ) : !data?.paragraphs || data.paragraphs.length === 0 ? (
-        <Card className="text-center py-12">
+        <Card className="text-center py-12 px-4">
           <FileText className="w-10 h-10 text-slate-500 mx-auto mb-3" />
           <p className="text-sm text-slate-400">Текстові абзаци ще не вилучені або розпарсені</p>
         </Card>
