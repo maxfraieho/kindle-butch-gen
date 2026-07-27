@@ -14,16 +14,22 @@ export interface Book {
   slug: string;
   title: string;
   authors?: string;
-  lang?: string;
-  status?: string;
-  progress?: number;
-  current_stage?: string;
-  pdf_pages?: number;
-  total_chunks?: number;
-  created_at?: string;
+  target_lang?: string;
+  is_running?: boolean;
+  stalled?: boolean;
+  stalled_reason?: string | null;
+  progress?: {
+    marker_percent: number;
+    translation_percent: number;
+    stress_percent: number;
+    tts_percent: number;
+    overall_percent: number;
+  };
   output_files?: string[];
+  is_manga?: boolean;
   [key: string]: any;
 }
+
 
 export async function apiFetch<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const defaultHeaders: HeadersInit = {

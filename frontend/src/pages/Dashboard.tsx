@@ -270,9 +270,13 @@ export const Dashboard: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {books.map((book) => {
-            const isRunning = book.status === 'running' || book.status === 'in_progress';
-            const isCompleted = book.status === 'completed' || book.progress === 100;
-            const rawProgress = typeof book.progress === 'number' && !Number.isNaN(book.progress) ? book.progress : 0;
+            const isRunning = book.is_running === true;
+            const progressObj = (book.progress ?? {}) as { overall_percent?: number };
+            const overallPercent = typeof progressObj.overall_percent === 'number' && !Number.isNaN(progressObj.overall_percent)
+              ? progressObj.overall_percent
+              : 0;
+            const isCompleted = !isRunning && overallPercent >= 100;
+            const rawProgress = overallPercent;
 
             return (
               <Card
@@ -300,9 +304,16 @@ export const Dashboard: React.FC = () => {
                 <div className="space-y-2 pt-2 border-t border-slate-800">
                   <ProgressBar
                     progress={rawProgress}
-                    statusText={book.current_stage || (isCompleted ? 'Переклад завершено' : 'Готовий до запуску')}
+                    statusText={
+                      isCompleted
+                        ? 'Переклад завершено'
+                        : isRunning
+                          ? 'Обробка...'
+                          : (book.stalled_reason || 'Готовий до запуску')
+                    }
                   />
                 </div>
+
 
                 {/* Actions Footer - Responsive Flex Wrap */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-4 mt-auto border-t border-slate-800/80">
