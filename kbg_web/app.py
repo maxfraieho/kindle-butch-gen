@@ -157,6 +157,12 @@ def login():
             session.permanent = True
             return redirect(request.args.get("next") or url_for("dashboard"))
         return render_template_string(LOGIN_PAGE, error="Невірний логін або пароль"), 401
+    
+    dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
+    index_path = os.path.join(dist_dir, "index.html")
+    if os.path.exists(index_path):
+        return send_file(index_path)
+
     return render_template_string(LOGIN_PAGE, error=None)
 
 
