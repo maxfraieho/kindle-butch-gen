@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { KeyRound, User, AlertCircle } from 'lucide-react';
+import { KeyRound, User, AlertCircle, Sparkles } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -29,23 +29,29 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#090d16] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#080d1a] flex items-center justify-center p-4 selection:bg-emerald-500 selection:text-slate-950">
       <div className="w-full max-w-md space-y-6">
-        {/* Header Branding */}
+        {/* Branding Header */}
         <div className="text-center space-y-3">
-          <div className="inline-block p-3 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.2)]">
-            <img src="/static/vydra-sm.png" alt="Vydra" className="w-16 h-16 object-contain" />
+          <div className="relative inline-block">
+            <div className="absolute -inset-1 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 blur-md opacity-40 animate-pulse" />
+            <div className="relative p-3.5 rounded-2xl bg-[#131c2e] border border-slate-700/60 shadow-xl">
+              <img src="/static/vydra-sm.png" alt="Vydra" className="w-16 h-16 object-contain rounded-xl" />
+            </div>
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-            Vydra Studio
-          </h1>
-          <p className="text-sm text-slate-400">
-            Локальна платформа перекладу книг та синтезу мовлення
-          </p>
+
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white flex items-center justify-center gap-2">
+              Vydra Studio <Sparkles className="w-5 h-5 text-emerald-400" />
+            </h1>
+            <p className="text-sm text-slate-300 mt-1">
+              Локальна платформа перекладу книг та синтезу мовлення
+            </p>
+          </div>
         </div>
 
-        {/* Login Form Card */}
-        <Card className="p-6 md:p-8 space-y-6">
+        {/* Form Card */}
+        <Card className="bg-[#131c2e] border border-slate-700/60 p-6 md:p-8 space-y-6 shadow-2xl">
           {error && (
             <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-sm flex items-center gap-2.5">
               <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -53,37 +59,37 @@ export const Login: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
                 Логін
               </label>
-              <div className="relative">
-                <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <div className="relative flex items-center">
+                <User className="w-4 h-4 absolute left-3.5 text-emerald-400 z-10 pointer-events-none" />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Введіть логін"
                   required
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/50 transition-colors text-sm"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors text-sm font-medium"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono">
+            <div className="space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
                 Пароль
               </label>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <div className="relative flex items-center">
+                <KeyRound className="w-4 h-4 absolute left-3.5 text-emerald-400 z-10 pointer-events-none" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Введіть пароль"
                   required
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/50 transition-colors text-sm"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors text-sm font-medium"
                 />
               </div>
             </div>
@@ -93,7 +99,7 @@ export const Login: React.FC = () => {
               variant="primary"
               size="lg"
               isLoading={loading}
-              className="w-full mt-2"
+              className="w-full mt-2 font-bold tracking-wide shadow-lg shadow-emerald-950/40"
             >
               Увійти в систему
             </Button>
