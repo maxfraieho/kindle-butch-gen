@@ -3,6 +3,7 @@ import { apiFetch } from '../api/client';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { FolderBrowserModal } from '../components/ui/FolderBrowserModal';
 import { Cpu, Server, Lock, Folder, Play, Square, Save, CheckCircle, AlertCircle, RefreshCw, KeyRound } from 'lucide-react';
 
 interface ModelsInfo {
@@ -27,6 +28,8 @@ export const SettingsView: React.FC = () => {
   // Output Path State
   const [outputRoot, setOutputRoot] = useState<string>('');
   const [savingOutputRoot, setSavingOutputRoot] = useState(false);
+  const [isFolderBrowserOpen, setIsFolderBrowserOpen] = useState(false);
+
 
   // Password State
   const [oldPassword, setOldPassword] = useState('');
@@ -312,13 +315,24 @@ export const SettingsView: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-300">
                   Службовий шлях зберігання
                 </label>
-                <input
-                  type="text"
-                  value={outputRoot}
-                  onChange={(e) => setOutputRoot(e.target.value)}
-                  placeholder="/sdcard/Documents/VydraBooks"
-                  className="w-full px-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs font-mono"
-                />
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={outputRoot}
+                    onChange={(e) => setOutputRoot(e.target.value)}
+                    placeholder="/sdcard/Documents/VydraBooks"
+                    className="flex-1 px-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs font-mono"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="md"
+                    onClick={() => setIsFolderBrowserOpen(true)}
+                    icon={<Folder className="w-4 h-4 text-emerald-400" />}
+                  >
+                    Обрати теку
+                  </Button>
+                </div>
               </div>
 
               <Button
@@ -333,6 +347,7 @@ export const SettingsView: React.FC = () => {
             </form>
           </Card>
         )}
+
 
         {/* Change Password Card */}
         {(activeTab === 'all' || activeTab === 'security') && (
@@ -421,7 +436,15 @@ export const SettingsView: React.FC = () => {
           </Card>
         )}
       </div>
+
+      <FolderBrowserModal
+        open={isFolderBrowserOpen}
+        initialPath={outputRoot}
+        onClose={() => setIsFolderBrowserOpen(false)}
+        onSelect={(path) => setOutputRoot(path)}
+      />
     </div>
   );
 };
+
 
