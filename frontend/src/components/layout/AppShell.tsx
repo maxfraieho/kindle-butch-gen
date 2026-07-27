@@ -108,22 +108,22 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
         </main>
 
         {/* Mobile Floating Bottom Dock (< 768px) */}
-        <div className="fixed bottom-4 left-4 right-4 md:hidden z-40">
-          <nav className="bg-[#131c2e]/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl p-2.5 flex items-center justify-around shadow-2xl">
+        <div className="fixed bottom-3 left-3 right-3 md:hidden z-40">
+          <nav className="bg-[#131c2e]/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl p-1.5 flex items-center justify-between gap-1 shadow-2xl">
             {navItems.map((item) => {
               const active = location.pathname === item.path;
               return (
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  className={`flex flex-col items-center justify-center gap-1 px-3 py-2 min-h-[52px] rounded-xl text-xs transition-all active-scale ${
+                  className={`flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 px-1 py-1.5 min-h-[48px] rounded-xl text-[11px] transition-all active-scale ${
                     active
                       ? 'text-emerald-300 bg-emerald-500/20 font-bold border border-emerald-500/40 shadow-md shadow-emerald-950/30'
                       : 'text-slate-300 hover:text-white'
                   }`}
                 >
-                  {React.cloneElement(item.icon, { className: active ? 'w-5 h-5 text-emerald-400' : 'w-5 h-5 text-slate-400' })}
-                  <span>{item.label}</span>
+                  {React.cloneElement(item.icon, { className: active ? 'w-4 h-4 text-emerald-400' : 'w-4 h-4 text-slate-400' })}
+                  <span className="truncate w-full text-center">{item.label}</span>
                 </button>
               );
             })}
@@ -133,3 +133,4 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
     </div>
   );
 };
+

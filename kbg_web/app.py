@@ -788,191 +788,166 @@ def upload_file_api():
 
 @app.route("/api/run/<slug>", methods=["POST"])
 def run_conversion_api(slug):
-    if not validate_slug(slug):
-        return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
-        
-    paths = resolve_book_paths(repo_dir, slug)
-    if not os.path.exists(paths["book_dir"]):
-        return jsonify({"status": "error", "message": "Директорію книги не знайдено"}), 404
-        
-    data = request.get_json() or {}
-    force = data.get("force", False)
+    try:
+        if not validate_slug(slug):
+            return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
+            
+        paths = resolve_book_paths(repo_dir, slug)
+        if not os.path.exists(paths["book_dir"]):
+            return jsonify({"status": "error", "message": "Директорію книги не знайдено"}), 404
+            
+        data = request.get_json(silent=True) or {}
+        force = data.get("force", False)
 
-    # Check if already running
-    is_running = False
-    if slug in active_processes:
-        proc = active_processes[slug]
-        if proc.poll() is None:
+        # Check if already running
+        is_running = False
+        if slug in active_processes:
+            proc = active_processes[slug]
+            if proc.poll() is None:
+                is_running = True
+        if not is_running and is_book_process_running(slug):
             is_running = True
-    if not is_running and is_book_process_running(slug):
-        is_running = True
 
-    if is_running:
-        if not force:
-            return jsonify({"status": "error", "message": "Конвертація вже виконується"}), 400
-        # force=true: kill existing process and continue
-        try:
-            if slug in active_processes:
-                active_processes[slug].kill()
-                del active_processes[slug]
-            # Boundary-checked match (_find_book_process_pids) - a bare
-            # substring here would SIGKILL an unrelated book's live
-            # conversion if its cmdline happened to contain this slug.
-            for pid in _find_book_process_pids(slug):
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        import time as _time
-        _time.sleep(1)
-        
-    heavy = _heavy_state()
-    if heavy["agent"]:
-        return _busy_409("🤖 Зараз працює ШІ-агент пошуку проблем. Зупиніть його у вкладці «Агент» (або зачекайте кілька хвилин) — і запускайте переклад.")
-    if heavy["ner"]:
-        return _busy_409("🔎 Йде сканування персонажів (NER). Це кілька хвилин — потім запускайте переклад.")
-
-    # Clear stale progress files
-    epub_prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
-    if os.path.exists(epub_prog_path):
-        try:
-            os.remove(epub_prog_path)
-        except Exception:
-            pass
-    manga_prog_path = os.path.join(paths["book_dir"], "manga_progress.json")
-    if os.path.exists(manga_prog_path):
-        try:
-            os.remove(manga_prog_path)
-        except Exception:
-            pass
-            
-    # data already parsed above (force handling)
-    
-    config_path = paths["config_path"]
-    is_manga = False
-    cfg = {}
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-                is_manga = cfg.get("is_manga", False)
-        except Exception:
-            pass
-            
-    if is_manga:
-        # Determine source file or directory
-        manga_input = ""
-        if os.path.isdir(os.path.join(paths["book_dir"], "source")):
-            manga_input = os.path.join(paths["book_dir"], "source")
-        else:
-            source_ext = ""
-            for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
-                if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
-                    source_ext = possible_ext
-                    break
-            if source_ext:
-                manga_input = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
-                
-        if not manga_input:
-            return jsonify({"status": "error", "message": "Manga source file or directory not found"}), 400
-        manga_output_dir = os.path.join(paths["book_dir"], "output")
-        os.makedirs(manga_output_dir, exist_ok=True)
-        manga_output = os.path.join(manga_output_dir, f"{slug}_translated_{cfg.get('target_lang', 'uk')}.cbz")
-        
-        # Reset progress file
-        progress_file = os.path.join(paths["book_dir"], "manga_progress.json")
-        try:
-            with open(progress_file, "w", encoding="utf-8") as pf:
-                json.dump({"current_page": 0, "total_pages": 1}, pf)
-        except Exception:
-            pass
-            
-        # Run translate_manga.py inside PRoot Ubuntu container
-        cmd = [
-            "proot-distro", "login", "ubuntu", "--", 
-            "python3", "-u", os.path.join(repo_dir, "translate_manga.py"),
-            "--input", manga_input,
-            "--output", manga_output,
-            "--lang", cfg.get("source_lang", "en"),
-            "--progress-file", progress_file
-        ]
-        # Include glossary if it exists
-        glossary_path = os.path.join(paths["book_dir"], "glossary.json")
-        if os.path.exists(glossary_path):
-            cmd.extend(["--glossary", glossary_path])
-        if data.get("no_translate"):
-            cmd.append("--no-translate")
-        if data.get("no_ebook"):
-            cmd.append("--no-ebook")
-        # "Clean Pages" (clean=true) for manga means: redo every page from
-        # scratch, ignoring the resume-skip of already-translated pages.
-        # --clean-run-id identifies THIS deliberate sweep across possibly-
-        # many Termux-restart/auto-resume cycles, so a crash-and-resume can
-        # keep --force-retranslate active without either re-doing pages
-        # already redone this sweep or (the real incident, 2026-07-19)
-        # silently falling back to unrelated stale files once the flag
-        # was stripped to stop endless full-restarts.
-        if data.get("clean"):
-            cmd.append("--force-retranslate")
-            cmd.extend(["--clean-run-id", uuid.uuid4().hex])
-
-        # TASK-56: the resolution dropdown moved off the card into the
-        # per-book ⚙️ settings modal (persisted to config.json), so the
-        # per-run request body won't normally send this anymore - fall
-        # back to the book's saved default instead of a hardcoded literal.
-        manga_resolution = data.get("manga_resolution", cfg.get("manga_resolution", "1280x1920"))
-        max_width, max_height = 1280, 1920
-        if manga_resolution == "original":
-            max_width, max_height = 0, 0
-        elif "x" in manga_resolution:
+        if is_running:
+            if not force:
+                return jsonify({"status": "error", "message": "Конвертація вже виконується"}), 400
+            # force=true: kill existing process and continue
             try:
-                w_str, h_str = manga_resolution.split("x")
-                max_width, max_height = int(w_str), int(h_str)
-            except ValueError:
+                if slug in active_processes:
+                    active_processes[slug].kill()
+                    del active_processes[slug]
+                for pid in _find_book_process_pids(slug):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+            except Exception:
                 pass
-        
-        cmd.extend(["--max-width", str(max_width), "--max-height", str(max_height)])
-    else:
-        # Check if it is an EPUB book (so we use direct EPUB translation)
-        epub_source_file = os.path.join(paths["book_dir"], f"{slug}.epub")
-        if os.path.exists(epub_source_file):
+            import time as _time
+            _time.sleep(1)
+            
+        heavy = _heavy_state()
+        if heavy["agent"]:
+            return _busy_409("🤖 Зараз працює ШІ-агент пошуку проблем. Зупиніть його у вкладці «Агент» (або зачекайте кілька хвилин) — і запускайте переклад.")
+        if heavy["ner"]:
+            return _busy_409("🔎 Йде сканування персонажів (NER). Це кілька хвилин — потім запускайте переклад.")
+
+        # Clear stale progress files
+        epub_prog_path = os.path.join(paths["cache_dir"], "epub_progress.json")
+        if os.path.exists(epub_prog_path):
+            try:
+                os.remove(epub_prog_path)
+            except Exception:
+                pass
+        manga_prog_path = os.path.join(paths["book_dir"], "manga_progress.json")
+        if os.path.exists(manga_prog_path):
+            try:
+                os.remove(manga_prog_path)
+            except Exception:
+                pass
+                
+        config_path = paths["config_path"]
+        is_manga = False
+        cfg = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    is_manga = cfg.get("is_manga", False)
+            except Exception:
+                pass
+                
+        if is_manga:
+            # Determine source file or directory
+            manga_input = ""
+            if os.path.isdir(os.path.join(paths["book_dir"], "source")):
+                manga_input = os.path.join(paths["book_dir"], "source")
+            else:
+                source_ext = ""
+                for possible_ext in [".cbz", ".cbr", ".cb7", ".zip", ".rar", ".pdf", ".epub"]:
+                    if os.path.exists(os.path.join(paths["book_dir"], f"{slug}{possible_ext}")):
+                        source_ext = possible_ext
+                        break
+                if source_ext:
+                    manga_input = os.path.join(paths["book_dir"], f"{slug}{source_ext}")
+                    
+            if not manga_input:
+                return jsonify({"status": "error", "message": "Manga source file or directory not found"}), 400
+            manga_output_dir = os.path.join(paths["book_dir"], "output")
+            os.makedirs(manga_output_dir, exist_ok=True)
+            manga_output = os.path.join(manga_output_dir, f"{slug}_translated_{cfg.get('target_lang', 'uk')}.cbz")
+            
+            # Reset progress file
+            progress_file = os.path.join(paths["book_dir"], "manga_progress.json")
+            try:
+                with open(progress_file, "w", encoding="utf-8") as pf:
+                    json.dump({"current_page": 0, "total_pages": 1}, pf)
+            except Exception:
+                pass
+                
+            # Run translate_manga.py inside PRoot Ubuntu container
             cmd = [
-                sys.executable, "translate_epub.py",
-                "--input", epub_source_file,
-                "--output", os.path.join(paths["output_dir"], f"{slug}_translated_{cfg.get('target_lang', 'uk')}.epub"),
-                "--target-lang", cfg.get("target_lang", "uk"),
-                "--book", slug
+                "proot-distro", "login", "ubuntu", "--", 
+                "python3", "-u", os.path.join(repo_dir, "translate_manga.py"),
+                "--input", manga_input,
+                "--output", manga_output,
+                "--lang", cfg.get("source_lang", "en"),
+                "--progress-file", progress_file
             ]
-        else:
-            cmd = [sys.executable, "run_conversion_batches.py", "--book", slug]
-            if data.get("clean"):
-                cmd.append("--clean")
+            # Include glossary if it exists
+            glossary_path = os.path.join(paths["book_dir"], "glossary.json")
+            if os.path.exists(glossary_path):
+                cmd.extend(["--glossary", glossary_path])
             if data.get("no_translate"):
                 cmd.append("--no-translate")
             if data.get("no_ebook"):
                 cmd.append("--no-ebook")
-            if data.get("no_audio"):
-                cmd.append("--no-audio")
+            if data.get("clean"):
+                cmd.append("--force-retranslate")
+                cmd.extend(["--clean-run-id", uuid.uuid4().hex])
+
+            manga_resolution = data.get("manga_resolution", cfg.get("manga_resolution", "1280x1920"))
+            max_width, max_height = 1280, 1920
+            if manga_resolution == "original":
+                max_width, max_height = 0, 0
+            elif "x" in manga_resolution:
+                try:
+                    w_str, h_str = manga_resolution.split("x")
+                    max_width, max_height = int(w_str), int(h_str)
+                except ValueError:
+                    pass
+            
+            cmd.extend(["--max-width", str(max_width), "--max-height", str(max_height)])
+        else:
+            # Check if it is an EPUB book (so we use direct EPUB translation)
+            epub_source_file = os.path.join(paths["book_dir"], f"{slug}.epub")
+            if os.path.exists(epub_source_file):
+                cmd = [
+                    sys.executable, "translate_epub.py",
+                    "--input", epub_source_file,
+                    "--output", os.path.join(paths["output_dir"], f"{slug}_translated_{cfg.get('target_lang', 'uk')}.epub"),
+                    "--target-lang", cfg.get("target_lang", "uk"),
+                    "--book", slug
+                ]
+            else:
+                cmd = [sys.executable, "run_conversion_batches.py", "--book", slug]
+                if data.get("clean"):
+                    cmd.append("--clean")
+                if data.get("no_translate"):
+                    cmd.append("--no-translate")
+                if data.get("no_ebook"):
+                    cmd.append("--no-ebook")
+                if data.get("no_audio"):
+                    cmd.append("--no-audio")
+            
+        log_path = paths["log_path"]
         
-    log_path = paths["log_path"]
-    
-    try:
         # Prepare progress log with execution header
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"\n\n--- Starting Conversion Pipeline via Web GUI at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             f.write(f"Command: {' '.join(cmd)}\n\n")
             
         log_file = open(log_path, "a", encoding="utf-8")
-
-        # run_conversion_batches.py's own log() helper already appends every
-        # line to log_path itself (so plain CLI runs, with nobody else
-        # capturing their stdout, still get a persisted log). Also teeing
-        # its stdout into the same file here double-writes every single
-        # line - that's why conversion_progress.log had each line appear
-        # twice. translate_epub.py/translate_manga.py have no such internal
-        # writer, so this redirect is still their only sink and must stay.
         child_writes_own_log = "run_conversion_batches.py" in cmd
 
         # Start background subprocess
@@ -985,27 +960,13 @@ def run_conversion_api(slug):
         )
         
         active_processes[slug] = proc
-        # Real incident, confirmed live 2026-07-19: Termux got killed mid a
-        # deliberate --force-retranslate run (three times in one session).
-        # Auto-resume replays the saved cmd VERBATIM, so the flag survived
-        # into every resume too. An earlier fix here stripped the flag
-        # entirely from the saved resume state - which stopped the
-        # wasteful full-restarts, but had a worse side effect discovered
-        # later the SAME day: once the flag was gone, resume fell back to
-        # "does a translated file already exist", which for a page this
-        # sweep hadn't reached yet meant silently reusing a 3-day-old
-        # stale translation instead of the fresh one the user explicitly
-        # asked for (100+ of 187 pages in that run turned out to be
-        # stale). The real fix is --clean-run-id (see the flag's own
-        # argparse help in translate_manga.py): the flag now stays in the
-        # saved cmd unmodified, and per-page "already done THIS sweep"
-        # tracking (keyed by that id) is what makes a resumed clean run
-        # both non-destructive to its own progress AND still guaranteed
-        # to reach a genuinely fresh translation for every page.
         _write_active_conversion_state(slug, cmd, repo_dir, log_path)
         return jsonify({"status": "success", "message": "Pipeline started in background"})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Помилка сервера при запуску: {str(e)}"}), 500
+
 
 @app.route("/api/stop/<slug>", methods=["POST"])
 def stop_conversion_api(slug):

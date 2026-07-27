@@ -15,6 +15,8 @@ interface ModelsInfo {
 }
 
 export const SettingsView: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'all' | 'model' | 'storage' | 'security'>('all');
+
   // Llama-server State
   const [modelsInfo, setModelsInfo] = useState<ModelsInfo | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -136,9 +138,9 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto pb-36 md:pb-12">
       {/* Header */}
-      <div className="bg-[#131c2e] p-6 rounded-2xl border border-slate-700/60 shadow-xl flex items-center justify-between">
+      <div className="bg-[#131c2e] p-6 rounded-2xl border border-slate-700/60 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
             <Server className="w-7 h-7 text-emerald-400" /> Глобальні налаштування
@@ -157,218 +159,269 @@ export const SettingsView: React.FC = () => {
         </Button>
       </div>
 
+      {/* Section Navigation Tabs */}
+      <div className="flex items-center gap-1.5 p-1.5 bg-[#131c2e] rounded-2xl border border-slate-700/60 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('all')}
+          className={`flex-1 min-w-[90px] px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+            activeTab === 'all'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Всі секції
+        </button>
+        <button
+          onClick={() => setActiveTab('model')}
+          className={`flex-1 min-w-[110px] px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === 'model'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5 text-emerald-400" /> Модель ШІ
+        </button>
+        <button
+          onClick={() => setActiveTab('storage')}
+          className={`flex-1 min-w-[110px] px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === 'storage'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Folder className="w-3.5 h-3.5 text-cyan-400" /> Зберігання
+        </button>
+        <button
+          onClick={() => setActiveTab('security')}
+          className={`flex-1 min-w-[100px] px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === 'security'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Lock className="w-3.5 h-3.5 text-rose-400" /> Безпека
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Llama Server Model Card */}
-        <Card className="bg-[#131c2e] border border-slate-700/60 p-6 space-y-5 md:col-span-2 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                <Cpu className="w-5 h-5" />
+        {(activeTab === 'all' || activeTab === 'model') && (
+          <Card className="bg-[#131c2e] border border-slate-700/60 p-6 space-y-5 md:col-span-2 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <Cpu className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-lg text-white">Сервер перекладу (Llama-Server)</h3>
+                  <p className="text-xs text-slate-400 font-mono">Port 8081 • Hy-MT2 / Qwen GGUF Models</p>
+                </div>
+              </div>
+
+              <Badge variant={modelsInfo?.server_status.running ? 'emerald' : 'slate'}>
+                {modelsInfo?.server_status.running ? 'Сервер працює' : 'Зупинено'}
+              </Badge>
+            </div>
+
+            <div className="space-y-4">
+              {/* Active Model Status */}
+              {modelsInfo?.server_status.running && (
+                <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between">
+                  <span className="truncate">Завантажена модель: <b>{modelsInfo.server_status.loaded_model || 'Hy-MT2-7B'}</b></span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                </div>
+              )}
+
+              {/* Model Selection Dropdown */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Вибір файлу GGUF моделі
+                </label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700 text-white focus:outline-none focus:border-emerald-400 text-xs font-mono"
+                >
+                  {modelsInfo?.available_models.map((m) => (
+                    <option key={m} value={m}>
+                      {m.split('/').pop()} ({m})
+                    </option>
+                  ))}
+                  {(!modelsInfo?.available_models || modelsInfo.available_models.length === 0) && (
+                    <option value={modelsInfo?.translation_model}>
+                      {modelsInfo?.translation_model.split('/').pop()} (За замовчуванням)
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              {/* Server Controls */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/60">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<Save className="w-4 h-4" />}
+                  onClick={handleSaveModel}
+                >
+                  Зберегти вибір моделі
+                </Button>
+
+                <div className="flex items-center gap-3">
+                  {modelsInfo?.server_status.running ? (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      isLoading={stoppingServer}
+                      icon={<Square className="w-4 h-4 fill-current" />}
+                      onClick={handleStopServer}
+                    >
+                      Зупинити Llama-Server
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      isLoading={startingServer}
+                      icon={<Play className="w-4 h-4 fill-current" />}
+                      onClick={handleStartServer}
+                    >
+                      Запустити Llama-Server
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Output Directory Card */}
+        {(activeTab === 'all' || activeTab === 'storage') && (
+          <Card className="bg-[#131c2e] border border-slate-700/60 p-6 space-y-5 shadow-xl">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+                <Folder className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-extrabold text-lg text-white">Локальний сервер перекладу (Llama-Server)</h3>
-                <p className="text-xs text-slate-400 font-mono">Port 8081 • Hy-MT2 / Qwen GGUF Models</p>
+                <h3 className="font-extrabold text-lg text-white">Каталог зберігання</h3>
+                <p className="text-xs text-slate-400">Шлях для експорту оброблених книг</p>
               </div>
             </div>
 
-            <Badge variant={modelsInfo?.server_status.running ? 'emerald' : 'slate'}>
-              {modelsInfo?.server_status.running ? 'Сервер працює' : 'Зупинено'}
-            </Badge>
-          </div>
+            <form onSubmit={handleSaveOutputRoot} className="space-y-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Службовий шлях зберігання
+                </label>
+                <input
+                  type="text"
+                  value={outputRoot}
+                  onChange={(e) => setOutputRoot(e.target.value)}
+                  placeholder="/sdcard/Documents/VydraBooks"
+                  className="w-full px-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs font-mono"
+                />
+              </div>
 
-          <div className="space-y-4">
-            {/* Active Model Status */}
-            {modelsInfo?.server_status.running && (
-              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between">
-                <span className="truncate">Завантажена модель: <b>{modelsInfo.server_status.loaded_model || 'Hy-MT2-7B'}</b></span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                isLoading={savingOutputRoot}
+                icon={<CheckCircle className="w-4 h-4" />}
+              >
+                Зберегти шлях
+              </Button>
+            </form>
+          </Card>
+        )}
+
+        {/* Change Password Card */}
+        {(activeTab === 'all' || activeTab === 'security') && (
+          <Card className="bg-[#131c2e] border border-slate-700/60 p-6 space-y-5 shadow-xl">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-lg text-white">Безпека</h3>
+                <p className="text-xs text-slate-400">Зміна пароля доступу</p>
+              </div>
+            </div>
+
+            {passwordMsg && (
+              <div className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                passwordMsg.type === 'success'
+                  ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
+              }`}>
+                {passwordMsg.type === 'success' ? (
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                )}
+                <span>{passwordMsg.text}</span>
               </div>
             )}
 
-            {/* Model Selection Dropdown */}
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                Вибір файлу GGUF моделі
-              </label>
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700 text-white focus:outline-none focus:border-emerald-400 text-xs font-mono"
-              >
-                {modelsInfo?.available_models.map((m) => (
-                  <option key={m} value={m}>
-                    {m.split('/').pop()} ({m})
-                  </option>
-                ))}
-                {(!modelsInfo?.available_models || modelsInfo.available_models.length === 0) && (
-                  <option value={modelsInfo?.translation_model}>
-                    {modelsInfo?.translation_model.split('/').pop()} (За замовчуванням)
-                  </option>
-                )}
-              </select>
-            </div>
-
-            {/* Server Controls */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                icon={<Save className="w-4 h-4" />}
-                onClick={handleSaveModel}
-              >
-                Зберегти вибір моделі
-              </Button>
-
-              <div className="flex items-center gap-3">
-                {modelsInfo?.server_status.running ? (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    isLoading={stoppingServer}
-                    icon={<Square className="w-4 h-4 fill-current" />}
-                    onClick={handleStopServer}
-                  >
-                    Зупинити Llama-Server
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    isLoading={startingServer}
-                    icon={<Play className="w-4 h-4 fill-current" />}
-                    onClick={handleStartServer}
-                  >
-                    Запустити Llama-Server
-                  </Button>
-                )}
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Поточний пароль
+                </label>
+                <div className="relative flex items-center">
+                  <KeyRound className="w-4 h-4 absolute left-3.5 text-slate-400 z-10 pointer-events-none" />
+                  <input
+                    type="password"
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                    required
+                    placeholder="Введіть поточний пароль"
+                    className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs"
+                  />
+                </div>
               </div>
-            </div>
-          </div>
-        </Card>
 
-        {/* Output Directory Card */}
-        <Card className="bg-[#131c2e] border border-slate-700/60 p-6 space-y-5 shadow-xl">
-          <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
-              <Folder className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-lg text-white">Каталог зберігання</h3>
-              <p className="text-xs text-slate-400 font-mono">Шлях для експорту книги</p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSaveOutputRoot} className="space-y-4">
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                Системний шлях (Output Root)
-              </label>
-              <input
-                type="text"
-                value={outputRoot}
-                onChange={(e) => setOutputRoot(e.target.value)}
-                placeholder="/sdcard/Documents/VydraBooks"
-                className="w-full px-4 py-3 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs font-mono"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              variant="outline"
-              size="sm"
-              isLoading={savingOutputRoot}
-              icon={<CheckCircle className="w-4 h-4" />}
-            >
-              Зберегти шлях
-            </Button>
-          </form>
-        </Card>
-
-        {/* Change Password Card */}
-        <Card className="bg-[#131c2e] border border-slate-700/60 p-6 space-y-5 shadow-xl">
-          <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-            <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
-              <Lock className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-lg text-white">Безпека</h3>
-              <p className="text-xs text-slate-400 font-mono">Зміна пароля доступу</p>
-            </div>
-          </div>
-
-          {passwordMsg && (
-            <div className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
-              passwordMsg.type === 'success'
-                ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
-                : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
-            }`}>
-              {passwordMsg.type === 'success' ? (
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              )}
-              <span>{passwordMsg.text}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                Поточний пароль
-              </label>
-              <div className="relative flex items-center">
-                <KeyRound className="w-4 h-4 absolute left-3.5 text-slate-400 z-10 pointer-events-none" />
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Новий пароль
+                </label>
                 <input
                   type="password"
-                  value={oldPassword}
-                  onChange={(e) => setOldPassword(e.target.value)}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
                   required
-                  placeholder="Введіть поточний пароль"
-                  className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs"
+                  placeholder="Введіть новий пароль"
+                  className="w-full px-4 py-2.5 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs"
                 />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                Новий пароль
-              </label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                placeholder="Введіть новий пароль"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs"
-              />
-            </div>
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Підтвердження пароля
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  placeholder="Повторіть новий пароль"
+                  className="w-full px-4 py-2.5 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-                Підтвердження пароля
-              </label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                placeholder="Повторіть новий пароль"
-                className="w-full px-4 py-2.5 rounded-xl bg-[#090e1c] border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 text-xs"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              isLoading={passwordLoading}
-              className="w-full"
-            >
-              Змінити пароль
-            </Button>
-          </form>
-        </Card>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={passwordLoading}
+                className="w-full"
+              >
+                Змінити пароль
+              </Button>
+            </form>
+          </Card>
+        )}
       </div>
     </div>
   );
 };
+

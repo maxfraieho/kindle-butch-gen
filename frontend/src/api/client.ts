@@ -51,11 +51,31 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
     throw new Error('Unauthorized');
   }
 
-  const data = await response.json().catch(() => ({ status: 'error', message: 'Failed to parse JSON response' }));
+  const contentType = response.headers.get('content-type') || '';
+  let data: any;
+
+  if (contentType.includes('application/json')) {
+    try {
+      data = await response.json();
+    } catch (e) {
+      const rawText = await response.text().catch(() => '');
+      data = {
+        status: 'error',
+        message: `Невалідний JSON у відповіді (HTTP ${response.status}): ${rawText.slice(0, 200)}`,
+      };
+    }
+  } else {
+    const rawText = await response.text().catch(() => '');
+    data = {
+      status: 'error',
+      message: `Сервер повернув не-JSON відповідь (HTTP ${response.status}): ${rawText.slice(0, 200)}`,
+    };
+  }
 
   if (!response.ok) {
-    throw new Error(data.message || `HTTP error ${response.status}`);
+    throw new Error(data.message || `HTTP помилка ${response.status}`);
   }
 
   return data as T;
 }
+
