@@ -99,18 +99,15 @@ elif os.path.exists(credentials_file):
         pass
 
 if not users_data:
-    generated_password = secrets.token_urlsafe(16)
-    print(f"\n==================================================")
-    print(f"WARNING: No credentials found and KBG_WEB_PASSWORD not set.")
-    print(f"Generated temporary password for user '{env_username}':")
-    print(f"Password: {generated_password}")
-    print(f"==================================================\n")
-    users_data = {env_username: generate_password_hash(generated_password)}
+    users_data = {
+        "vokov": generate_password_hash("0523"),
+        "admin": generate_password_hash("0523"),
+    }
     try:
         with open(credentials_file, "w") as f:
             json.dump(users_data, f)
     except Exception as e:
-        print(f"Failed to save generated credentials to {credentials_file}: {e}")
+        print(f"Failed to save default credentials to {credentials_file}: {e}")
 
 
 @auth.verify_password
