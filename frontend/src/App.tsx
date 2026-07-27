@@ -7,6 +7,9 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { StagesView } from './pages/StagesView';
 import { DownloadsView } from './pages/DownloadsView';
+import { SettingsView } from './pages/SettingsView';
+import { MangaEditor } from './pages/MangaEditor';
+import { ModesView } from './pages/ModesView';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { authenticated, loading } = useAuth();
@@ -50,6 +53,14 @@ export const App: React.FC = () => {
               }
             />
             <Route
+              path="/manga/:slug"
+              element={
+                <ProtectedRoute>
+                  <MangaEditor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/downloads"
               element={
                 <ProtectedRoute>
@@ -61,10 +72,7 @@ export const App: React.FC = () => {
               path="/modes"
               element={
                 <ProtectedRoute>
-                  <div className="p-8 text-center space-y-3">
-                    <h2 className="text-2xl font-bold text-slate-100">🎛️ Режими обробки</h2>
-                    <p className="text-sm text-slate-400 font-mono">Налаштування профілів перекладу та параметрів звуку</p>
-                  </div>
+                  <ModesView />
                 </ProtectedRoute>
               }
             />
@@ -72,10 +80,7 @@ export const App: React.FC = () => {
               path="/settings"
               element={
                 <ProtectedRoute>
-                  <div className="p-8 text-center space-y-3">
-                    <h2 className="text-2xl font-bold text-slate-100">⚙️ Глобальні налаштування</h2>
-                    <p className="text-sm text-slate-400 font-mono">Вибір голосу Supertonic 3, керування llama-server та вихідними шляхами</p>
-                  </div>
+                  <SettingsView />
                 </ProtectedRoute>
               }
             />
