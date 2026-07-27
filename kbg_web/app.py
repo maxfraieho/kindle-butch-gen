@@ -387,6 +387,16 @@ def _serve_spa_or_template(template_name, **context):
 def dashboard():
     return _serve_spa_or_template("dashboard.html")
 
+@app.route("/legacy/dashboard")
+def legacy_dashboard():
+    """Force-render the pre-React Jinja/vanilla-JS dashboard even though
+    static/dist/index.html exists, so it can be opened side-by-side with
+    the React SPA during the migration - _serve_spa_or_template()'s
+    dist-exists check is otherwise all-or-nothing (see TASK-21 notes on
+    the same tradeoff). Both UIs hit the exact same /api/* endpoints,
+    so this is a like-for-like behavioral reference, not a separate app."""
+    return render_template("dashboard.html")
+
 @app.route("/api/books")
 def list_books():
     books_dir = os.path.join(repo_dir, "books")
@@ -2625,6 +2635,13 @@ def view_book_stages(slug):
     # Serve visualizer page
     return _serve_spa_or_template("stages.html", slug=slug)
 
+@app.route("/legacy/view/<slug>")
+def legacy_view_book_stages(slug):
+    """See legacy_dashboard() above - same dual-serve rationale."""
+    if not validate_slug(slug):
+        return "Invalid slug format", 400
+    return render_template("stages.html", slug=slug)
+
 @app.route("/api/preview/audio/<slug>/<chunk_hash>")
 def preview_audio(slug, chunk_hash):
     if not validate_slug(slug) or not re.match(r"^[a-f0-9]{64}$", chunk_hash):
@@ -3841,6 +3858,11 @@ def preview_book_page(slug, href):
 @app.route("/downloads")
 def downloads_page():
     return _serve_spa_or_template("downloads.html")
+
+@app.route("/legacy/downloads")
+def legacy_downloads_page():
+    """See legacy_dashboard() above - same dual-serve rationale."""
+    return render_template("downloads.html")
 
 @app.route("/api/downloads")
 def api_all_downloads():
