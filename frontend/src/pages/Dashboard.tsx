@@ -6,6 +6,7 @@ import { ProgressBar } from '../components/ui/ProgressBar';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { BookSettingsModal } from './BookSettingsModal';
+import { ResumeStalledModal } from '../components/ui/ResumeStalledModal';
 import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -25,14 +26,23 @@ export const Dashboard: React.FC = () => {
   const [addingBook, setAddingBook] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [settingsSlug, setSettingsSlug] = useState<string | null>(null);
+  const [stalledModalBook, setStalledModalBook] = useState<Book | null>(null);
+  const [dismissedStalledSlugs, setDismissedStalledSlugs] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
-
 
   const fetchBooks = async () => {
     try {
       const data = await apiFetch<Book[] | { books: Book[] }>('/api/books');
       const bookList = Array.isArray(data) ? data : data.books || [];
       setBooks(bookList);
+
+      setStalledModalBook((currentStalled) => {
+        if (currentStalled) return currentStalled;
+        const candidate = bookList.find(
+          (b) => b.stalled === true && !dismissedStalledSlugs.has(b.slug)
+        );
+        return candidate || null;
+      });
     } catch (err) {
       console.error('Помилка завантаження книг:', err);
     } finally {
@@ -42,6 +52,7 @@ export const Dashboard: React.FC = () => {
   };
 
   useEffect(() => {
+
     fetchBooks();
     const interval = setInterval(fetchBooks, 4000);
     return () => clearInterval(interval);
@@ -564,6 +575,25 @@ export const Dashboard: React.FC = () => {
         isOpen={settingsSlug !== null}
         onClose={() => setSettingsSlug(null)}
       />
+
+      {/* Resume Stalled Conversion Modal */}
+      <ResumeStalledModal
+        book={stalledModalBook}
+        onResume={async (slugToResume) => {
+          try {
+            await apiFetch(`/api/resume-stalled/${slugToResume}`, { method: 'POST' });
+            setStalledModalBook(null);
+            fetchBooks();
+          } catch (err: any) {
+            alert(`Не вдалося відновити: ${err.message}`);
+          }
+        }}
+        onDismiss={(slugToDismiss) => {
+          setDismissedStalledSlugs((prev) => new Set(prev).add(slugToDismiss));
+          setStalledModalBook(null);
+        }}
+      />
     </div>
   );
 };
+
