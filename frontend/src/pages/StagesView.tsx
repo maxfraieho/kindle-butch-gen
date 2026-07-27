@@ -54,28 +54,30 @@ export const StagesView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Action Bar */}
-      <div className="flex items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <Button
             variant="outline"
             size="sm"
             icon={<ArrowLeft className="w-4 h-4" />}
             onClick={() => navigate('/')}
+            className="shrink-0"
           >
             Назад
           </Button>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl md:text-2xl font-bold text-slate-100 truncate">
               {slug}
             </h1>
-            <p className="text-xs text-slate-400 font-mono">
+            <p className="text-xs text-slate-400 font-mono truncate">
               Етапи перекладу та озвучення
             </p>
           </div>
         </div>
 
         {/* View Toggle */}
-        <div className="glass-panel p-1 rounded-xl flex items-center gap-1 border border-slate-800">
+        <div className="glass-panel p-1 rounded-xl flex items-center gap-1 border border-slate-800 shrink-0">
+
           <button
             onClick={() => setActiveTab('translated')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active-scale ${
