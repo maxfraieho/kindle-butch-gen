@@ -378,9 +378,17 @@ def detect_epub_lang(epub_path):
         pass
     return None
 
+def _serve_spa_or_template(template_name, **context):
+    dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
+    index_path = os.path.join(dist_dir, "index.html")
+    if os.path.exists(index_path):
+        return send_file(index_path)
+    return render_template(template_name, **context)
+
+
 @app.route("/")
 def dashboard():
-    return render_template("dashboard.html")
+    return _serve_spa_or_template("dashboard.html")
 
 @app.route("/api/books")
 def list_books():
@@ -2296,7 +2304,7 @@ def change_password_api():
 @app.route("/manual")
 def user_manual():
     """Ukrainian user manual with live-UI screenshots (TASK-56)."""
-    return render_template("manual.html")
+    return _serve_spa_or_template("manual.html")
 
 @app.route("/api/support/profile")
 def support_profile():
@@ -2618,7 +2626,7 @@ def view_book_stages(slug):
     if not validate_slug(slug):
         return "Invalid slug format", 400
     # Serve visualizer page
-    return render_template("stages.html", slug=slug)
+    return _serve_spa_or_template("stages.html", slug=slug)
 
 @app.route("/api/preview/audio/<slug>/<chunk_hash>")
 def preview_audio(slug, chunk_hash):
@@ -3835,7 +3843,7 @@ def preview_book_page(slug, href):
 
 @app.route("/downloads")
 def downloads_page():
-    return render_template("downloads.html")
+    return _serve_spa_or_template("downloads.html")
 
 @app.route("/api/downloads")
 def api_all_downloads():
