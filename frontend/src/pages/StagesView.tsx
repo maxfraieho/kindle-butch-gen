@@ -1160,12 +1160,13 @@ export const StagesView: React.FC = () => {
           )}
 
           {/* Bottom Actions */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
+          <div className="flex items-center justify-between gap-2 sm:gap-3 pt-4 border-t border-slate-800">
             <Button
               variant="outline"
               size="sm"
-              icon={<UserPlus className="w-3.5 h-3.5" />}
+              icon={<UserPlus className="w-3.5 h-3.5 shrink-0" />}
               onClick={handleAddCharacter}
+              className="flex-1 sm:flex-initial text-xs whitespace-nowrap justify-center"
             >
               Додати персонажа
             </Button>
@@ -1174,9 +1175,10 @@ export const StagesView: React.FC = () => {
               <Button
                 variant="primary"
                 size="sm"
-                icon={<Save className="w-3.5 h-3.5" />}
+                icon={<Save className="w-3.5 h-3.5 shrink-0" />}
                 isLoading={savingCast}
                 onClick={handleSaveCast}
+                className="flex-1 sm:flex-initial text-xs whitespace-nowrap justify-center"
               >
                 Зберегти реєстр
               </Button>
