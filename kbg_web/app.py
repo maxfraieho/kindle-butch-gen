@@ -2865,6 +2865,7 @@ def preview_book_stages(slug):
     limit = request.args.get("limit", 30, type=int)
     
     raw_chunks = []
+    batch_paragraphs = []
     if os.path.exists(target_md_file):
         try:
             with open(target_md_file, "r", encoding="utf-8") as f:
@@ -2884,34 +2885,114 @@ def preview_book_stages(slug):
                         raw_chunks.append(chunk)
         except Exception as e:
             return jsonify({"status": "error", "message": f"Error parsing book: {e}"}), 500
-            
-    total_chunks = len(raw_chunks)
-    total_pages = (total_chunks + limit - 1) // limit if total_chunks > 0 else 1
-    
-    start_idx = (page - 1) * limit
-    end_idx = start_idx + limit
-    sliced_chunks = raw_chunks[start_idx:end_idx]
-    
-    paragraphs = []
-    if sliced_chunks:
+    elif os.path.exists(paths["batches_dir"]):
+        import glob
+        from common.text_protect import PlaceholderManager
+        from kbg_web.status_helper import split_into_segments
+        pm = PlaceholderManager()
+        batch_files = glob.glob(os.path.join(paths["batches_dir"], "batch_*", "*", "*.md"))
+        clean_batch_files = [f for f in batch_files if not f.endswith(f"_translated_{target_lang}.md")]
+        for bf in sorted(clean_batch_files):
+            try:
+                with open(bf, "r", encoding="utf-8") as f:
+                    text = f.read()
+                protected_text = pm.protect(text)
+                segs = split_into_segments(protected_text)
+                for seg in segs:
+                    h = get_hash(seg)
+                    trans_text = trans_cache.get(h)
+                    orig_restored = pm.restore(seg)
+                    trans_restored = pm.restore(trans_text) if trans_text else orig_restored
+                    batch_paragraphs.append({
+                        "hash": h,
+                        "original": orig_restored,
+                        "translated": trans_restored,
+                        "is_translated": trans_text is not None,
+                        "stressed": stress_cache.get(h, trans_restored),
+                        "has_audio": os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
+                    })
+            except Exception:
+                pass
+
+    if batch_paragraphs:
+        total_chunks = len(batch_paragraphs)
+        total_pages = (total_chunks + limit - 1) // limit if total_chunks > 0 else 1
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paragraphs = batch_paragraphs[start_idx:end_idx]
+    else:
+        total_chunks = len(raw_chunks)
+        total_pages = (total_chunks + limit - 1) // limit if total_chunks > 0 else 1
+        
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        sliced_chunks = raw_chunks[start_idx:end_idx]
+        
+        paragraphs = []
+        if sliced_chunks:
+            try:
+                # Speed up the translation original text lookup using a reverse index dict
+                reverse_trans_cache = {v.strip(): k for k, v in trans_cache.items()}
+                for chunk in sliced_chunks:
+                    h = get_hash(chunk)
+                    original = reverse_trans_cache.get(chunk, chunk)
+                    stressed = stress_cache.get(h, chunk)
+                    has_audio = os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
+                    
+                    paragraphs.append({
+                        "hash": h,
+                        "original": original,
+                        "translated": chunk,
+                        "stressed": stressed,
+                        "has_audio": has_audio
+                    })
+            except Exception as e:
+                return jsonify({"status": "error", "message": f"Error resolving chunks: {e}"}), 500
+
+    # Parse active batch details from conversion_progress.log
+    active_batch_info = {
+        "current_batch": None,
+        "current_segment": None,
+        "total_segments": None,
+        "in_cooldown": False,
+        "status_line": None,
+    }
+    log_file_path = os.path.join(paths["book_dir"], "conversion_progress.log")
+    if os.path.exists(log_file_path):
         try:
-            # Speed up the translation original text lookup using a reverse index dict
-            reverse_trans_cache = {v.strip(): k for k, v in trans_cache.items()}
-            for chunk in sliced_chunks:
-                h = get_hash(chunk)
-                original = reverse_trans_cache.get(chunk, chunk)
-                stressed = stress_cache.get(h, chunk)
-                has_audio = os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
-                
-                paragraphs.append({
-                    "hash": h,
-                    "original": original,
-                    "translated": chunk,
-                    "stressed": stressed,
-                    "has_audio": has_audio
-                })
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"Error resolving chunks: {e}"}), 500
+            with open(log_file_path, "r", encoding="utf-8", errors="replace") as lf:
+                lines = lf.readlines()[-60:]
+            for l in reversed(lines):
+                if "Пауза" in l and "охолодження" in l:
+                    active_batch_info["in_cooldown"] = True
+                    active_batch_info["status_line"] = "🧊 Пауза між батчами (охолодження 2.5 хв.)..."
+                    break
+                m_seg = re.search(r"Переклад сегменту (\d+)/(\d+)", l)
+                if m_seg and not active_batch_info["current_segment"]:
+                    active_batch_info["current_segment"] = int(m_seg.group(1))
+                    active_batch_info["total_segments"] = int(m_seg.group(2))
+                m_batch = re.search(r"\[Translate (\d+-\d+)\]", l) or re.search(r"блок (\d+/\d+)", l)
+                if m_batch and not active_batch_info["current_batch"]:
+                    active_batch_info["current_batch"] = m_batch.group(1)
+                if active_batch_info["current_segment"] and active_batch_info["total_segments"]:
+                    b_str = f"Блок (стор. {active_batch_info['current_batch']})" if active_batch_info['current_batch'] else "Поточний блок"
+                    active_batch_info["status_line"] = f"⚡ {b_str}: сегмент {active_batch_info['current_segment']}/{active_batch_info['total_segments']}"
+                    break
+        except Exception:
+            pass
+
+    return jsonify({
+        "paragraphs": paragraphs,
+        "total_pages": total_pages,
+        "total_chunks": total_chunks,
+        "page": page,
+        "limit": limit,
+        "active_batch_info": active_batch_info,
+        "cache_stats": {
+            "translated_segments": len(trans_cache),
+            "stressed_segments": len(stress_cache)
+        }
+    })
             
     # Detect EPUB availability and cache stats
     epub_path = find_book_epub(paths["book_dir"], slug)

@@ -34,10 +34,25 @@ interface Paragraph {
   has_audio?: boolean;
 }
 
+interface ActiveBatchInfo {
+  current_batch?: string | null;
+  current_segment?: number | null;
+  total_segments?: number | null;
+  in_cooldown?: boolean;
+  status_line?: string | null;
+}
+
+interface CacheStats {
+  translated_segments?: number;
+  stressed_segments?: number;
+}
+
 interface StageData {
   paragraphs?: Paragraph[];
   total_pages?: number;
   total_chunks?: number;
+  active_batch_info?: ActiveBatchInfo;
+  cache_stats?: CacheStats;
 }
 
 interface PendingEdit {
@@ -577,6 +592,18 @@ export const StagesView: React.FC = () => {
     setCharacters((prev) => prev.filter((_, i) => i !== index));
   };
 
+  useEffect(() => {
+    let interval: any = null;
+    if (slug) {
+      interval = setInterval(() => {
+        fetchStageData();
+      }, 4000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [slug]);
+
   return (
     <div className="space-y-6 pb-12">
       {/* Top Action Bar */}
@@ -639,6 +666,42 @@ export const StagesView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Live Active Conversion Status Banner */}
+      {data?.active_batch_info?.status_line && (
+        <Card className="p-4 bg-emerald-950/20 border-emerald-500/40 space-y-2.5 shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
+              <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse shrink-0" />
+              <span>{data.active_batch_info.status_line}</span>
+            </div>
+            {data.cache_stats && (
+              <span className="text-xs text-slate-400 font-mono">
+                Перекладено блоків у кеші: {data.cache_stats.translated_segments}
+              </span>
+            )}
+          </div>
+
+          {data.active_batch_info.current_segment && data.active_batch_info.total_segments && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] font-mono text-emerald-400/90">
+                <span>Прогрес поточного батчу:</span>
+                <span>
+                  {Math.round((data.active_batch_info.current_segment / data.active_batch_info.total_segments) * 100)}%
+                </span>
+              </div>
+              <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-emerald-500/30">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full"
+                  style={{
+                    width: `${Math.round((data.active_batch_info.current_segment / data.active_batch_info.total_segments) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Quality Flags Section */}
       {(asrFlags.length > 0 || mqmFlags.length > 0) && (
