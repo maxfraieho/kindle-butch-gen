@@ -35,7 +35,8 @@ export const App: React.FC = () => {
           {/* Quick Start Windows PowerShell Tip */}
           <div className="p-5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 text-xs text-cyan-200 space-y-3">
             <div className="flex items-center gap-2 font-bold text-cyan-300 text-sm">
-              <span>🪟</span> Розгортання в один клік безпосередньо з Windows PowerShell:
+              <Terminal className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span>Розгортання в один клік безпосередньо з Windows PowerShell:</span>
             </div>
             <p className="text-slate-300">
               Якщо підсистему WSL ще не встановлено, виконайте в PowerShell (від Адміністратора): <code className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300">wsl --install</code>

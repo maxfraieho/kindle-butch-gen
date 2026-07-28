@@ -165,7 +165,8 @@ export const App: React.FC = () => {
         {/* Section 4: One Command */}
         <section id="run" className="rounded-3xl border border-emerald-500/40 bg-[#111827]/80 backdrop-blur-xl p-6 sm:p-8 space-y-4 shadow-xl shadow-emerald-500/5">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <span>🚀</span> 4. Крок 4 — одна команда
+            <Terminal className="w-5 h-5 text-emerald-400" />
+            <span>4. Крок 4 — одна команда</span>
           </h2>
           <p className="text-sm text-slate-300">Відкрийте Termux і вставте (довге натискання → Paste):</p>
 

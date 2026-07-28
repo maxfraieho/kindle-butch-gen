@@ -1,32 +1,32 @@
 import React from 'react';
 import { Navbar } from '../../components/Navbar';
 import { Footer } from '../../components/Footer';
-import { ExternalLink, Smartphone, Monitor, ShieldCheck, HeartHandshake, Gift } from 'lucide-react';
+import { ExternalLink, Smartphone, Monitor, ShieldCheck, HeartHandshake, Gift, Send } from 'lucide-react';
 
 export const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100">
       <Navbar currentPage="index" />
 
-      <main className="flex-1 max-w-4xl mx-auto px-4 py-8 space-y-10">
+      <main className="flex-1 max-w-4xl mx-auto px-4 py-6 sm:py-10 space-y-8">
         {/* Hero Section */}
         <div className="rounded-3xl border border-slate-800 bg-[#111827]/80 backdrop-blur-xl p-6 sm:p-10 shadow-2xl space-y-6">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <img
               src="vydra.jpg"
               alt="Vydra — видра-маскот з книгою і навушниками"
-              className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl object-cover shadow-xl border border-emerald-500/30"
+              className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl object-cover shadow-xl border border-emerald-500/30 shrink-0"
             />
             <div className="space-y-3 text-center sm:text-left">
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight flex items-center justify-center sm:justify-start gap-2">
-                <span>🦦</span> Vydra
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                Vydra
               </h1>
               <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-xl">
                 Vydra — інструмент, що перекладає книги українською, генерує аудіокниги та адаптує манґу — все локально, на вашому власному пристрої.
               </p>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-                <ShieldCheck className="w-4 h-4" />
-                Без хмари • Без підписок • Без збору даних • Створено в Україні
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>Без хмари • Без підписок • Без збору даних • Створено в Україні</span>
               </div>
             </div>
           </div>
@@ -39,8 +39,9 @@ export const App: React.FC = () => {
               rel="noreferrer"
               className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
             >
-              <span>🤖</span> Почати в Telegram
-              <ExternalLink className="w-4 h-4" />
+              <Send className="w-4 h-4" />
+              <span>Почати в Telegram</span>
+              <ExternalLink className="w-3.5 h-3.5 opacity-70" />
             </a>
 
             <a
@@ -48,7 +49,7 @@ export const App: React.FC = () => {
               className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-sm transition-all shadow-lg shadow-cyan-600/20 active:scale-[0.98]"
             >
               <Smartphone className="w-4 h-4" />
-              📲 Android (Termux)
+              <span>Android (Termux)</span>
             </a>
 
             <a
@@ -56,7 +57,7 @@ export const App: React.FC = () => {
               className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-sm transition-all active:scale-[0.98]"
             >
               <Monitor className="w-4 h-4" />
-              💻 x86 (WSL2 / CUDA)
+              <span>x86 (WSL2 / CUDA)</span>
             </a>
           </div>
 
@@ -70,7 +71,7 @@ export const App: React.FC = () => {
         {/* Transparent Support Banner Details */}
         <div className="rounded-3xl border border-slate-800 bg-[#111827]/80 backdrop-blur-xl p-6 sm:p-8 space-y-4">
           <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-            <HeartHandshake className="w-6 h-6 text-emerald-400" />
+            <HeartHandshake className="w-6 h-6 text-emerald-400 shrink-0" />
             <h2 className="text-xl font-bold text-white">Прозоро про підтримку</h2>
           </div>
 
@@ -102,7 +103,7 @@ export const App: React.FC = () => {
         {/* Referrals Section */}
         <div className="rounded-3xl border border-slate-800 bg-[#111827]/80 backdrop-blur-xl p-6 sm:p-8 space-y-3">
           <div className="flex items-center gap-3">
-            <Gift className="w-6 h-6 text-amber-400" />
+            <Gift className="w-6 h-6 text-amber-400 shrink-0" />
             <h2 className="text-xl font-bold text-white">Реферали</h2>
           </div>
           <p className="text-sm text-slate-300 leading-relaxed">
