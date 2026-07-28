@@ -473,9 +473,40 @@ def _calculate_progress_uncached(slug):
         tts_percent = 0.0
         stress_percent = 0.0
     
+    # Extract active stage details from conversion_progress.log
+    active_stage_text = None
+    log_path = os.path.join(book_dir, "conversion_progress.log")
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as lf:
+                lines = lf.readlines()[-60:]
+            current_seg = None
+            total_segs = None
+            batch_str = None
+            for l in reversed(lines):
+                if "Пауза" in l and "охолодження" in l:
+                    active_stage_text = "🧊 Пауза між батчами (охолодження)..."
+                    break
+                m_seg = re.search(r"Переклад сегменту (\d+)/(\d+)", l)
+                if m_seg and not current_seg:
+                    current_seg = m_seg.group(1)
+                    total_segs = m_seg.group(2)
+                m_batch = re.search(r"\[Translate (\d+-\d+)\]", l) or re.search(r"блок (\d+/\d+)", l)
+                if m_batch and not batch_str:
+                    batch_str = m_batch.group(1)
+                if current_seg and total_segs:
+                    batch_info = f" (стор. {batch_str})" if batch_str else ""
+                    active_stage_text = f"⚡ Переклад{batch_info}: {current_seg}/{total_segs} сегментів"
+                    break
+        except Exception:
+            pass
+
     # Calculate overall percent
     if generate_audiobook:
-        overall_percent = (marker_percent + translation_percent + stress_percent + tts_percent) / 4
+        if tts_percent == 0.0 and stress_percent == 0.0 and translation_percent < 100.0:
+            overall_percent = (marker_percent * 0.3) + (translation_percent * 0.7)
+        else:
+            overall_percent = (marker_percent + translation_percent + stress_percent + tts_percent) / 4
     else:
         overall_percent = (marker_percent + translation_percent) / 2
 
@@ -485,7 +516,8 @@ def _calculate_progress_uncached(slug):
         "translation_percent": round(translation_percent, 1),
         "stress_percent": round(stress_percent, 1),
         "tts_percent": round(tts_percent, 1),
-        "overall_percent": round(overall_percent, 1)
+        "overall_percent": round(overall_percent, 1),
+        "active_stage_text": active_stage_text
     }
 
 def print_status(slug):

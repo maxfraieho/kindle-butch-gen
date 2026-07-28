@@ -590,7 +590,7 @@ export const Dashboard: React.FC = () => {
                       isCompleted
                         ? 'Переклад завершено'
                         : isRunning
-                          ? 'Обробка...'
+                          ? ((progressObj as any).active_stage_text || 'Обробка...')
                           : book.stalled_reason
                             ? book.stalled_reason
                             : rawProgress > 0
