@@ -320,22 +320,25 @@ export const Dashboard: React.FC = () => {
                         ? 'Переклад завершено'
                         : isRunning
                           ? 'Обробка...'
-                          : (book.stalled_reason || 'Готовий до запуску')
+                          : book.stalled_reason
+                            ? book.stalled_reason
+                            : rawProgress > 0
+                              ? `Призупинено на ${Math.round(rawProgress)}%`
+                              : 'Готовий до запуску'
                     }
                   />
                 </div>
 
-
-                {/* Actions Footer - Responsive Flex Wrap */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-4 mt-auto border-t border-slate-800/80">
-                  <div className="flex flex-wrap items-center gap-2">
+                {/* Actions Footer */}
+                <div className="pt-4 mt-auto border-t border-slate-800/80 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {isRunning ? (
                       <Button
                         variant="danger"
                         size="sm"
                         icon={<Square className="w-3.5 h-3.5 fill-current" />}
                         onClick={(e) => handleStop(book.slug, e)}
-                        className="px-2.5 py-1.5 text-xs"
+                        className="w-full text-xs"
                       >
                         Зупинити
                       </Button>
@@ -345,7 +348,7 @@ export const Dashboard: React.FC = () => {
                         size="sm"
                         icon={<Play className="w-3.5 h-3.5 fill-current" />}
                         onClick={(e) => handleRun(book.slug, e)}
-                        className="px-2.5 py-1.5 text-xs"
+                        className="w-full text-xs"
                       >
                         Запустити
                       </Button>
@@ -355,29 +358,30 @@ export const Dashboard: React.FC = () => {
                       size="sm"
                       icon={<Layers className="w-3.5 h-3.5" />}
                       onClick={(e) => { e.stopPropagation(); navigate(`/view/${book.slug}`); }}
-                      className="px-2.5 py-1.5 text-xs"
+                      className="w-full text-xs"
                     >
                       Етапи
                     </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="outline"
                       size="sm"
                       icon={<Settings2 className="w-3.5 h-3.5" />}
                       onClick={(e) => { e.stopPropagation(); setSettingsSlug(book.slug); }}
                       title="Налаштування книги"
-                      className="px-2.5 py-1.5 text-xs"
+                      className="w-full text-xs"
                     >
                       Налаштування
                     </Button>
+                    <button
+                      onClick={(e) => handleDelete(book.slug, e)}
+                      title="Видалити"
+                      className="flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 border border-slate-700/60 hover:border-rose-500/40 rounded-[10px] py-1.5 hover:bg-slate-800 transition-colors w-full font-medium"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Видалити
+                    </button>
                   </div>
-
-                  <button
-                    onClick={(e) => handleDelete(book.slug, e)}
-                    title="Видалити"
-                    className="p-2 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors ml-auto"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
               </Card>
             );
