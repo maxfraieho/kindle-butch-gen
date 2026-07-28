@@ -37,3 +37,4 @@ screenshots/
 # Frontend Node.js dependencies & build output
 frontend/node_modules/
 frontend/dist/
+site-frontend/node_modules/
