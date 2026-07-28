@@ -3977,7 +3977,11 @@ def spa_fallback(path):
 
     index_path = os.path.join(dist_dir, "index.html")
     if os.path.exists(index_path):
-        return send_file(index_path)
+        resp = make_response(send_file(index_path))
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     
     # Fallback to legacy Jinja2 dashboard if React SPA isn't built yet
     return dashboard()
