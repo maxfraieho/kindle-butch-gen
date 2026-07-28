@@ -141,6 +141,38 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  // System Update State
+  const [updatingSystem, setUpdatingSystem] = useState(false);
+  const [updateNotice, setUpdateNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSelfUpdate = async () => {
+    if (!window.confirm('Бажаєте оновити код Vydra з GitHub та перезапустити сервіс?')) {
+      return;
+    }
+    setUpdatingSystem(true);
+    setUpdateNotice(null);
+    try {
+      const res = await apiFetch<{ status: string; message?: string }>('/api/update', {
+        method: 'POST',
+      });
+      setUpdateNotice({
+        type: 'success',
+        text: res.message || 'Запущено оновлення з GitHub. Сервіс перезапуститься протягом кількох секунд...',
+      });
+      setTimeout(() => {
+        window.location.reload();
+      }, 5000);
+    } catch (err: any) {
+      console.error('Помилка оновлення системи:', err);
+      setUpdateNotice({
+        type: 'error',
+        text: err.data?.message || err.message || 'Не вдалося виконати оновлення коду з GitHub',
+      });
+    } finally {
+      setUpdatingSystem(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-36 md:pb-12">
       {/* Header */}
@@ -150,18 +182,53 @@ export const SettingsView: React.FC = () => {
             <Server className="w-7 h-7 text-emerald-400" /> Глобальні налаштування
           </h1>
           <p className="text-sm text-slate-300 mt-1">
-            Керування локальним сервером перекладу Llama, шляхами файлів та безпекою
+            Керування локальним сервером перекладу Llama, шляхами файлів та оновленням сервісу
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          icon={<RefreshCw className={`w-4 h-4 ${modelLoading ? 'animate-spin' : ''}`} />}
-          onClick={fetchModelsInfo}
-        >
-          Оновити
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<RefreshCw className={`w-3.5 h-3.5 ${modelLoading ? 'animate-spin' : ''}`} />}
+            onClick={async () => {
+              await fetchModelsInfo();
+              setUpdateNotice({ type: 'success', text: '✓ Статус сервера та моделей оновлено' });
+              setTimeout(() => setUpdateNotice(null), 3000);
+            }}
+          >
+            Оновити статус
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            isLoading={updatingSystem}
+            icon={<RefreshCw className={`w-3.5 h-3.5 ${updatingSystem ? 'animate-spin' : ''}`} />}
+            onClick={handleSelfUpdate}
+            className="bg-emerald-600 hover:bg-emerald-500 font-bold"
+          >
+            🚀 Оновити код Vydra
+          </Button>
+        </div>
       </div>
+
+      {/* Global Notice Banner */}
+      {updateNotice && (
+        <div
+          className={`p-4 rounded-xl text-xs sm:text-sm flex items-center justify-between gap-3 border shadow-md ${
+            updateNotice.type === 'error'
+              ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+              : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+          }`}
+        >
+          <span className="font-semibold flex items-center gap-2">
+            {updateNotice.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+            {updateNotice.text}
+          </span>
+          <button onClick={() => setUpdateNotice(null)} className="text-slate-400 hover:text-slate-200">
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Section Navigation Tabs */}
       <div className="flex items-center gap-1.5 p-1.5 bg-[#131c2e] rounded-2xl border border-slate-700/60 overflow-x-auto">

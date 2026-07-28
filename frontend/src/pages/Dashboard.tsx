@@ -348,9 +348,14 @@ export const Dashboard: React.FC = () => {
             variant="outline"
             size="md"
             icon={<RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />}
-            onClick={() => { setRefreshing(true); fetchBooks(); }}
+            onClick={async () => {
+              setRefreshing(true);
+              await fetchBooks();
+              setSupportNotice('✓ Список книг оновлено');
+              setTimeout(() => setSupportNotice(null), 2500);
+            }}
           >
-            Оновити
+            Оновити список
           </Button>
           <Button
             variant="primary"
