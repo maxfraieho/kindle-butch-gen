@@ -580,8 +580,8 @@ export const StagesView: React.FC = () => {
   return (
     <div className="space-y-6 pb-12">
       {/* Top Action Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/60">
+        <div className="flex items-center gap-2.5 min-w-0">
           <Button
             variant="outline"
             size="sm"
@@ -592,17 +592,17 @@ export const StagesView: React.FC = () => {
             Назад
           </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl md:text-2xl font-bold text-slate-100 truncate">
+            <h1 className="text-lg md:text-2xl font-bold text-slate-100 truncate">
               {slug}
             </h1>
-            <p className="text-xs text-slate-400 font-mono truncate">
+            <p className="text-[11px] sm:text-xs text-slate-400 font-mono truncate">
               Етапи перекладу, наголосів та аудіо
             </p>
           </div>
         </div>
 
         {/* View & Anchor Controls */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto no-scrollbar pb-0.5 shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -610,24 +610,25 @@ export const StagesView: React.FC = () => {
             onClick={() => {
               document.getElementById('cast')?.scrollIntoView({ behavior: 'smooth' });
             }}
+            className="shrink-0 text-xs whitespace-nowrap"
           >
             Персонажі ({characters.length})
           </Button>
 
-          <div className="glass-panel p-1 rounded-xl flex items-center gap-1 border border-slate-800">
+          <div className="glass-panel p-1 rounded-xl flex items-center gap-1 border border-slate-800 shrink-0">
             <button
               onClick={() => setActiveTab('translated')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active-scale ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active-scale whitespace-nowrap ${
                 activeTab === 'translated'
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Українська (з наголосами)
+              Українська<span className="hidden sm:inline"> (з наголосами)</span>
             </button>
             <button
               onClick={() => setActiveTab('original')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active-scale ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active-scale whitespace-nowrap ${
                 activeTab === 'original'
                   ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                   : 'text-slate-400 hover:text-slate-200'
