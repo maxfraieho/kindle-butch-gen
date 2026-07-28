@@ -89,7 +89,7 @@ def classify_bubble_shape(gray, box):
         return _res("sfx_candidate", 0, 0, not touches, 0.5)
     if touches:
         # Open region: distinguish rectangular CAPTION/narration boxes
-        # (very common in seinen like frieren - panel-edge-attached
+        # (very common in seinen like testmanga - panel-edge-attached
         # rectangles) from free-floating SFX. A caption's flooded
         # region fills its own bounding rect almost completely
         # (rectangularity ~1); irregular art background doesn't.

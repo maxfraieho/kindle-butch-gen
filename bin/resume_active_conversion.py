@@ -164,7 +164,7 @@ def main():
     # process, so nobody else will ever clear the file; without this, a
     # completed resumed run left the state file behind permanently and every
     # subsequent Termux restart relaunched the pipeline (observed live
-    # 2026-07-16: a stale frieren state file survived a finished run).
+    # 2026-07-16: a stale testmanga state file survived a finished run).
     # If the ENVIRONMENT itself dies again mid-run, this watcher dies with
     # it and the file correctly remains for the next boot's resume.
     proc.wait()

@@ -927,7 +927,7 @@
             // переклад" button - the safe, resume-friendly action. It must
             // NEVER honor a stale "Повторно очистити сторінки" checkbox
             // left checked in the hidden Advanced panel - that silently
-            // wiped and redid 12 already-translated frieren pages when Q
+            // wiped and redid 12 already-translated testmanga pages when Q
             // just wanted to resume/start normally. Only the explicit
             // "🔄 Перекласти заново" button (rerunConversion, with its own
             // confirm dialog) is allowed to send clean=true.

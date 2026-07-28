@@ -540,7 +540,7 @@
                     // NOT necessarily this <img>'s own natural size -
                     // cleaned/translated files are frequently downscaled
                     // relative to that reference (confirmed 156/193 pages
-                    // on frieren). Scale against bbox_ref_size when present;
+                    // on testmanga). Scale against bbox_ref_size when present;
                     // fall back to the old (may drift) 1:1-with-displayed-
                     // image behavior only for entries written before this fix.
                     const refW = (b.bbox_ref_size && b.bbox_ref_size[0]) || img.naturalWidth;
