@@ -110,7 +110,7 @@ export const Dashboard: React.FC = () => {
   };
 
   // Auto-fill metadata when file is selected
-  const handleFileChange = (file: File | null) => {
+  const handleFileChange = async (file: File | null) => {
     setUploadFile(file);
     if (file) {
       const suggestedSlug = generateSlug(file.name);
@@ -123,6 +123,39 @@ export const Dashboard: React.FC = () => {
       const ext = file.name.split('.').pop()?.toLowerCase();
       if (['cbz', 'cbr', 'cb7', 'zip', 'rar'].includes(ext || '')) {
         setIsManga(true);
+      }
+
+      // Auto-detect EPUB/file metadata via /api/parse-metadata
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await apiFetch<{
+          status: string;
+          detected_title?: string;
+          detected_authors?: string;
+          detected_slug?: string;
+          detected_lang?: string;
+        }>('/api/parse-metadata', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res && res.status === 'success') {
+          if (res.detected_title && (!title || title === suggestedTitle)) {
+            setTitle(res.detected_title);
+          }
+          if (res.detected_authors && (!authors || authors === 'Невідомий автор')) {
+            setAuthors(res.detected_authors);
+          }
+          if (res.detected_slug && (!slug || slug === 'new-book' || slug === suggestedSlug)) {
+            setSlug(res.detected_slug);
+          }
+          if (res.detected_lang && res.detected_lang !== 'auto' && (!sourceLang || sourceLang === 'en')) {
+            setSourceLang(res.detected_lang);
+          }
+        }
+      } catch (err) {
+        console.error('Помилка автоматичного парсингу метаданих:', err);
       }
     }
   };

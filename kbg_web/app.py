@@ -1565,6 +1565,13 @@ def get_book_settings_api(slug):
         "batch_pages": int(cfg.get("batch_pages", 50)),
         "cooldown_seconds": int(cfg.get("cooldown_seconds", 30)),
         "entitled": entitled,
+        "target_lang": cfg.get("target_lang", "uk"),
+        "tts_engine": cfg.get("tts_engine", "supertonic3"),
+        "tts_speaker_id": cfg.get("tts_speaker_id", 2),
+        "tts_speed": cfg.get("tts_speed", 1.0),
+        "tts_noise_scale": cfg.get("tts_noise_scale", 0.667),
+        "tts_noise_w": cfg.get("tts_noise_w", 0.8),
+        "tts_voice_quality": cfg.get("tts_voice_quality", "medium"),
     })
 
 
