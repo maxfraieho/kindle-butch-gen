@@ -7,8 +7,22 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { BookSettingsModal } from './BookSettingsModal';
 import { ResumeStalledModal } from '../components/ui/ResumeStalledModal';
-import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2 } from 'lucide-react';
+import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+interface SupportProfile {
+  config_enabled: boolean;
+  entitlements: string[];
+  local_disabled: boolean;
+  remote_disabled: boolean;
+  priority_tier: number;
+  effective_disabled: boolean;
+  bot_link: string;
+  telegram_id: string;
+  device_count: number;
+  device_limit: number;
+  device_over_limit: boolean;
+}
 
 export const Dashboard: React.FC = () => {
   const [books, setBooks] = useState<Book[]>([]);
@@ -28,7 +42,72 @@ export const Dashboard: React.FC = () => {
   const [settingsSlug, setSettingsSlug] = useState<string | null>(null);
   const [stalledModalBook, setStalledModalBook] = useState<Book | null>(null);
   const [dismissedStalledSlugs, setDismissedStalledSlugs] = useState<Set<string>>(new Set());
+
+  // Support card state
+  const [supportProfile, setSupportProfile] = useState<SupportProfile | null>(null);
+  const [togglingOptout, setTogglingOptout] = useState(false);
+  const [linkingTelegram, setLinkingTelegram] = useState(false);
+  const [inputTgId, setInputTgId] = useState('');
+  const [showTgLinkInput, setShowTgLinkInput] = useState(false);
+  const [supportNotice, setSupportNotice] = useState<string | null>(null);
+
   const navigate = useNavigate();
+
+  const fetchSupportProfile = async () => {
+    try {
+      const res = await apiFetch<SupportProfile>('/api/support/profile');
+      if (res) {
+        setSupportProfile(res);
+      }
+    } catch (err) {
+      console.error('Помилка завантаження профілю підтримки:', err);
+    }
+  };
+
+  const handleToggleOptout = async (disabled: boolean) => {
+    setTogglingOptout(true);
+    try {
+      await apiFetch<{ status: string; local_disabled?: boolean }>('/api/support/local-optout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled }),
+      });
+      fetchSupportProfile();
+    } catch (err: any) {
+      console.error('Помилка перемикання банера підтримки:', err);
+    } finally {
+      setTogglingOptout(false);
+    }
+  };
+
+  const handleLinkTelegram = async () => {
+    if (!inputTgId.trim() || !/^\d+$/.test(inputTgId.trim())) {
+      setSupportNotice('Telegram ID має складатись лише з цифр');
+      return;
+    }
+    setLinkingTelegram(true);
+    setSupportNotice(null);
+    try {
+      const res = await apiFetch<{ status: string; telegram_id?: string; message?: string }>(
+        '/api/support/link-telegram',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegram_id: inputTgId.trim() }),
+        }
+      );
+      if (res && res.status === 'success') {
+        setShowTgLinkInput(false);
+        setInputTgId('');
+        fetchSupportProfile();
+      }
+    } catch (err: any) {
+      console.error('Помилка прив\'язки Telegram ID:', err);
+      setSupportNotice(err.data?.message || err.message || 'Помилка прив\'язки Telegram ID');
+    } finally {
+      setLinkingTelegram(false);
+    }
+  };
 
   const fetchBooks = async () => {
     try {
@@ -52,8 +131,8 @@ export const Dashboard: React.FC = () => {
   };
 
   useEffect(() => {
-
     fetchBooks();
+    fetchSupportProfile();
     const interval = setInterval(fetchBooks, 4000);
     return () => clearInterval(interval);
   }, []);
@@ -283,6 +362,160 @@ export const Dashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Support Banner Card */}
+      {supportProfile && supportProfile.config_enabled && (
+        <Card className="p-5 border-amber-500/30 bg-amber-950/10 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🦦</span>
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  Підтримка проєкту Vydra
+                  {supportProfile.priority_tier > 0 && (
+                    <Badge variant="amber" size="sm">Tier {supportProfile.priority_tier}</Badge>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Розвиток відкритих нейромережевих інструментів для українського читача
+                </p>
+              </div>
+            </div>
+
+            {/* Device Count Indicator */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 ${
+                  supportProfile.device_over_limit
+                    ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                    : 'bg-slate-900/80 border-slate-700/60 text-slate-300'
+                }`}
+                title="Кількість активних пристроїв на акаунті (3 на безкоштовному тарифі)"
+              >
+                <span className="text-slate-400">Пристроїв:</span>
+                <span className={`font-mono font-bold ${supportProfile.device_over_limit ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {supportProfile.device_count}/{supportProfile.device_limit}
+                </span>
+                {supportProfile.device_over_limit && (
+                  <Badge variant="rose" size="sm">Понад ліміт</Badge>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {supportProfile.effective_disabled ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-500/20 text-xs">
+              <span className="text-slate-400">
+                Банер підтримки приховано для цієї інсталяції.
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                isLoading={togglingOptout}
+                onClick={() => handleToggleOptout(false)}
+                className="text-xs"
+              >
+                Показати банер
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3 pt-2 border-t border-amber-500/20">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Якщо вам подобається проєкт Vydra, ви можете підтримати серверну інфраструктуру та розробку нових нейромоделей через Telegram-бота або зробити донат.
+              </p>
+
+              {/* Telegram account linking prompt if empty */}
+              {supportProfile.telegram_id === '' && (
+                <div className="p-3 rounded-xl bg-slate-900/80 border border-amber-500/30 text-xs space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-amber-300 font-semibold flex items-center gap-1.5">
+                      <span>🔗</span> Прив’яжіть Telegram-акаунт через{' '}
+                      <a
+                        href={supportProfile.bot_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-400 hover:text-emerald-300 underline inline-flex items-center gap-0.5"
+                      >
+                        @GetVydraBot
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      , щоб активувати преміум-можливості
+                    </span>
+                    <button
+                      onClick={() => setShowTgLinkInput(!showTgLinkInput)}
+                      className="text-emerald-400 hover:text-emerald-300 underline text-xs"
+                    >
+                      {showTgLinkInput ? 'Сховати' : 'Ввести Telegram ID'}
+                    </button>
+                  </div>
+
+                  {showTgLinkInput && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        placeholder="Введіть ваш цифровий Telegram ID..."
+                        value={inputTgId}
+                        onChange={(e) => setInputTgId(e.target.value)}
+                        className="flex-1 min-w-[200px] rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-1.5 focus:outline-none focus:border-emerald-400 font-mono"
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        isLoading={linkingTelegram}
+                        onClick={handleLinkTelegram}
+                        className="text-xs"
+                      >
+                        Прив'язати ID
+                      </Button>
+                    </div>
+                  )}
+
+                  {supportNotice && (
+                    <p className="text-[11px] text-rose-400">{supportNotice}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Over limit warning */}
+              {supportProfile.device_over_limit && (
+                <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-xs text-rose-300">
+                  ⚠️ Перевищено безкоштовний ліміт пристроїв ({supportProfile.device_count}/{supportProfile.device_limit}). Додавання нових пристроїв або преміум-функцій вимагає активації підписки через{' '}
+                  <a
+                    href={supportProfile.bot_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:text-emerald-300 underline font-semibold"
+                  >
+                    @GetVydraBot (/premium)
+                  </a>.
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <a
+                  href={supportProfile.bot_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors shadow-lg shadow-emerald-500/20"
+                >
+                  Підтримати проєкт у @GetVydraBot
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isLoading={togglingOptout}
+                  onClick={() => handleToggleOptout(true)}
+                  className="text-xs text-slate-400 hover:text-slate-200"
+                >
+                  Не показувати
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Book Grid */}
       {loading ? (
