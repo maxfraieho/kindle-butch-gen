@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { apiFetch } from '../api/client';
-import { ExternalLink, Loader2, Play, Pause } from 'lucide-react';
+import { ExternalLink, Loader2, Play, Pause, Save, CheckCircle2, Sliders, Volume2, Crown } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,7 +40,7 @@ interface ModelsStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Resolution options — verbatim from openBookSettings() in dashboard.js
+// Resolution options
 // ---------------------------------------------------------------------------
 
 const RESOLUTION_OPTIONS: { value: string; label: string }[] = [
@@ -73,6 +73,10 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
   const [settings, setSettings] = useState<BookSettings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Batching & Cooldown inputs
+  const [batchPagesInput, setBatchPagesInput] = useState<string>('50');
+  const [cooldownMinutesInput, setCooldownMinutesInput] = useState<string>('0.5');
+
   // Manga bubble-tone state
   const [enableBubbleTone, setEnableBubbleTone] = useState<boolean>(false);
 
@@ -86,19 +90,28 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
   const [previewText, setPreviewText] = useState<string>('Це приклад озвучення тексту');
   const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
   const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null);
-  const [savingTts, setSavingTts] = useState<boolean>(false);
-  const [ttsNotice, setTtsNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Saving state & Notification
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveNotice, setSaveNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // ---- load settings whenever modal opens ----
   useEffect(() => {
     if (!isOpen || !slug) return;
     setSettings(null);
     setLoadError(null);
-    setTtsNotice(null);
+    setSaveNotice(null);
 
     apiFetch<BookSettings>(`/api/book-settings/${slug}`, { cache: 'no-store' } as RequestInit)
       .then((s) => {
         setSettings(s);
+        setBatchPagesInput(String(s.batch_pages ?? 50));
+
+        // Convert cooldown_seconds to minutes for clean editing without leading zero bugs
+        const secs = s.cooldown_seconds ?? 30;
+        const mins = Number((secs / 60).toFixed(2));
+        setCooldownMinutesInput(String(mins));
+
         setTtsEngine(s.tts_engine || 'supertonic3');
         setTtsSpeakerId(s.tts_speaker_id ?? 2);
         setTtsSpeed(s.tts_speed ?? 1.0);
@@ -115,26 +128,10 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
       .catch((err) => setLoadError(err.message || 'Не вдалося завантажити налаштування.'));
   }, [isOpen, slug]);
 
-  // ---- best-effort save ----
-  const save = useCallback(
-    async (field: string, value: boolean | string | number) => {
-      if (!slug) return;
-      try {
-        await apiFetch(`/api/book-settings/${slug}`, {
-          method: 'POST',
-          body: JSON.stringify({ [field]: value }),
-        });
-      } catch {
-        // best-effort — intentionally swallowed
-      }
-    },
-    [slug],
-  );
-
   // ---- model-download consent flow ----
   const checkAndConsentModel = useCallback(
     async (
-      field: string,
+      field: keyof BookSettings,
       targetState: boolean,
       modelKey: keyof ModelsStatus,
       downloadPromptText: string,
@@ -144,7 +141,6 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
 
       if (!targetState) {
         setSettings((prev) => (prev ? { ...prev, [field]: false } : prev));
-        save(field, false);
         return;
       }
 
@@ -168,52 +164,23 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
       }
 
       setSettings((prev) => (prev ? { ...prev, [field]: true } : prev));
-      save(field, true);
     },
-    [slug, save],
+    [slug],
   );
 
   // ---- handlers ----
   const handleCheckbox = (field: keyof BookSettings, checked: boolean) => {
     setSettings((prev) => (prev ? { ...prev, [field]: checked } : prev));
-    save(field, checked);
   };
 
   const handleResolution = (val: string) => {
     setSettings((prev) => (prev ? { ...prev, manga_resolution: val } : prev));
-    save('manga_resolution', val);
-  };
-
-  const handleBatchPages = (val: number) => {
-    const clamped = Math.max(1, Math.min(500, val));
-    setSettings((prev) => (prev ? { ...prev, batch_pages: clamped } : prev));
-    save('batch_pages', clamped);
-  };
-
-  const handleCooldownSeconds = (val: number) => {
-    const clamped = Math.max(0, Math.min(3600, val));
-    setSettings((prev) => (prev ? { ...prev, cooldown_seconds: clamped } : prev));
-    save('cooldown_seconds', clamped);
-  };
-
-  const handleBubbleToneToggle = async (checked: boolean) => {
-    setEnableBubbleTone(checked);
-    if (!slug) return;
-    try {
-      await apiFetch(`/api/manga/${slug}/bubble-tone`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enable_bubble_tone: checked }),
-      });
-    } catch (err) {
-      console.error('Помилка перемикання bubble-tone:', err);
-    }
   };
 
   const handlePlayTtsPreview = async () => {
     if (!slug || !previewText.trim()) return;
     setIsPlayingPreview(true);
-    setTtsNotice(null);
+    setSaveNotice(null);
 
     if (previewAudio) {
       previewAudio.pause();
@@ -250,7 +217,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
 
       newAudio.onended = () => setIsPlayingPreview(false);
       newAudio.onerror = () => {
-        setTtsNotice({ text: 'Помилка відтворення аудіо прикладу', type: 'error' });
+        setSaveNotice({ text: 'Помилка відтворення аудіо прикладу', type: 'error' });
         setIsPlayingPreview(false);
       };
 
@@ -258,18 +225,43 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
       setPreviewAudio(newAudio);
     } catch (err: any) {
       console.error('Помилка прев\'ю TTS:', err);
-      setTtsNotice({ text: err.message || 'Помилка генерації аудіо прикладу', type: 'error' });
+      setSaveNotice({ text: err.message || 'Помилка генерації аудіо прикладу', type: 'error' });
       setIsPlayingPreview(false);
     }
   };
 
-  const handleSaveTtsSettings = async () => {
-    if (!slug) return;
-    setSavingTts(true);
-    setTtsNotice(null);
+  // ---- Save All Settings in One Go ----
+  const handleSaveAll = async () => {
+    if (!slug || !settings) return;
+    setIsSaving(true);
+    setSaveNotice(null);
 
     try {
-      const res = await apiFetch<{ status: string; message?: string }>(`/api/tts-settings/${slug}`, {
+      // Calculate numerical values
+      const pages = Math.max(1, Math.min(500, parseInt(batchPagesInput, 10) || 50));
+
+      const mins = parseFloat(cooldownMinutesInput) || 0;
+      const cooldownSecs = Math.max(0, Math.min(3600, Math.round(mins * 60)));
+
+      // 1. Save main book settings
+      const mainPayload = {
+        batch_pages: pages,
+        cooldown_seconds: cooldownSecs,
+        keep_honorifics: settings.keep_honorifics,
+        manga_resolution: settings.manga_resolution,
+        enable_asr_verify: settings.enable_asr_verify,
+        enable_mqm_review: settings.enable_mqm_review,
+        enable_agent_editor: settings.enable_agent_editor,
+      };
+
+      await apiFetch(`/api/book-settings/${slug}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mainPayload),
+      });
+
+      // 2. Save TTS settings
+      await apiFetch(`/api/tts-settings/${slug}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -283,17 +275,31 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
         }),
       });
 
-      if (res && res.status === 'success') {
-        setTtsNotice({ text: 'Налаштування голосу збережено.', type: 'success' });
+      // 3. Save Manga bubble-tone if applicable
+      if (settings.is_manga) {
+        await apiFetch(`/api/manga/${slug}/bubble-tone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enable_bubble_tone: enableBubbleTone }),
+        }).catch(() => {});
       }
+
+      setSaveNotice({ text: 'Усі налаштування успішно збережено!', type: 'success' });
+      setTimeout(() => {
+        onClose();
+      }, 900);
     } catch (err: any) {
-      console.error('Помилка збереження TTS:', err);
-      const msg = err.data?.message || err.message || 'Помилка збереження налаштувань голосу';
-      setTtsNotice({ text: msg, type: 'error' });
+      console.error('Помилка збереження налаштувань:', err);
+      const msg = err.data?.message || err.message || 'Не вдалося зберегти налаштування';
+      setSaveNotice({ text: msg, type: 'error' });
     } finally {
-      setSavingTts(false);
+      setIsSaving(false);
     }
   };
+
+  // Helper calculation for seconds display
+  const computedMins = parseFloat(cooldownMinutesInput) || 0;
+  const computedSecs = Math.max(0, Math.min(3600, Math.round(computedMins * 60)));
 
   // ---- render ----
   const renderContent = () => {
@@ -307,8 +313,8 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
 
     if (!settings) {
       return (
-        <div className="flex items-center justify-center gap-2 py-8 text-slate-400 text-sm">
-          <Loader2 className="w-5 h-5 animate-spin" />
+        <div className="flex items-center justify-center gap-2 py-10 text-slate-400 text-sm">
+          <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
           Завантаження налаштувань…
         </div>
       );
@@ -317,128 +323,189 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
     const { entitled } = settings;
 
     return (
-      <div className="space-y-3">
+      <div className="space-y-5 pb-2">
         {/* Entitlement status line */}
-        <div className="text-xs text-slate-400 pb-1">
-          {entitled ? (
-            <span className="text-emerald-400 font-semibold">✓ Розблоковано</span>
-          ) : (
-            <span className="text-amber-400">
-              🔒 Потребує підтримки проєкту —{' '}
-              <a
-                href="https://t.me/GetVydraBot"
-                target="_blank"
-                rel="noreferrer"
-                className="text-emerald-400 hover:text-emerald-300 underline inline-flex items-center gap-0.5"
-              >
-                @GetVydraBot
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </span>
-          )}
+        <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+          <div>
+            {entitled ? (
+              <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Преміум активний</span>
+              </span>
+            ) : (
+              <span className="text-amber-400 inline-flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full">
+                <span>🔒 Потребує підтримки проєкту —</span>
+                <a
+                  href="https://t.me/GetVydraBot"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-emerald-400 hover:text-emerald-300 underline inline-flex items-center gap-0.5"
+                >
+                  @GetVydraBot
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Manga-only section */}
-        {settings.is_manga && (
-          <>
-            {/* Cast & Context link */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4">
-              <p className="text-sm font-semibold text-white mb-2">🧬 Cast Registry</p>
-              <p className="text-xs text-slate-400 mb-3">
-                Граматичний рід персонажів у перекладі.
+        {/* Global Save Notice */}
+        {saveNotice && (
+          <div
+            className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+              saveNotice.type === 'error'
+                ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+            }`}
+          >
+            <span className="font-semibold flex items-center gap-1.5">
+              {saveNotice.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+              {saveNotice.text}
+            </span>
+            <button onClick={() => setSaveNotice(null)} className="text-slate-400 hover:text-slate-200">
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* SECTION 1: ⚙️ Режим перекладу та продуктивність */}
+        <div className="rounded-2xl border border-slate-700/60 bg-slate-800/40 p-4 sm:p-5 space-y-4 shadow-md">
+          <div className="flex items-center gap-2 border-b border-slate-700/50 pb-2.5 text-sm font-bold text-white">
+            <Sliders className="w-4 h-4 text-emerald-400" />
+            <span>Режим перекладу та продуктивність</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Batch pages */}
+            <div className="space-y-1.5">
+              <label htmlFor="bs-batch-pages" className="block text-xs font-semibold text-slate-200">
+                📦 Сторінок на батч (1–500)
+              </label>
+              <p className="text-[11px] text-slate-400 leading-snug">
+                Кількість сторінок PDF/книги, яка обробляється за один прогін.
               </p>
-              <a
-                href={`/view/${slug}#cast`}
-                className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
-              >
-                Відкрити «Cast &amp; Context» →
-              </a>
+
+              <input
+                id="bs-batch-pages"
+                type="number"
+                min={1}
+                max={500}
+                value={batchPagesInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBatchPagesInput(val === '' ? '' : val);
+                }}
+                className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-sm px-3.5 py-2 focus:outline-none focus:border-emerald-400 font-mono transition-colors"
+              />
             </div>
 
-            {/* Bubble tone toggle */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4">
+            {/* Cooldown minutes */}
+            <div className="space-y-1.5">
+              <label htmlFor="bs-cooldown" className="block text-xs font-semibold text-slate-200">
+                ❄️ Пауза між батчами (хвилини)
+              </label>
+              <p className="text-[11px] text-slate-400 leading-snug">
+                Охолодження CPU між батчами ({computedSecs} сек.). 0 = без паузи.
+              </p>
+
+              <div className="relative">
+                <input
+                  id="bs-cooldown"
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={0.5}
+                  value={cooldownMinutesInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCooldownMinutesInput(val === '' ? '' : val);
+                  }}
+                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-sm px-3.5 py-2 focus:outline-none focus:border-emerald-400 font-mono transition-colors pr-14"
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-semibold text-slate-400 pointer-events-none">
+                  хв.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Honorifics */}
+          <div className="pt-2 border-t border-slate-700/40">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                id="bs-honorifics"
+                checked={settings.keep_honorifics}
+                onChange={(e) => handleCheckbox('keep_honorifics', e.target.checked)}
+                className="mt-0.5 w-5 h-5 flex-shrink-0 accent-emerald-500 cursor-pointer rounded border-slate-700"
+              />
+              <span className="text-xs text-slate-200 leading-relaxed">
+                <span className="font-semibold text-white">🈂️ Зберігати гоноративи</span>{' '}
+                — не перекладати японські/корейські суфікси (-сан, -чан, -кун), залишати в оригіналі.
+              </span>
+            </label>
+          </div>
+
+          {/* Manga options */}
+          {settings.is_manga && (
+            <div className="space-y-3 pt-3 border-t border-slate-700/40">
+              {/* Bubble tone */}
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   id="bs-bubble-tone"
                   checked={enableBubbleTone}
-                  onChange={(e) => handleBubbleToneToggle(e.target.checked)}
-                  className="mt-0.5 w-5 h-5 flex-shrink-0 accent-emerald-500 cursor-pointer"
+                  onChange={(e) => setEnableBubbleTone(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 flex-shrink-0 accent-emerald-500 cursor-pointer rounded border-slate-700"
                 />
-                <span className="text-sm text-slate-200">
+                <span className="text-xs text-slate-200 leading-relaxed">
                   <span className="font-semibold text-white">💭 Враховувати емоційний тон бульбашок</span>{' '}
-                  — передавати теги ([КРИК], [ДУМКА], [НАРАЦІЯ]) у промпт перекладу.
+                  — передавати теги ([КРИК], [ДУМКА]) у промпт перекладу.
                 </span>
               </label>
-            </div>
 
-            {/* E-reader resolution */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4 space-y-2">
-              <label
-                htmlFor="bs-resolution"
-                className="block text-xs font-semibold text-slate-300"
-              >
-                📖 Пристрій для читання (роздільність) — типово для цієї книги
-              </label>
-              <select
-                id="bs-resolution"
-                value={settings.manga_resolution}
-                onChange={(e) => handleResolution(e.target.value)}
-                className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-sm px-3 py-2 focus:outline-none focus:border-emerald-400 transition-colors"
-              >
-                {RESOLUTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
+              {/* Resolution */}
+              <div className="space-y-1">
+                <label htmlFor="bs-resolution" className="block text-xs font-semibold text-slate-300">
+                  📖 Пристрій для читання (роздільність манґи)
+                </label>
+                <select
+                  id="bs-resolution"
+                  value={settings.manga_resolution}
+                  onChange={(e) => handleResolution(e.target.value)}
+                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-2 focus:outline-none focus:border-emerald-400"
+                >
+                  {RESOLUTION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        {/* Honorifics */}
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              id="bs-honorifics"
-              checked={settings.keep_honorifics}
-              onChange={(e) => handleCheckbox('keep_honorifics', e.target.checked)}
-              className="mt-0.5 w-5 h-5 flex-shrink-0 accent-emerald-500 cursor-pointer"
-            />
-            <span className="text-sm text-slate-200">
-              <span className="font-semibold text-white">🈂️ Зберігати гоноративи</span>{' '}
-              — не перекладати суфікси на кшталт -сан, -чан, -кун, залишати як у оригіналі.
-            </span>
-          </label>
-        </div>
-
-        {/* TTS Voice & Listen Preview section */}
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-700/40 pb-2">
-            <span className="text-sm font-semibold text-white flex items-center gap-2">
-              🔊 Голос озвучення (TTS)
-            </span>
-          </div>
-
-          {ttsNotice && (
-            <div
-              className={`p-2.5 rounded-lg text-xs flex items-center justify-between gap-2 border ${
-                ttsNotice.type === 'error'
-                  ? 'bg-rose-950/30 border-rose-500/40 text-rose-300'
-                  : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-              }`}
-            >
-              <span>{ttsNotice.text}</span>
-              <button onClick={() => setTtsNotice(null)} className="text-slate-400 hover:text-slate-200">
-                ✕
-              </button>
+              {/* Cast & Context link */}
+              <div className="pt-1">
+                <a
+                  href={`/view/${slug}#cast`}
+                  className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition-colors font-semibold"
+                >
+                  🧬 Перейти до «Cast Registry» (реєстр персонажів) →
+                </a>
+              </div>
             </div>
           )}
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* SECTION 2: 🎙️ Налаштування аудіо та голосу (TTS) */}
+        <div className="rounded-2xl border border-slate-700/60 bg-slate-800/40 p-4 sm:p-5 space-y-4 shadow-md">
+          <div className="flex items-center gap-2 border-b border-slate-700/50 pb-2.5 text-sm font-bold text-white">
+            <Volume2 className="w-4 h-4 text-cyan-400" />
+            <span>Налаштування аудіо та голосу (TTS)</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Engine select */}
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <label htmlFor="bs-tts-engine" className="block text-xs font-semibold text-slate-300">
                 Рушій TTS
               </label>
@@ -446,7 +513,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                 id="bs-tts-engine"
                 value={ttsEngine}
                 onChange={(e) => setTtsEngine(e.target.value)}
-                className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-2 focus:outline-none focus:border-emerald-400"
+                className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-2 focus:outline-none focus:border-emerald-400"
               >
                 <option value="supertonic3">Supertonic 3 (Flow Matching, 31 мова)</option>
                 {(settings.target_lang || 'uk') === 'uk' && (
@@ -457,7 +524,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
 
             {/* Speaker ID */}
             {ttsEngine === 'supertonic3' && (
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label htmlFor="bs-tts-speaker" className="block text-xs font-semibold text-slate-300">
                   Speaker ID (0–9)
                 </label>
@@ -468,13 +535,13 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                   max={9}
                   value={ttsSpeakerId}
                   onChange={(e) => setTtsSpeakerId(parseInt(e.target.value, 10) || 0)}
-                  className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-2 focus:outline-none focus:border-emerald-400 font-mono"
+                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3.5 py-2 focus:outline-none focus:border-emerald-400 font-mono"
                 />
               </div>
             )}
 
             {/* Speed */}
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <label htmlFor="bs-tts-speed" className="block text-xs font-semibold text-slate-300">
                 Швидкість озвучення ({ttsSpeed.toFixed(1)}x)
               </label>
@@ -486,14 +553,14 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                 step={0.1}
                 value={ttsSpeed}
                 onChange={(e) => setTtsSpeed(parseFloat(e.target.value) || 1.0)}
-                className="w-full accent-emerald-500 cursor-pointer"
+                className="w-full accent-emerald-500 cursor-pointer mt-1"
               />
             </div>
           </div>
 
           {/* StyleTTS2 specific fields */}
           {ttsEngine === 'styletts2' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-700/40">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-700/40">
               <div className="space-y-1">
                 <label htmlFor="bs-tts-noise-scale" className="block text-xs font-semibold text-slate-300">
                   Noise Scale (0.1–1.5)
@@ -506,7 +573,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                   step={0.05}
                   value={ttsNoiseScale}
                   onChange={(e) => setTtsNoiseScale(parseFloat(e.target.value) || 0.667)}
-                  className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-2.5 py-1.5 focus:outline-none focus:border-emerald-400 font-mono"
+                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-1.5 focus:outline-none focus:border-emerald-400 font-mono"
                 />
               </div>
 
@@ -522,7 +589,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                   step={0.05}
                   value={ttsNoiseW}
                   onChange={(e) => setTtsNoiseW(parseFloat(e.target.value) || 0.8)}
-                  className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-2.5 py-1.5 focus:outline-none focus:border-emerald-400 font-mono"
+                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-1.5 focus:outline-none focus:border-emerald-400 font-mono"
                 />
               </div>
 
@@ -534,7 +601,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                   id="bs-tts-quality"
                   value={ttsVoiceQuality}
                   onChange={(e) => setTtsVoiceQuality(e.target.value)}
-                  className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-2.5 py-1.5 focus:outline-none focus:border-emerald-400"
+                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-1.5 focus:outline-none focus:border-emerald-400"
                 >
                   <option value="high">Висока (High)</option>
                   <option value="medium">Середня (Medium)</option>
@@ -546,7 +613,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
           )}
 
           {/* Listen Preview Phrase & Controls */}
-          <div className="space-y-2 pt-2 border-t border-slate-700/40">
+          <div className="space-y-2 pt-3 border-t border-slate-700/40">
             <label htmlFor="bs-tts-preview-phrase" className="block text-xs font-semibold text-slate-300">
               Фраза для прослуховування прикладу
             </label>
@@ -557,7 +624,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                 value={previewText}
                 onChange={(e) => setPreviewText(e.target.value)}
                 placeholder="Введіть текст для прослуховування..."
-                className="flex-1 rounded-lg bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-2 focus:outline-none focus:border-emerald-400"
+                className="flex-1 rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3.5 py-2 focus:outline-none focus:border-emerald-400"
               />
               <Button
                 variant="outline"
@@ -565,77 +632,27 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                 icon={isPlayingPreview ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
                 isLoading={isPlayingPreview}
                 onClick={handlePlayTtsPreview}
-                className="shrink-0 text-xs"
+                className="shrink-0 text-xs rounded-xl"
               >
                 {isPlayingPreview ? 'Програвання...' : '▶️ Прослухати приклад'}
               </Button>
             </div>
           </div>
-
-          <div className="flex justify-end pt-1">
-            <Button
-              variant="primary"
-              size="sm"
-              isLoading={savingTts}
-              onClick={handleSaveTtsSettings}
-              className="text-xs"
-            >
-              Зберегти налаштування голосу
-            </Button>
-          </div>
         </div>
 
-        {/* Batching & Cooldown Pause */}
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-4 space-y-4">
-          <div className="space-y-1.5">
-            <label htmlFor="bs-batch-pages" className="block text-xs font-semibold text-slate-200">
-              📦 Сторінок на батч (1–500)
-            </label>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Кількість сторінок PDF, яка обробляється за один прогін розпізнавання та перекладу.
-            </p>
-            <input
-              id="bs-batch-pages"
-              type="number"
-              min={1}
-              max={500}
-              value={settings.batch_pages ?? 50}
-              onChange={(e) => handleBatchPages(parseInt(e.target.value, 10) || 50)}
-              className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-sm px-3 py-2 focus:outline-none focus:border-emerald-400 font-mono transition-colors"
-            />
-          </div>
-
-          <div className="space-y-1.5 pt-3 border-t border-slate-700/40">
-            <label htmlFor="bs-cooldown" className="block text-xs font-semibold text-slate-200">
-              ❄️ Пауза між батчами, сек. (охолодження, 0–3600)
-            </label>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Пауза для охолодження процесора між батчами (0 = без паузи).
-            </p>
-            <input
-              id="bs-cooldown"
-              type="number"
-              min={0}
-              max={3600}
-              value={settings.cooldown_seconds ?? 30}
-              onChange={(e) => handleCooldownSeconds(parseInt(e.target.value, 10) || 0)}
-              className="w-full rounded-lg bg-[#090e1c] border border-slate-700 text-white text-sm px-3 py-2 focus:outline-none focus:border-emerald-400 font-mono transition-colors"
-            />
-          </div>
-        </div>
-
-        {/* Premium section */}
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.03] p-4 space-y-3">
+        {/* SECTION 3: 👑 Преміум-можливості */}
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.03] p-4 sm:p-5 space-y-3.5 shadow-md">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
-            <span className="text-sm font-bold text-amber-400 flex items-center gap-1.5">
-              👑 Преміум-можливості (UI 2.0)
+            <span className="text-sm font-bold text-amber-400 flex items-center gap-2">
+              <Crown className="w-4 h-4 text-amber-400" />
+              <span>Преміум-можливості (UI 2.0)</span>
             </span>
             {entitled ? (
-              <span className="text-[11px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md font-semibold">
+              <span className="text-[11px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-semibold">
                 ✓ Активно
               </span>
             ) : (
-              <span className="text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md font-semibold">
+              <span className="text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-semibold">
                 🔒 Потребує підтримки
               </span>
             )}
@@ -652,7 +669,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
                 'enable_asr_verify',
                 checked,
                 'asr_whisper',
-                'Для роботи цієї функції потрібно завантажити додаткові нейромережеві моделі (наприклад, Whisper для розпізнавання мовлення, ~245 МБ). Рекомендовано Wi-Fi. Завантажити зараз?',
+                'Для роботи цієї функції потрібно завантажити додаткові нейромережеві моделі (Whisper, ~245 МБ). Рекомендовано Wi-Fi. Завантажити зараз?',
                 'asr',
               )
             }
@@ -667,7 +684,6 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
             description="Окрема модель-рецензент аналізує кожен перекладений абзац (1-10, шукає пропуски й смислові викривлення) і позначає сумнівні місця для перегляду."
             onChange={(checked) => {
               setSettings((prev) => prev ? { ...prev, enable_mqm_review: checked } : prev);
-              save('enable_mqm_review', checked);
             }}
             divider
           />
@@ -688,20 +704,20 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
               )
             }
           />
+        </div>
 
-          {!entitled && (
-            <div className="pt-2 border-t border-white/[0.06]">
-              <a
-                href="https://t.me/GetVydraBot"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-amber-300 hover:text-amber-200 transition-colors font-medium"
-              >
-                Активувати підтримку через @GetVydraBot
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-          )}
+        {/* SINGLE SAVE ALL BUTTON AT THE BOTTOM */}
+        <div className="pt-3 border-t border-slate-700/60 sticky bottom-0 bg-[#111827]/95 backdrop-blur-md pb-1 flex justify-end">
+          <Button
+            variant="primary"
+            size="lg"
+            isLoading={isSaving}
+            icon={<Save className="w-4 h-4" />}
+            onClick={handleSaveAll}
+            className="w-full sm:w-auto px-8 py-3 text-sm font-bold rounded-xl shadow-lg shadow-emerald-500/20 active:scale-[0.98]"
+          >
+            Зберегти
+          </Button>
         </div>
       </div>
     );
