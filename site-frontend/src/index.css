@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #090d16;
+  --bg-surface: #111827;
+  --bg-surface-elevated: #161e31;
+  --bg-glass: rgba(17, 24, 39, 0.75);
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(16, 185, 129, 0.5);
+  --border-glass: rgba(255, 255, 255, 0.12);
+
+  --accent-primary: #10b981;
+  --accent-secondary: #06b6d4;
+  --accent-amber: #f59e0b;
+  --accent-danger: #ef4444;
+
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
+
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+}
+
+html, body {
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+}
+
+.font-mono-code {
+  font-family: var(--font-mono);
+}
+
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+}
