@@ -972,6 +972,71 @@ def run_conversion_api(slug):
         return jsonify({"status": "error", "message": f"Помилка сервера при запуску: {str(e)}"}), 500
 
 
+
+@app.route("/api/run-audio/<slug>", methods=["POST"])
+def run_audio_api(slug):
+    try:
+        if not validate_slug(slug):
+            return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
+
+        paths = resolve_book_paths(repo_dir, slug)
+        if not os.path.exists(paths["book_dir"]):
+            return jsonify({"status": "error", "message": "Директорію книги не знайдено"}), 404
+
+        data = request.get_json(silent=True) or {}
+        force = data.get("force", False)
+
+        is_running = False
+        if slug in active_processes:
+            proc = active_processes[slug]
+            if proc.poll() is None:
+                is_running = True
+        if not is_running and is_book_process_running(slug):
+            is_running = True
+
+        if is_running:
+            if not force:
+                return jsonify({"status": "error", "message": "Процес перекладу або генерації аудіо вже виконується"}), 400
+            try:
+                if slug in active_processes:
+                    active_processes[slug].kill()
+                    del active_processes[slug]
+                for pid in _find_book_process_pids(slug):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            import time as _time
+            _time.sleep(1)
+
+        cmd = [sys.executable, os.path.join(repo_dir, "audio_stage.py"), "--book", slug]
+        log_path = paths["log_path"]
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("\n\n--- Starting Audio Stage via Web GUI at " + now_str + " ---\n")
+            f.write("Command: " + " ".join(cmd) + "\n\n")
+
+        log_file = open(log_path, "a", encoding="utf-8")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            cwd=repo_dir,
+            text=True
+        )
+
+        active_processes[slug] = proc
+        _write_active_conversion_state(slug, cmd, repo_dir, log_path)
+        return jsonify({"status": "success", "message": f"Запущено генерацію аудіо для книги {slug}"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": f"Помилка сервера при запуску аудіо: {str(e)}"}), 500
+
+
 @app.route("/api/stop/<slug>", methods=["POST"])
 def stop_conversion_api(slug):
     if not validate_slug(slug):
