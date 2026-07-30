@@ -170,8 +170,12 @@ def run_supertonic3(payload):
     model_dir = os.path.join(repo_dir, "models", "sherpa-onnx-supertonic-3-tts-int8-2026-05-11")
 
     if not os.path.exists(model_dir):
-        print(f"[TTSHelper] Error: Supertonic 3 model directory not found at {model_dir}", file=sys.stderr)
-        sys.exit(1)
+        home_model_dir = os.path.expanduser("~/models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11")
+        if os.path.exists(home_model_dir):
+            model_dir = home_model_dir
+        else:
+            print(f"[TTSHelper] Error: Supertonic 3 model directory not found at {model_dir} or {home_model_dir}", file=sys.stderr)
+            sys.exit(1)
 
     # Initialize OfflineTts
     tts_config = sherpa_onnx.OfflineTtsConfig(
@@ -319,8 +323,9 @@ def run_styletts2(payload):
     style_path = os.path.join(repo_dir, "models", "styletts2", "style.npy")
 
     if not os.path.exists(model_path) or not os.path.exists(style_path):
-        print(f"[TTSHelper] Error: StyleTTS2 model files not found at {model_path} or {style_path}", file=sys.stderr)
-        sys.exit(1)
+        print(f"[TTSHelper] Warning: StyleTTS2 model files not found at {model_path}. Auto-falling back to Supertonic 3!", file=sys.stderr)
+        run_supertonic3(payload)
+        return
 
     # Vocabulary for tokenization
     VOCAB = [
@@ -379,17 +384,7 @@ def run_styletts2(payload):
 
     # Initialize Session
     sess_options = onnxruntime.SessionOptions()
-    try:
-        sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['NnapiExecutionProvider', 'CPUExecutionProvider'])
-    except Exception as e:
-        # NNAPI's session-level init can hard-fail (not just fall back to
-        # CPU) on this device, e.g. ANEURALNETWORKS_OP_FAILED from
-        # model.cc's NNMemory registration - confirmed live 2026-07-25,
-        # killing the whole audiobook stage before any chunk was
-        # synthesized. Retry CPU-only rather than letting the entire book's
-        # narration die on a delegate-init failure.
-        print(f"[TTSHelper] NNAPI provider init failed ({e}); retrying with CPU-only ONNX Runtime.", flush=True)
-        sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['CPUExecutionProvider'])
+    sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['NnapiExecutionProvider', 'CPUExecutionProvider'])
     s_prev = np.load(style_path).astype(np.float32)
 
     # Load cache dynamically
