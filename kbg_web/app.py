@@ -7,7 +7,7 @@ import shutil
 import signal
 import uuid
 from datetime import datetime, timedelta
-from flask import (Flask, jsonify, request, render_template_string, render_template,
+from flask import (make_response, Flask, jsonify, request, render_template_string, render_template,
                    send_file, session, redirect, url_for)
 
 # Resolve repository root
@@ -20,7 +20,10 @@ from common.edit_patch import patch_batch_translation
 from common.file_lock import file_lock
 from kbg_web.status_helper import calculate_progress, get_pdf_page_count
 from kbg_web import edit_store
-from kbg_web.mode_switcher import mode_bp
+try:
+    from kbg_web.mode_switcher import mode_bp
+except ImportError:
+    mode_bp = None
 
 TTS_ENGINES = {
     "supertonic3": {
@@ -34,7 +37,8 @@ TTS_ENGINES = {
 }
 
 app = Flask(__name__)
-app.register_blueprint(mode_bp)
+if mode_bp:
+    app.register_blueprint(mode_bp)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB - 200MB blocked real manga volumes (high-res scan CBZ routinely exceeds 200MB)
 
 # TASK-62: persistent secret key (survives Flask restarts) - a key that
@@ -274,7 +278,7 @@ def _get_stall_info(slug):
         pass
     return False, None
 
-_CONVERSION_SCRIPTS = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py")
+_CONVERSION_SCRIPTS = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py", "audio_stage.py", "tts_helper.py")
 
 
 def _find_book_process_pids(slug):
@@ -973,8 +977,24 @@ def stop_conversion_api(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
         
-    if slug not in active_processes:
+    pids = _find_book_process_pids(slug)
+    if slug not in active_processes and not pids:
         return jsonify({"status": "error", "message": "Немає активного процесу для цієї книги"}), 400
+        
+    if pids:
+        for p in pids:
+            try:
+                os.kill(p, signal.SIGKILL)
+            except Exception:
+                pass
+    if slug in active_processes:
+        try:
+            active_processes[slug].kill()
+        except Exception:
+            pass
+        del active_processes[slug]
+    _clear_active_conversion_state(slug)
+    return jsonify({"status": "success", "message": f"Процес для книги '{slug}' зупинено"})
         
     proc = active_processes[slug]
     if proc.poll() is not None:
@@ -4068,6 +4088,21 @@ def spa_fallback(path):
     return dashboard()
 
 
+
+@app.route("/api/books/<slug>/protocol")
+def book_protocol_api(slug):
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Невалідний ідентифікатор книги"}), 400
+    try:
+        from kbg_web.protocol_orchestrator import get_protocol_status
+        data = get_protocol_status(slug)
+        if "error" in data:
+            return jsonify({"status": "error", "message": data["error"]}), 404
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="KBG Web Service Dashboard")
@@ -4076,4 +4111,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     app.run(host="0.0.0.0", port=args.port, debug=args.debug, threaded=True)
+
 

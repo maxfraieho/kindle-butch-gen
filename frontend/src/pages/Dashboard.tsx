@@ -6,8 +6,9 @@ import { ProgressBar } from '../components/ui/ProgressBar';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { BookSettingsModal } from './BookSettingsModal';
+import { ProtocolModal } from '../components/ui/ProtocolModal';
 import { ResumeStalledModal } from '../components/ui/ResumeStalledModal';
-import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink } from 'lucide-react';
+import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface SupportProfile {
@@ -40,6 +41,8 @@ export const Dashboard: React.FC = () => {
   const [addingBook, setAddingBook] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [settingsSlug, setSettingsSlug] = useState<string | null>(null);
+  const [protocolModalSlug, setProtocolModalSlug] = useState<string | null>(null);
+  const [protocolModalTitle, setProtocolModalTitle] = useState<string>('');
   const [stalledModalBook, setStalledModalBook] = useState<Book | null>(null);
   const [dismissedStalledSlugs, setDismissedStalledSlugs] = useState<Set<string>>(new Set());
 
@@ -137,8 +140,18 @@ export const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleRun = async (slug: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRunAudio = async (slug: string, e?: React.MouseEvent) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    try {
+      await apiFetch("/api/run-audio/" + slug, { method: 'POST' });
+      fetchBooks();
+    } catch (err: any) {
+      alert("Помилка запуску аудіо: " + err.message);
+    }
+  };
+
+  const handleRun = async (slug: string, e?: React.MouseEvent) => {
+    if (e?.stopPropagation) e.stopPropagation();
     try {
       await apiFetch(`/api/run/${slug}`, { method: 'POST' });
       fetchBooks();
@@ -147,8 +160,8 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const handleStop = async (slug: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleStop = async (slug: string, e?: React.MouseEvent) => {
+    if (e?.stopPropagation) e.stopPropagation();
     try {
       await apiFetch(`/api/stop/${slug}`, { method: 'POST' });
       fetchBooks();
@@ -157,8 +170,8 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const handleDelete = async (slug: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = async (slug: string, e?: React.MouseEvent) => {
+    if (e?.stopPropagation) e.stopPropagation();
     if (!confirm(`Ви дійсно бажаєте видалити книгу "${slug}"?`)) return;
     try {
       await apiFetch(`/api/delete/${slug}`, { method: 'DELETE' });
@@ -638,6 +651,38 @@ export const Dashboard: React.FC = () => {
                     <Button
                       variant="outline"
                       size="sm"
+                      icon={<Sparkles className="w-3.5 h-3.5 text-cyan-400" />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setProtocolModalSlug(book.slug);
+                        setProtocolModalTitle(book.title || book.slug);
+                      }}
+                      title="Відкрити протокол та етапи обробки"
+                      className="w-full text-xs border-cyan-500/40 text-cyan-300 hover:bg-cyan-950/40 bg-cyan-950/20 font-semibold"
+                    >
+                      🔬 Протокол
+                    </Button>
+                    {!isRunning ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<Sparkles className="w-3.5 h-3.5 text-amber-400" />}
+                        onClick={(e) => handleRunAudio(book.slug, e)}
+                        title="Запустити лише синтез аудіо"
+                        className="w-full text-xs bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30 font-semibold"
+                      >
+                        🎙️ Аудіо
+                      </Button>
+                    ) : (
+                      <div className="flex items-center justify-center text-[11px] text-cyan-300 bg-cyan-950/30 border border-cyan-500/30 rounded-lg px-2 font-mono truncate">
+                        ⚙️ Активний
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
                       icon={<Settings2 className="w-3.5 h-3.5" />}
                       onClick={(e) => { e.stopPropagation(); setSettingsSlug(book.slug); }}
                       title="Налаштування книги"
@@ -866,6 +911,21 @@ export const Dashboard: React.FC = () => {
         onDismiss={(slugToDismiss) => {
           setDismissedStalledSlugs((prev) => new Set(prev).add(slugToDismiss));
           setStalledModalBook(null);
+        }}
+      />
+      {/* Protocol Stage Orchestrator Modal */}
+      <ProtocolModal
+        slug={protocolModalSlug || ''}
+        bookTitle={protocolModalTitle}
+        isOpen={protocolModalSlug !== null}
+        onClose={() => setProtocolModalSlug(null)}
+        onRunStage={async (stageId) => {
+          if (!protocolModalSlug) return;
+          if (['audio_synth', 'nlp_stress', 'final_post', 'asr_verify'].includes(stageId)) {
+            await handleRunAudio(protocolModalSlug);
+          } else {
+            await handleRun(protocolModalSlug, { stopPropagation: () => {} } as any);
+          }
         }}
       />
     </div>
