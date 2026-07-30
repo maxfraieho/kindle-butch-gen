@@ -38,3 +38,10 @@ screenshots/
 frontend/node_modules/
 frontend/dist/
 site-frontend/node_modules/
+
+# Compiled static assets & legacy build outputs
+assets/
+site/assets/
+site-frontend/dist/
+.gitnexus/
+.pytest_cache/
