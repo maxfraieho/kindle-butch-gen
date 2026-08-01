@@ -430,9 +430,6 @@
             const primaryFile = pick(['.azw3', '.epub', '.cbz', '.mp3', '.md']);
             if (book.is_running) {
                 return `<button onclick="stopConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:140px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px;">⏸ Зупинити переклад</button>`;
-            } else if (book.stalled) {
-                const reasonAttr = String(book.stalled_reason || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-                return `<button onclick="resumeStalledConversion('${book.slug}')" class="btn btn-danger" style="flex:1; min-width:160px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px;" title="${reasonAttr}">🔁 Відновити переклад (зупинено)</button>`;
             } else if (primaryFile) {
                 return `
                     <a href="/view/${book.slug}" class="btn btn-primary" style="flex:1; min-width:130px; font-size:0.9rem; padding:0.65rem 1rem; border-radius:8px; text-decoration:none; text-align:center; display:inline-flex; align-items:center; justify-content:center; gap:0.4rem;">📖 Читати / Редагувати</a>
@@ -573,8 +570,8 @@
                 }
 
                 container.innerHTML = books.map((book, index) => {
-                    const badgeClass = book.is_running ? 'badge-running' : (book.stalled ? 'badge-danger' : 'badge-idle');
-                    const badgeText = book.is_running ? 'Працює' : (book.stalled ? '⚠️ Зупинено' : 'Очікує');
+                    const badgeClass = book.is_running ? 'badge-running' : 'badge-idle';
+                    const badgeText = book.is_running ? 'Працює' : 'Очікує';
                     const detailsOpenAttr = openDetails[book.slug] ? 'open' : '';
                     const advOpenAttr = openAdvanced[book.slug] ? 'open' : '';
                     
@@ -927,7 +924,7 @@
             // переклад" button - the safe, resume-friendly action. It must
             // NEVER honor a stale "Повторно очистити сторінки" checkbox
             // left checked in the hidden Advanced panel - that silently
-            // wiped and redid 12 already-translated testmanga pages when Q
+            // wiped and redid 12 already-translated frieren pages when Q
             // just wanted to resume/start normally. Only the explicit
             // "🔄 Перекласти заново" button (rerunConversion, with its own
             // confirm dialog) is allowed to send clean=true.
@@ -1026,27 +1023,6 @@
                     fetchBooks();
                 } else {
                     alert('Error stopping conversion: ' + res.message);
-                }
-            } catch (err) {
-                alert('Request failed: ' + err.message);
-            }
-        }
-
-        // Companion to the backend "stalled" state (bin/resume_active_
-        // conversion.py + /api/resume-stalled/<slug>): relaunches the exact
-        // saved cmd from .active_conversion.json after auto-resume-on-boot
-        // deliberately skipped it (autostart_llama off + server down, to
-        // avoid re-triggering an overload/crash loop). A real, explicit
-        // user click instead of a silent auto-retry.
-        async function resumeStalledConversion(slug) {
-            try {
-                const response = await fetch(`/api/resume-stalled/${slug}`, { method: 'POST' });
-                const res = await response.json();
-                if (response.ok) {
-                    fetchBooks();
-                    selectBookForLogs(slug, slug);
-                } else {
-                    alert('Не вдалося відновити переклад: ' + res.message);
                 }
             } catch (err) {
                 alert('Request failed: ' + err.message);

@@ -8,6 +8,7 @@ import json
 import hashlib
 import argparse
 import subprocess
+import shutil
 import wave
 import struct
 from common.text_protect import PlaceholderManager
@@ -31,23 +32,45 @@ def generate_silence_wav(output_path, duration_ms, sample_rate):
         wav_file.writeframes(packed_data)
 
 def apply_fade_out(input_wav, output_wav, fade_ms=15):
-    """Applies a fade-out to the end of a WAV file via ffmpeg."""
-    fade_sec = fade_ms / 1000.0
-    import shutil
-    if shutil.which("proot-distro"):
-        cmd = [
-            "proot-distro", "login", "ubuntu", "--",
-            "ffmpeg", "-y", "-i", os.path.abspath(input_wav),
-            "-af", f"areverse,afade=t=in:d={fade_sec},areverse",
-            os.path.abspath(output_wav)
-        ]
-    else:
-        cmd = [
-            "ffmpeg", "-y", "-i", input_wav,
-            "-af", f"areverse,afade=t=in:d={fade_sec},areverse",
-            output_wav
-        ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """Applies 5ms fade-in and 15ms fade-out in native Python to prevent clicks and pops."""
+    try:
+        with wave.open(input_wav, "rb") as wf:
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            framerate = wf.getframerate()
+            n_frames = wf.getnframes()
+            raw_bytes = wf.readframes(n_frames)
+
+        if sampwidth != 2:
+            shutil.copyfile(input_wav, output_wav)
+            return
+
+        import array
+        samples = array.array("h", raw_bytes)
+        total_samples = len(samples)
+
+        # Apply 5ms Fade In
+        fade_in_samples = int((5.0 / 1000.0) * framerate * n_channels)
+        if fade_in_samples > 0 and total_samples > fade_in_samples:
+            for i in range(fade_in_samples):
+                factor = i / fade_in_samples
+                samples[i] = int(samples[i] * factor)
+
+        # Apply 15ms Fade Out
+        fade_out_samples = int((fade_ms / 1000.0) * framerate * n_channels)
+        if fade_out_samples > 0 and total_samples > fade_out_samples:
+            start_idx = total_samples - fade_out_samples
+            for i in range(fade_out_samples):
+                factor = 1.0 - (i / fade_out_samples)
+                samples[start_idx + i] = int(samples[start_idx + i] * factor)
+
+        with wave.open(output_wav, "wb") as wf:
+            wf.setnchannels(n_channels)
+            wf.setsampwidth(sampwidth)
+            wf.setframerate(framerate)
+            wf.writeframes(samples.tobytes())
+    except Exception:
+        shutil.copyfile(input_wav, output_wav)
 
 def log(message):
     print(f"[AudioStage] {message}", flush=True)
@@ -455,10 +478,16 @@ def main():
 
             helper_path = os.path.join(repo_dir, "bin", "tts_helper.py")
             
-            # Call tts_helper.py natively in Termux
-            cmd = [
-                sys.executable, helper_path
-            ]
+            # Call tts_helper.py inside PRoot Ubuntu (or native if proot not present)
+            if shutil.which("proot-distro"):
+                cmd = [
+                    "proot-distro", "login", "ubuntu", "--",
+                    "python3", os.path.abspath(helper_path)
+                ]
+            else:
+                cmd = [
+                    sys.executable, helper_path
+                ]
             
             log(f"Invoking tts_helper.py (engine: {tts_engine})...")
             subprocess.run(
@@ -507,7 +536,7 @@ def main():
     log("All chunk files verified successfully.")
 
     # Run ASR verification loop if enabled
-    if paths.get("enable_asr_verify", False):
+    if paths.get("enable_asr_verify", False) or paths.get("mode") in ("premium", "full_cycle", "extended") or paths.get("premium", False):
         model_dir = os.path.join(repo_dir, "models", "sherpa-onnx-whisper-small-int8")
         alt_model_dir = os.path.expanduser("~/models/sherpa-onnx-whisper-small-int8")
         target_model_dir = model_dir if os.path.exists(model_dir) else alt_model_dir
@@ -582,13 +611,10 @@ def main():
         with open(ffmpeg_list_path, "w", encoding="utf-8") as lf:
             for idx, h in enumerate(chunk_hashes):
                 chunk_file = os.path.abspath(os.path.join(chunks_dir, f"{h}.wav"))
-                
-                # Apply 15ms fade-out to prevent clicks
                 faded_chunk = os.path.join(temp_dir, f"{h}_faded.wav")
-                if not os.path.exists(faded_chunk):
-                    apply_fade_out(chunk_file, faded_chunk, fade_ms=15)
-                
-                escaped_chunk = faded_chunk.replace("'", "'\\''")
+                apply_fade_out(chunk_file, faded_chunk, fade_ms=15)
+
+                escaped_chunk = os.path.abspath(faded_chunk).replace("'", "'\\''")
                 lf.write(f"file '{escaped_chunk}'\n")
 
                 # Insert appropriate silence between chunks
@@ -609,7 +635,7 @@ def main():
 
     cmd_ffmpeg = [
         "proot-distro", "login", "ubuntu", "--",
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "ffmpeg", "-y", "-fflags", "+genpts", "-f", "concat", "-safe", "0",
         "-i", os.path.abspath(ffmpeg_list_path),
         "-af", "afftdn,highpass=f=80,lowpass=f=8000,speechnorm",
         "-c:a", "libmp3lame", "-q:a", "4",

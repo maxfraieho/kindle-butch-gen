@@ -26,12 +26,8 @@ except ImportError:
     mode_bp = None
 
 TTS_ENGINES = {
-    "supertonic3": {
-        "languages": ["ar", "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hi", "hu", "id", "it", "ja", "ko", "lv", "lt", "pl", "pt", "ro", "ru", "sk", "sl", "es", "sv", "tr", "uk", "vi", "na"],
-        "label": "Supertonic 3 (Flow Matching, 31 мова)"
-    },
     "styletts2": {
-        "languages": ["uk"],
+        "languages": ["uk", "en", "ru", "ar", "bg", "hr", "cs", "da", "nl", "et", "fi", "fr", "de", "el", "hi", "hu", "id", "it", "ja", "ko", "lv", "lt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "tr", "vi", "na"],
         "label": "StyleTTS2 (спеціалізована для української)"
     },
 }
@@ -304,8 +300,8 @@ def _find_book_process_pids(slug):
     not guessed)."""
     slug_re = re.escape(slug)
     pattern = re.compile(
-        r'\x00--book\x00' + slug_re + r'(?:\x00|$)'
-        r'|/books/' + slug_re + r'(?:/|\x00|_|\.|$)'
+        r'(?:\x00|\s|^)--book(?:=|\x00|\s)' + slug_re + r'(?:\x00|\s|_|\.|$)'
+        r'|/books/' + slug_re + r'(?:/|\x00|\s|_|\.|$)'
     )
     pids = []
     try:
@@ -1244,7 +1240,7 @@ def download_output_file(slug, filename):
 
     return send_file(file_path, as_attachment=True)
 
-@app.route("/api/delete-file/<slug>/<filename>", methods=["POST"])
+@app.route("/api/delete-file/<slug>/<filename>", methods=["POST", "DELETE"])
 def delete_output_file(slug, filename):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
@@ -1284,8 +1280,8 @@ def update_tts_settings(slug):
             config = json.load(f)
             
         # Parse inputs
-        tts_engine = str(data.get("tts_engine", config.get("tts_engine", "supertonic3"))).strip()
-        tts_voice = str(data.get("tts_voice", config.get("tts_voice", "supertonic3"))).strip()
+        tts_engine = str(data.get("tts_engine", config.get("tts_engine", "styletts2"))).strip()
+        tts_voice = str(data.get("tts_voice", config.get("tts_voice", "styletts2"))).strip()
         tts_voice_quality = str(data.get("tts_voice_quality", config.get("tts_voice_quality", "medium"))).strip()
         
         # Validations

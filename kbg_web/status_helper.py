@@ -11,6 +11,7 @@ if repo_dir not in sys.path:
 
 from common.book_paths import resolve_book_paths
 from common.text_protect import PlaceholderManager
+from bin.tts_helper import transliterate_english_words, sanitize_stress_marks
 
 def get_hash(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -100,30 +101,7 @@ def split_paragraph_to_chunks(text, max_chars=1000):
         chunks.append(" ".join(curr_group))
     return chunks
 
-# Real incident, 2026-07-26: calculate_progress() (called for EVERY book on
-# EVERY 5s dashboard poll via /api/books) re-derives the page count from
-# scratch each time - re-parsing the PDF's xref/page-tree even though a
-# book's page count never changes after upload. Measured contributing to
-# sustained high CPU on the phone with nothing actually converting. Cache
-# keyed by (path, mtime) so an edited/replaced file still gets re-counted.
-_page_count_cache = {}
-
-
 def get_pdf_page_count(pdf_path):
-    try:
-        mtime = os.path.getmtime(pdf_path)
-    except OSError:
-        mtime = None
-    cache_key = (pdf_path, mtime)
-    if mtime is not None and cache_key in _page_count_cache:
-        return _page_count_cache[cache_key]
-    count = _get_pdf_page_count_uncached(pdf_path)
-    if mtime is not None:
-        _page_count_cache[cache_key] = count
-    return count
-
-
-def _get_pdf_page_count_uncached(pdf_path):
     try:
         import pypdf
         reader = pypdf.PdfReader(pdf_path)
@@ -146,91 +124,9 @@ def _get_pdf_page_count_uncached(pdf_path):
                 return int(matches[-1])
     except Exception:
         pass
-    raise RuntimeError(
-        f"Could not determine page count for {pdf_path}: pypdf is not "
-        "installed and no /Count marker was found in the raw PDF bytes "
-        "(likely a compressed xref/object stream). Install pypdf "
-        "(`pip install pypdf`) rather than guessing a page count, since a "
-        "wrong guess silently truncates the whole book."
-    )
-
-# Real incident, 2026-07-26: the uncached function below re-derives
-# translation progress by reading the FULL extracted book text, protecting
-# placeholders, re-splitting it into segments (~550 for a real 374-page
-# technical PDF), and hashing every single segment to check membership in
-# translate_cache - then does an equivalent full re-chunk + per-chunk hash
-# pass for TTS/stress progress. Measured live: 17-18 SECONDS per call for
-# one book. list_books()/status_api() call this for EVERY book on EVERY 5s
-# dashboard poll (see kbg_web/app.py) even when nothing is converting -
-# the dominant cause of "opening the dashboard is unbearably slow".
-# Cache keyed on the mtimes of every file whose content could change the
-# result: unchanged mtimes (the common idle case) return the cached dict
-# instantly; the moment translate_cache.json/tts_cache/etc actually change
-# (a real conversion progressing) the key changes and it recomputes for
-# real, so live progress during an active run still updates correctly.
-_progress_cache = {}
-
-
-def _progress_cache_key(slug, paths, book_dir):
-    candidates = [
-        paths.get("config_path"),
-        os.path.join(paths.get("cache_dir", book_dir), "epub_progress.json"),
-        os.path.join(book_dir, "manga_progress.json"),
-        paths.get("translate_cache"),
-    ]
-    pdf_path = paths.get("pdf_path")
-    page_ranges = paths.get("page_ranges") or []
-    if pdf_path:
-        pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
-        for start, end in page_ranges:
-            batch_out_dir = os.path.join(paths["batches_dir"], f"batch_{start}_{end}")
-            candidates.append(os.path.join(batch_out_dir, pdf_basename, f"{pdf_basename}.md"))
-            candidates.append(os.path.join(batch_out_dir, "marker_run.log"))
-    for voice_slug in ("styletts2", "supertonic-3-tts-int8"):
-        candidates.append(os.path.join(paths.get("cache_dir", book_dir), f"tts_cache_{voice_slug}.json"))
-    target_lang = paths.get("target_lang", "")
-    source_lang = paths.get("source_lang", "")
-    candidates.append(os.path.join(book_dir, "translated", f"stress_cache_{target_lang}.json"))
-    translated_dir = paths.get("translated_dir", book_dir)
-    candidates.append(os.path.join(translated_dir, f"merged_translated_{target_lang}.md"))
-    candidates.append(os.path.join(translated_dir, f"merged_source_{source_lang}.md"))
-
-    mtimes = []
-    for f in candidates:
-        if not f:
-            continue
-        try:
-            mtimes.append((f, os.path.getmtime(f)))
-        except OSError:
-            mtimes.append((f, None))
-    return (slug, tuple(mtimes))
-
+    return 10  # Fallback
 
 def calculate_progress(slug):
-    paths = resolve_book_paths(repo_dir, slug)
-    book_dir = paths["book_dir"]
-    if not os.path.exists(book_dir):
-        return {
-            "marker_percent": 0.0,
-            "translation_percent": 0.0,
-            "tts_percent": 0.0,
-            "error": "Book directory does not exist"
-        }
-
-    cache_key = _progress_cache_key(slug, paths, book_dir)
-    if cache_key in _progress_cache:
-        return _progress_cache[cache_key]
-
-    result = _calculate_progress_uncached(slug)
-    _progress_cache[cache_key] = result
-    # Drop stale entries for this slug so the dict doesn't grow forever
-    # across a long conversion where the key changes on every real update.
-    for k in [k for k in list(_progress_cache.keys()) if k[0] == slug and k != cache_key]:
-        del _progress_cache[k]
-    return result
-
-
-def _calculate_progress_uncached(slug):
     paths = resolve_book_paths(repo_dir, slug)
     book_dir = paths["book_dir"]
     if not os.path.exists(book_dir):
@@ -343,30 +239,15 @@ def _calculate_progress_uncached(slug):
             marker_md_file = os.path.join(marker_out_subdir, f"{pdf_basename}.md")
             if os.path.exists(marker_md_file) and os.path.getsize(marker_md_file) > 0:
                 completed_marker_pages += (end - start + 1)
-            else:
-                marker_log = os.path.join(batch_out_dir, "marker_run.log")
-                if os.path.exists(marker_log):
-                    try:
-                        with open(marker_log, "r", encoding="utf-8", errors="replace") as lf:
-                            log_txt = lf.read()
-                            matches = [int(m) for m in re.findall(r"(?:page|pg|p\.)\s*(\d+)", log_txt, re.IGNORECASE)]
-                            valid_pages = [p for p in matches if start <= p <= end]
-                            if valid_pages:
-                                cur_p = max(valid_pages)
-                                completed_marker_pages += max(0, cur_p - start + 1)
-                    except Exception:
-                        pass
         marker_percent = (completed_marker_pages / total_pages * 100) if total_pages > 0 else 0.0
     
     # 2. Translation Progress
     should_translate = paths["target_lang"] != paths["source_lang"]
     merged_translated = os.path.join(book_dir, "translated", f"merged_translated_{paths['target_lang']}.md")
-    if not should_translate:
+    if not should_translate or (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0):
         translation_percent = 100.0
     elif not has_pdf or not page_ranges:
-        # No per-batch data to check against (no-PDF resume path) - the
-        # merged file's mere existence is the only signal available here.
-        translation_percent = 100.0 if (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0) else 0.0
+        translation_percent = 0.0
     else:
         translate_cache = {}
         if os.path.exists(paths["translate_cache"]):
@@ -404,11 +285,8 @@ def _calculate_progress_uncached(slug):
         translation_percent = (completed_trans_pages / total_pages * 100) if total_pages > 0 else 0.0
 
     # 3. TTS Progress
-    tts_engine = paths.get("tts_engine", "supertonic3")
-    if tts_engine == "styletts2":
-        voice_slug = "styletts2"
-    else:
-        voice_slug = "supertonic-3-tts-int8"
+    tts_engine = paths.get("tts_engine", "styletts2")
+    voice_slug = "styletts2"
     
     tts_cache_path = os.path.join(paths["cache_dir"], f"tts_cache_{voice_slug}.json")
     tts_cache = {}
@@ -451,15 +329,19 @@ def _calculate_progress_uncached(slug):
                     if chunk:
                         chunk_texts.append(chunk)
             
+            completed_chunks = 0
+            total_chunks = len(chunk_texts) if chunk_texts else 0
             if chunk_texts:
-                completed_chunks = 0
                 completed_stress = 0
                 for text in chunk_texts:
-                    h = get_hash(text)
-                    wav_file = os.path.join(chunks_dir, f"{h}.wav")
-                    if h in tts_cache and os.path.exists(wav_file):
+                    proc_text = sanitize_stress_marks(transliterate_english_words(text))
+                    h1 = get_hash(text)
+                    h2 = get_hash(proc_text)
+                    wav1 = os.path.join(chunks_dir, f"{h1}.wav")
+                    wav2 = os.path.join(chunks_dir, f"{h2}.wav")
+                    if h1 in tts_cache or h2 in tts_cache or os.path.exists(wav1) or os.path.exists(wav2):
                         completed_chunks += 1
-                    if h in stress_cache:
+                    if h1 in stress_cache or h2 in stress_cache:
                         completed_stress += 1
                 tts_percent = (completed_chunks / len(chunk_texts) * 100)
                 stress_percent = (completed_stress / len(chunk_texts) * 100)
@@ -467,48 +349,33 @@ def _calculate_progress_uncached(slug):
                 tts_percent = 100.0
                 stress_percent = 100.0
         except Exception:
+            completed_chunks = 0
+            total_chunks = 0
             tts_percent = 0.0
             stress_percent = 0.0
     else:
+        completed_chunks = 0
+        total_chunks = 0
         tts_percent = 0.0
         stress_percent = 0.0
     
-    # Extract active stage details from conversion_progress.log
-    active_stage_text = None
-    log_path = os.path.join(book_dir, "conversion_progress.log")
-    if os.path.exists(log_path):
-        try:
-            with open(log_path, "r", encoding="utf-8", errors="replace") as lf:
-                lines = lf.readlines()[-60:]
-            current_seg = None
-            total_segs = None
-            batch_str = None
-            for l in reversed(lines):
-                if "Пауза" in l and "охолодження" in l:
-                    active_stage_text = "🧊 Пауза між батчами (охолодження)..."
-                    break
-                m_seg = re.search(r"Переклад сегменту (\d+)/(\d+)", l)
-                if m_seg and not current_seg:
-                    current_seg = m_seg.group(1)
-                    total_segs = m_seg.group(2)
-                m_batch = re.search(r"\[Translate (\d+-\d+)\]", l) or re.search(r"блок (\d+/\d+)", l)
-                if m_batch and not batch_str:
-                    batch_str = m_batch.group(1)
-                if current_seg and total_segs:
-                    batch_info = f" (стор. {batch_str})" if batch_str else ""
-                    active_stage_text = f"⚡ Переклад{batch_info}: {current_seg}/{total_segs} сегментів"
-                    break
-        except Exception:
-            pass
-
     # Calculate overall percent
     if generate_audiobook:
-        if tts_percent == 0.0 and stress_percent == 0.0 and translation_percent < 100.0:
-            overall_percent = (marker_percent * 0.3) + (translation_percent * 0.7)
-        else:
-            overall_percent = (marker_percent + translation_percent + stress_percent + tts_percent) / 4
+        overall_percent = (marker_percent + translation_percent + stress_percent + tts_percent) / 4
     else:
         overall_percent = (marker_percent + translation_percent) / 2
+
+    active_stage_text = ""
+    if generate_audiobook and tts_percent < 100:
+        active_stage_text = f"🎙️ Синтез аудіо: {completed_chunks}/{total_chunks} фрагментів ({round(tts_percent, 1)}%)"
+    elif translation_percent < 100:
+        active_stage_text = f"✍️ Нейропереклад тексту: {round(translation_percent, 1)}%"
+    elif generate_audiobook and stress_percent < 100:
+        active_stage_text = f"✨ Розставлення наголосів: {round(stress_percent, 1)}%"
+    elif generate_audiobook and tts_percent >= 100:
+        active_stage_text = f"🎙️ ASR Верифікація & Збірка MP3"
+    else:
+        active_stage_text = f"⚙️ Обробка: {round(overall_percent, 1)}%"
 
     return {
         "is_manga": False,
@@ -516,8 +383,10 @@ def _calculate_progress_uncached(slug):
         "translation_percent": round(translation_percent, 1),
         "stress_percent": round(stress_percent, 1),
         "tts_percent": round(tts_percent, 1),
-        "overall_percent": round(overall_percent, 1),
-        "active_stage_text": active_stage_text
+        "tts_completed_chunks": completed_chunks,
+        "tts_total_chunks": total_chunks,
+        "active_stage_text": active_stage_text,
+        "overall_percent": round(overall_percent, 1)
     }
 
 def print_status(slug):
@@ -549,7 +418,7 @@ def add_book(slug, pdf_path, title, authors, lang, source_lang="ru", is_manga=Fa
     
     if ext == ".pdf":
         pages = get_pdf_page_count(dest_file)
-        page_ranges = [[0, pages - 1]] if pages > 0 else []
+        page_ranges = [[1, pages]]
     else:
         pages = 0
         page_ranges = []

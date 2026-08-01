@@ -12,6 +12,32 @@ if _repo_dir not in sys.path:
     sys.path.insert(0, _repo_dir)
 from common.file_lock import file_lock, LockTimeoutError
 from common.heartbeat import send_heartbeat
+VOWELS = set("аеєиіїоуюяАЕЄИІЇОУЮЯ")
+
+def sanitize_stress_marks(text):
+    """Ensure + or \u0301 is ONLY placed immediately after a Ukrainian vowel."""
+    res = []
+    i = 0
+    n = len(text)
+    while i < n:
+        char = text[i]
+        if char == '+' and i + 1 < n and text[i+1] in VOWELS:
+            res.append(text[i+1])
+            res.append('+')
+            i += 2
+        else:
+            res.append(char)
+            i += 1
+    text = "".join(res)
+
+    cleaned = []
+    for idx, c in enumerate(text):
+        if c in ('+', '\u0301'):
+            if idx > 0 and cleaned[-1] in VOWELS:
+                cleaned.append(c)
+        else:
+            cleaned.append(c)
+    return "".join(cleaned)
 
 
 def _splice_audio_priority(chunks, seen_hashes, audio_priority_path):
@@ -323,9 +349,8 @@ def run_styletts2(payload):
     style_path = os.path.join(repo_dir, "models", "styletts2", "style.npy")
 
     if not os.path.exists(model_path) or not os.path.exists(style_path):
-        print(f"[TTSHelper] Warning: StyleTTS2 model files not found at {model_path}. Auto-falling back to Supertonic 3!", file=sys.stderr)
-        run_supertonic3(payload)
-        return
+        print(f"[TTSHelper] FATAL: StyleTTS2 model files not found at {model_path}. Run install.sh to download models.", file=sys.stderr)
+        sys.exit(1)
 
     # Vocabulary for tokenization
     VOCAB = [
@@ -384,8 +409,13 @@ def run_styletts2(payload):
 
     # Initialize Session
     sess_options = onnxruntime.SessionOptions()
-    sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['NnapiExecutionProvider', 'CPUExecutionProvider'])
+    sess_options.intra_op_num_threads = os.cpu_count() or 8
+    sess_options.inter_op_num_threads = 2
+    sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess = onnxruntime.InferenceSession(model_path, sess_options, providers=['CPUExecutionProvider'])
     s_prev = np.load(style_path).astype(np.float32)
+    if s_prev.ndim == 1:
+        s_prev = np.expand_dims(s_prev, axis=0)
 
     # Load cache dynamically
     cache_path = payload.get("cache_path")
@@ -412,13 +442,9 @@ def run_styletts2(payload):
 
         if slug:
             send_heartbeat(slug, f"{i + 1}/{total}", stage="озвучення")
-        if not chunk_hash or not text:
-            continue
-
-        _splice_audio_priority(chunks, seen_hashes, audio_priority_path)
-
         # Transliterate English words and abbreviations
         text = transliterate_english_words(text)
+        text = sanitize_stress_marks(text)
 
         # Check token count and split if needed
         sub_texts = split_long_text(text)
@@ -428,7 +454,7 @@ def run_styletts2(payload):
         
         for sub_idx, sub_text in enumerate(sub_texts):
             # Replace '+' with Combining Acute Accent for proper phonemization
-            cleaned_text = sub_text.replace('+', '\u0301')
+            cleaned_text = sanitize_stress_marks(sub_text).replace('+', '\u0301')
 
             # Transcribe to IPA
             ipa_text = ipa(cleaned_text)
@@ -593,10 +619,11 @@ def main():
         print(f"[TTSHelper] Error: Failed to parse JSON from stdin: {e}", file=sys.stderr)
         sys.exit(1)
 
-    engine = payload.get("tts_engine", "supertonic3")
+    engine = payload.get("tts_engine", "styletts2")
     if engine == "supertonic3":
-        run_supertonic3(payload)
-    elif engine == "styletts2":
+        print("[TTSHelper] WARNING: Supertonic 3 is deprecated. Redirecting to StyleTTS2.", file=sys.stderr)
+        engine = "styletts2"
+    if engine == "styletts2":
         run_styletts2(payload)
     else:
         print(f"[TTSHelper] Error: Unsupported tts_engine '{engine}'", file=sys.stderr)

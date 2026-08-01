@@ -698,6 +698,7 @@ export const MangaEditor: React.FC = () => {
               {pageData?.bubbles.map((b) => {
                 const isSelected = selectedBubble?.id === b.id;
                 const hasFlags = b.quality_flags && b.quality_flags.length > 0;
+                const isRedFlag = b.quality_flags?.some((f: string) => f.includes('overflow') || f.includes('min_size'));
                 const [rawX1, rawY1, rawX2, rawY2] = b.bbox;
 
                 // Support both [x1,y1,x2,y2] and [x,y,w,h]
@@ -707,25 +708,39 @@ export const MangaEditor: React.FC = () => {
                 const w = isTwoPoint ? rawX2 - rawX1 : rawX2;
                 const h = isTwoPoint ? rawY2 - rawY1 : rawY2;
 
+                const [natW, natH] = naturalSize;
+                const leftPct = natW > 0 ? (x / natW) * 100 : 0;
+                const topPct = natH > 0 ? (y / natH) * 100 : 0;
+                const widthPct = natW > 0 ? (w / natW) * 100 : 0;
+                const heightPct = natH > 0 ? (h / natH) * 100 : 0;
+
                 return (
                   <div
                     key={b.id}
                     onClick={() => handleSelectBubble(b)}
                     style={{
-                      left: `${x}px`,
-                      top: `${y}px`,
-                      width: `${w}px`,
-                      height: `${h}px`,
+                      left: `${leftPct}%`,
+                      top: `${topPct}%`,
+                      width: `${widthPct}%`,
+                      height: `${heightPct}%`,
                     }}
-                    className={`absolute border-2 cursor-pointer transition-all ${
+                    className={`absolute border-2 cursor-pointer transition-all duration-200 rounded-md ${
                       isSelected
-                        ? 'border-emerald-400 bg-emerald-500/30 shadow-lg shadow-emerald-500/50 z-20 scale-[1.02]'
+                        ? 'border-emerald-400 bg-emerald-500/30 shadow-lg shadow-emerald-500/50 z-20 ring-2 ring-emerald-400/50 scale-[1.02]'
+                        : isRedFlag
+                        ? 'border-red-500/80 bg-red-500/25 hover:bg-red-500/40 z-10 animate-pulse'
                         : hasFlags
-                        ? 'border-amber-400 bg-amber-500/20 hover:bg-amber-500/30 z-10'
-                        : 'border-cyan-500/50 bg-cyan-500/10 hover:bg-cyan-500/25 z-10'
+                        ? 'border-amber-400 bg-amber-500/20 hover:bg-amber-500/35 z-10'
+                        : 'border-cyan-500/60 bg-cyan-500/10 hover:bg-cyan-500/30 z-10'
                     }`}
                     title={b.translated_text || b.text}
-                  />
+                  >
+                    {isSelected && (
+                      <span className="absolute -top-3 -right-2 px-1.5 py-0.5 rounded-full bg-emerald-500 text-[9px] font-bold text-slate-950 font-mono shadow">
+                        {b.id}
+                      </span>
+                    )}
+                  </div>
                 );
               })}
             </div>

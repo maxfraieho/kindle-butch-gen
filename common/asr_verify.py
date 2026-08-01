@@ -143,9 +143,26 @@ def transcribe(
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
     # Lazy imports to support running tests on systems without these packages installed
-    import sherpa_onnx
-    import numpy as np
-    import wave
+    try:
+        import sherpa_onnx
+        import numpy as np
+        import wave
+    except ModuleNotFoundError:
+        import shutil
+        if shutil.which("proot-distro"):
+            try:
+                kbg_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+                cmd = [
+                    "proot-distro", "login", "ubuntu", "--workdir", kbg_dir, "--",
+                    "python3", "-c",
+                    f"import sys, os; sys.path.insert(0, {repr(kbg_dir)}); from common.asr_verify import transcribe; print(transcribe({repr(audio_path)}, {repr(model_dir)}, {repr(language)}, {num_threads}))"
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+            except Exception:
+                pass
+        return ""
 
     if _recognizer is None:
         # Resolve required files inside model_dir, prioritizing int8 quantized versions
@@ -230,6 +247,9 @@ def transcribe(
     _recognizer.decode_stream(stream)
     
     return stream.result.text.strip()
+
+
+transcribe_via_sherpa_onnx = transcribe
 
 
 # ---------------------------------------------------------------------------

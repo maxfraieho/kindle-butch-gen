@@ -296,12 +296,6 @@
             border: 1px solid var(--status-idle-border);
         }
 
-        .badge-danger {
-            background: var(--status-error-bg);
-            color: var(--status-error-text);
-            border: 1px solid var(--status-error-border);
-        }
-
         @keyframes pulse-border {
             0% { box-shadow: 0 0 0 0 var(--primary-glow); }
             70% { box-shadow: 0 0 0 6px rgba(139, 92, 246, 0); }

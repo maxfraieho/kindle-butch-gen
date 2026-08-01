@@ -63,7 +63,13 @@ def get_protocol_status(slug, data_dir="data"):
     asr_flags = _load_json(os.path.join(book_dir, "asr_quality_flags.json"))
     cast_data = _load_json(os.path.join(book_dir, "cast_registry.json"))
 
-    is_premium = config.get("premium", False) or config.get("mode") == "premium"
+    enable_cast_registry = config.get("enable_cast_registry", False) or config.get("enable_ner", False)
+    enable_mqm_review = config.get("enable_mqm_review", False) or config.get("enable_mqm", False)
+    enable_asr_verify = config.get("enable_asr_verify", False) or config.get("enable_asr", False)
+
+    is_full_cycle = config.get("premium", False) or config.get("mode") in ("premium", "full_cycle") or (enable_cast_registry and enable_mqm_review and enable_asr_verify)
+    has_any_premium = is_full_cycle or enable_cast_registry or enable_mqm_review or enable_asr_verify
+
     is_running = config.get("is_running", False)
     active_stage_id = config.get("active_stage") or progress.get("active_stage")
     
@@ -89,10 +95,19 @@ def get_protocol_status(slug, data_dir="data"):
 
     overall_pct = progress.get("overall_percent", 0)
     translation_pct = progress.get("translation_percent", 0)
+    stress_pct = progress.get("stress_percent", 0)
+    tts_pct = progress.get("tts_percent", 0)
 
     output_dir = os.path.join(book_dir, "output")
-    stressed_dir = os.path.join(book_dir, "audio_chunks", "stressed")
-    wav_dir = os.path.join(book_dir, "audio_chunks", "wav")
+    try:
+        from common.book_paths import resolve_book_paths
+        paths = resolve_book_paths(repo_dir, slug)
+        output_dir = paths.get("output_dir", output_dir)
+        audio_dir = paths.get("audio_dir", os.path.join(book_dir, "audio"))
+    except Exception:
+        audio_dir = os.path.join(book_dir, "audio")
+    stress_cache_path = os.path.join(book_dir, "translated", f"stress_cache_{target_lang}.json")
+    has_stress_cache = os.path.exists(stress_cache_path) and os.path.getsize(stress_cache_path) > 10
 
     stages = []
     current_stage = None
@@ -111,25 +126,21 @@ def get_protocol_status(slug, data_dir="data"):
                 status = "completed"
 
         elif sid == "cast_ner":
-            if not is_premium:
+            if not (is_full_cycle or enable_cast_registry):
                 status = "skipped"
             elif cast_data and isinstance(cast_data.get("characters"), list) and len(cast_data["characters"]) > 0:
                 status = "completed"
             elif is_running and active_stage_id == "cast_ner":
                 status = "active"
-            else:
-                status = "pending"
 
         elif sid == "translation":
             if translation_pct >= 95:
                 status = "completed"
-            elif is_running and (active_stage_id in ("translation", "translate", None) and translation_pct > 0 and translation_pct < 95):
+            elif is_running and (active_stage_id in ("translation", "translate", None) and translation_pct < 95):
                 status = "active"
-            elif translation_pct > 0:
-                status = "pending"
 
         elif sid == "mqm_review":
-            if not is_premium:
+            if not (is_full_cycle or enable_mqm_review):
                 status = "skipped"
             elif mqm_flags is not None:
                 status = "completed"
@@ -143,19 +154,20 @@ def get_protocol_status(slug, data_dir="data"):
                 status = "completed"
 
         elif sid == "nlp_stress":
-            if _dir_has_files(stressed_dir):
+            if stress_pct >= 95 or has_stress_cache:
                 status = "completed"
             elif is_running and active_stage_id in ("nlp_stress", "stressify", "stress"):
                 status = "active"
 
         elif sid == "audio_synth":
-            if _dir_has_files(wav_dir, "*.wav"):
+            has_mp3 = _dir_has_files(output_dir, "*.mp3")
+            if tts_pct >= 100 or has_mp3:
                 status = "completed"
-            elif is_running and active_stage_id in ("audio_synth", "tts", "audio"):
+            elif is_running or (tts_pct > 0 and tts_pct < 100):
                 status = "active"
 
         elif sid == "asr_verify":
-            if not is_premium:
+            if not (is_full_cycle or enable_asr_verify):
                 status = "skipped"
             elif asr_flags is not None:
                 status = "completed"
@@ -163,9 +175,10 @@ def get_protocol_status(slug, data_dir="data"):
                 status = "active"
 
         elif sid == "final_post":
-            if _dir_has_files(output_dir, "*.mp3"):
+            has_mp3 = _dir_has_files(output_dir, "*.mp3")
+            if has_mp3:
                 status = "completed"
-            elif is_running and active_stage_id in ("final_post", "concat", "post"):
+            elif is_running and (tts_pct >= 95 or active_stage_id in ("final_post", "concat")):
                 status = "active"
 
         stage["status"] = status
@@ -176,18 +189,24 @@ def get_protocol_status(slug, data_dir="data"):
 
         stages.append(stage)
 
-    # If no active stage found, find the first non-completed standard stage
+    # If no active stage found, find the first non-completed stage
     if not current_stage:
         for s in stages:
-            if s["status"] in ("pending",) and s["tier"] == "standard":
+            if s["status"] == "pending":
                 current_stage = s["id"]
                 break
+
+    mode_val = "full_cycle" if is_full_cycle else ("extended" if has_any_premium else "standard")
 
     return {
         "stages": stages,
         "current_stage": current_stage,
-        "mode": "premium" if is_premium else "standard",
+        "mode": mode_val,
         "overall_progress": overall_pct,
+        "active_stage_text": progress.get("active_stage_text", ""),
+        "tts_completed_chunks": progress.get("tts_completed_chunks", 0),
+        "tts_total_chunks": progress.get("tts_total_chunks", 0),
+        "tts_percent": progress.get("tts_percent", 0),
         "book_title": config.get("title", slug),
         "book_slug": slug,
     }

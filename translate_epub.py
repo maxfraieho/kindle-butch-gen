@@ -447,5 +447,25 @@ def main():
         
     log("=== EPUB TRANSLATION PIPELINE FULLY COMPLETED ===")
 
+    # Check if audiobook generation is enabled in config.json
+    config_path = paths.get("config_path")
+    should_gen_audio = True
+    if config_path and os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as cf:
+                c_data = json.load(cf)
+                should_gen_audio = c_data.get("generate_audiobook", True)
+        except Exception:
+            pass
+
+    if should_gen_audio:
+        log("=== AUTOMATICALLY STARTING AUDIO STAGE (AUDIOBOOK GENERATION) ===")
+        audio_cmd = [sys.executable, os.path.join(repo_dir, "audio_stage.py"), "--book", args.book]
+        try:
+            import subprocess
+            subprocess.run(audio_cmd, check=True)
+        except Exception as e:
+            log(f"Warning: Failed to execute automatic audio stage: {e}")
+
 if __name__ == "__main__":
     main()

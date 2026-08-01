@@ -33,7 +33,6 @@ if repo_dir not in sys.path:
     sys.path.insert(0, repo_dir)
 from kbg_web import edit_store
 from common.book_paths import resolve_book_paths
-from common.utils import _is_hy_mt2_model, clean_translation_text
 
 # Import our TextDetector and natsort (installed in PRoot container)
 try:
@@ -296,7 +295,7 @@ def real_word_fraction(text):
     no dictionary is installed or there are no alphabetic tokens to
     check, so callers can tell 'no signal' apart from 'genuinely zero
     real words'. This is a complementary signal to raw OCR confidence,
-    not a replacement: catches cases like testmanga's real p020_b12
+    not a replacement: catches cases like frieren's real p020_b12
     ("...WHAT FUN ; DO YOU TOO... WANT SHALL TO WE DO? | DANCE? Fred
     eS") where individual characters/words are mostly legible (so
     per-character OCR confidence could look fine) but the word ORDER is
@@ -327,7 +326,7 @@ def clean_ocr_edge_noise(text, page_name=None, bubble_ref=None):
     mid-sentence punctuation. Applied BEFORE translation (garbage-in-
     garbage-out: if the LLM never sees the junk, it can't leak into the
     translation either). Every actual removal is logged for audit -
-    never a silent edit. Real examples this resolves (testmanga):
+    never a silent edit. Real examples this resolves (frieren):
     "VIALA- THOR//" -> "VIALA- THOR" (trailing double-slash gone, the
     hyphen is untouched since it's not in the noise set); "DID I REALLY
     GO BACK IN |@ TIME? | \\ \\ \\ |" -> "DID I REALLY GO BACK IN |@
@@ -403,7 +402,7 @@ def dedupe_blocks(blk_list, iou_threshold=0.3, containment_threshold=0.85):
     and separately finding just its opening clause as its own block)
     produces a low IoU purely because the two areas differ so much, even
     though the smaller block is ~100% redundant with part of the larger
-    one. Confirmed on real data (testmanga c118 p022, _b07 100% contained
+    one. Confirmed on real data (frieren c118 p022, _b07 100% contained
     in _b06, IoU~0.14 - well under the 0.3 threshold, yet clearly
     duplicated text). containment_threshold catches this case
     specifically without lowering iou_threshold (which would risk
@@ -566,7 +565,7 @@ def _apply_padding_neighbor_safe(core_box, img_shape, padding_ratio=0.15, other_
     TASK-36: get_bubble_box previously padded every bubble independently
     with zero awareness of neighbors, which is why closely-spaced bubbles'
     padded boxes routinely overlapped - confirmed via a book-wide IoU scan
-    of testmanga before this fix: 105 overlapping pairs across 187 pages
+    of frieren before this fix: 105 overlapping pairs across 187 pages
     (161 distinct bubbles affected), not just the 2 cases spotted by eye.
     Clamping against neighbors' CORE boxes (not their own already-padded
     boxes) avoids a chicken-and-egg ordering dependency - every bubble's
@@ -676,7 +675,7 @@ def compute_box_overlap_flags(bubbles, page_name, iou_threshold=BOX_OVERLAP_IOU_
     Returns a dict {bubble_id: {"box_overlap": True, "overlapping_with":
     [other_id, ...], "iou": max_iou_with_any_neighbor}} for every
     affected bubble - a bubble not in the returned dict has no overlap.
-    Confirmed via a full book-wide scan of testmanga before this fix
+    Confirmed via a full book-wide scan of frieren before this fix
     existed: 105 overlapping pairs across 187 pages, 161 distinct
     bubbles affected - not a rare edge case, a systemic padding bug."""
     result = {}
@@ -763,23 +762,6 @@ def match_bubbles_iou(old_entries, new_entries, iou_threshold=0.5):
 # fully uppercase, others with just one stray lowercase word). Post-
 # process instead of relying on prompt compliance alone.
 _UPPER_RATIO_THRESHOLD = 0.7
-
-
-def _line_looks_garbled(text):
-    """Mirrors common/utils.py's validate_translation_segment garbled/
-    hallucination checks (Chinese-character detection + low-letter-ratio
-    symbol soup) for a single manga translated line - same failure modes
-    observed there apply here since both paths hit the same Hy-MT2
-    model."""
-    if not text:
-        return False
-    if any("一" <= c <= "鿿" for c in text):
-        return True
-    non_space = sum(1 for c in text if not c.isspace())
-    letters = sum(1 for c in text if c.isalpha())
-    if non_space >= 8 and letters / non_space < 0.5:
-        return True
-    return False
 
 
 def _normalize_sentence_case(text, glossary):
@@ -989,38 +971,6 @@ The source text is OCR'd from ALL-CAPS comic lettering - ignore that formatting 
 Maintain the exact same line-by-line numbering format. Output ONLY the translated list. No intro, no chat.
 {glossary_rules}{cast_rules}{tone_rules}{honorific_rule}"""
 
-    # 2026-07-25: this function used to be the ONLY translation call path
-    # in the whole project - it POSTed plain ChatML ("messages": [...])
-    # to /v1/chat/completions regardless of model. That is exactly the
-    # same-day regression common/utils.py's translate_text_hy_mt2 was
-    # found and reverted for today: Hy-MT2 was never trained on ChatML,
-    # it expects its own control-token /completion prompt, and without
-    # that it hallucinates (Chinese-character/symbol-soup garbage) with
-    # zero output validation here to catch it before it lands on a
-    # rendered manga page. This port mirrors translate_text_hy_mt2's
-    # native-prompt approach (same is_7b_format detection, same control
-    # tokens) for the Hy-MT2 case, and adds the same Chinese-char/
-    # garbled-ratio rejection per translated line - a rejected line falls
-    # back to the original-language text via the existing
-    # "fill missing with original" step below, same safety contract as
-    # the book pipeline's translate_segment_with_retry.
-    is_hy_mt2 = _is_hy_mt2_model(api_url)
-    is_7b_format = False
-    completion_url = api_url
-    stop_tokens = []
-    if is_hy_mt2:
-        base = api_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").replace("/v1", "").replace("/completion", "").rstrip("/")
-        try:
-            props = requests.get(f"{base}/props", timeout=15).json()
-            tmpl = props.get("chat_template", "") or props.get("model_alias", "") or props.get("model_path", "")
-            is_7b_format = "startoftext" in tmpl or "extra_0" in tmpl or "7b" in tmpl.lower()
-        except Exception as e:
-            log(f"Hy-MT2 format detection warning: failed to fetch props: {e}. Defaulting to 1.8B format.")
-        completion_url = base + "/completion"
-        stop_tokens = (["<|eos|>", "<|startoftext|>", "<|extra_0|>"] if is_7b_format
-                       else ["<|hy_User|>", "<|hy_begin▁of▁sentence|>", "<|endoftext|>"])
-        log(f"Detected Hy-MT2 model - using raw /completion endpoint (is_7b_format={is_7b_format})")
-
     # Retry with backoff on transient failures - notably 503 "Loading
     # model", which fires reliably when translate_manga.py starts (e.g.
     # via the auto-resume-on-restart path) before llama-server has
@@ -1036,35 +986,20 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
     backoff = [2, 4, 8, 15] + [15] * 15
     for attempt in range(max_attempts):
         try:
-            if is_hy_mt2:
-                if is_7b_format:
-                    raw_prompt = f"<|startoftext|>{system_prompt}\n\n{prompt_list}<|extra_0|>"
-                else:
-                    raw_prompt = f"<|hy_begin▁of▁sentence|><|hy_User|>{system_prompt}\n\n{prompt_list}<|hy_Assistant|>"
-                req_json = {
-                    "prompt": raw_prompt,
-                    "temperature": 0.1,
-                    "top_p": 0.95,
-                    "top_k": 20,
-                    "repeat_penalty": 1.05,
-                    "n_predict": 4096,
-                    "stop": stop_tokens,
-                }
-            else:
-                req_json = {
+            response = requests.post(
+                api_url,
+                json={
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt_list}
                     ],
                     "temperature": 0.2
-                }
-            response = requests.post(completion_url, json=req_json, timeout=300)
+                },
+                timeout=300
+            )
             if response.status_code == 200:
                 res_json = response.json()
-                if is_hy_mt2:
-                    content = clean_translation_text(res_json.get("content", "")).strip()
-                else:
-                    content = res_json["choices"][0]["message"]["content"].strip()
+                content = res_json["choices"][0]["message"]["content"].strip()
                 lines = content.split("\n")
 
                 for line in lines:
@@ -1076,9 +1011,6 @@ Maintain the exact same line-by-line numbering format. Output ONLY the translate
                         try:
                             idx = int(parts[0].strip()) - 1
                             val = _normalize_sentence_case(parts[1].strip(), glossary)
-                            if _line_looks_garbled(val):
-                                log(f"Rejecting garbled/hallucinated translation for line {idx+1}: {val!r}")
-                                continue
                             if 0 <= idx < len(remaining):
                                 result[remaining[idx]] = val
                         except ValueError:
@@ -1230,7 +1162,7 @@ def process_page(img, page_basename, glossary, api_url, lang, detector, mocr, fo
             # actually fine; a false negative means real garbage ships
             # unflagged. Erring toward surfacing more, not less.
             # Threshold 68 (not the original 60), set from real comparative
-            # data across 11 real testmanga bubbles during TASK-33 testing:
+            # data across 11 real frieren bubbles during TASK-33 testing:
             # legitimately good bubbles scored 71.0-95.4, one confirmed-
             # garbage bubble scored 24.0, and the reported-scrambled p020
             # _b12 (individually-real words in jumbled order - the
@@ -1885,7 +1817,7 @@ def backfill_bubbles_meta(slug, lang, detector, mocr):
                 # get_bubble_box-derived typeset box - never re-translated.
                 # TASK-26: bx1..by2 are in SOURCE pixel space, but
                 # trans_img is frequently downscaled relative to source
-                # (confirmed 156/193 testmanga pages) - scale before cropping,
+                # (confirmed 156/193 frieren pages) - scale before cropping,
                 # or this reads the wrong region entirely (the original bug:
                 # "поле Переклад містить обрізані фрагменти правильного тексту").
                 scale_x = tw_img / w_img if w_img else 1.0
@@ -1908,7 +1840,7 @@ def backfill_bubbles_meta(slug, lang, detector, mocr):
                     # TASK-26: bbox is in the SOURCE image's pixel space
                     # (w_img/h_img below), but translated/cleaned PNGs from
                     # the pre-TASK-20/21 pipeline were frequently downscaled
-                    # relative to source (confirmed: 156/193 testmanga pages
+                    # relative to source (confirmed: 156/193 frieren pages
                     # differ) - record it so the UI can scale correctly
                     # instead of assuming 1:1 with whatever's on screen.
                     "bbox_ref_size": [w_img, h_img],

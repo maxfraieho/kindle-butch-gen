@@ -177,8 +177,8 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <Badge variant={data?.mode === 'premium' ? 'amber' : 'slate'} size="sm">
-              {data?.mode === 'premium' ? '⭐ PRO' : '📦 Стандарт'}
+            <Badge variant={data?.mode === 'full_cycle' ? 'amber' : data?.mode === 'extended' ? 'cyan' : 'slate'} size="sm">
+              {data?.mode === 'full_cycle' ? '🚀 Повний цикл' : data?.mode === 'extended' ? '⭐ Розширений' : '📦 Стандарт'}
             </Badge>
             <Badge variant="emerald" size="sm">
               {completedCount}/{totalStages}
@@ -200,6 +200,16 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
             </span>
             <span>{Math.round(data?.overall_progress || 0)}% завершено</span>
           </div>
+          {(data as any)?.active_stage_text && (
+            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-300 font-mono font-semibold flex items-center justify-between gap-2 shadow-inner">
+              <span className="truncate">⚙️ {(data as any).active_stage_text}</span>
+              {(data as any)?.tts_total_chunks > 0 && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 shrink-0 border border-emerald-500/30">
+                  {(data as any).tts_completed_chunks} / {(data as any).tts_total_chunks}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Global Action Banner for Next Stage */}

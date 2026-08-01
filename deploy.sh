@@ -422,7 +422,7 @@ pip install --upgrade pip --break-system-packages || true
 # OnePlus 15 install): nothing host-side imports it (it runs in the
 # container, installed there as stress-uk), yet it drags stanza -> numpy
 # -> source builds that cannot succeed on bionic (ninja/spawn.h death).
-pip install Flask flask-httpauth requests tqdm marisa-trie blinker pypdf --break-system-packages
+pip install Flask flask-httpauth requests tqdm marisa-trie blinker pypdf onnxruntime sherpa-onnx --break-system-packages
 success "Termux host packages installed."
 
 # -------------------------------------------------------------
@@ -738,7 +738,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu -
 # installed. Adding the CPU wheel index here (not --index-url, which would
 # replace the default index and break resolution of the non-torch packages
 # entirely) lets pip satisfy torch from the same CPU-only source instead.
-pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words --extra-index-url https://download.pytorch.org/whl/cpu --break-system-packages --ignore-installed
+pip install marker-pdf pydantic transformers manga-ocr mokuro pytesseract stress-uk num2words onnxruntime sherpa-onnx --extra-index-url https://download.pytorch.org/whl/cpu --break-system-packages --ignore-installed
 
 echo "=== [Ubuntu Setup Completed] ==="
 EOF

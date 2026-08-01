@@ -51,40 +51,7 @@ fi
 # would launch a SECOND copy of the same pipeline racing the first over
 # the same output files. The state file's presence alone only means
 # "Flask never observed completion" - not "nothing is running".
-# Defaults to false (Q's explicit request 2026-07-28: don't relaunch
-# translation/marker/extraction work just because a new shell opened -
-# same "don't overload the mobile device" reasoning as autostart_llama
-# above). Can be re-enabled by adding "autostart_resume_conversion": true
-# to global_settings.json.
-AUTOSTART_RESUME_CONVERSION=$(python3 -c "import json; print(str(json.load(open('$KBG_HOME/global_settings.json')).get('autostart_resume_conversion', False)).lower())" 2>/dev/null || echo "false")
-
-if [ "$AUTOSTART_RESUME_CONVERSION" != "true" ]; then
-    if [ -f "$KBG_HOME/.active_conversion.json" ]; then
-        if pgrep -f "translate_manga.py|run_conversion_batches.py|translate_epub.py" >/dev/null; then
-            echo "Autostart: conversion state file present but a conversion is already running - leaving it alone."
-        else
-            echo "Autostart: conversion state file present but auto-resume is disabled by configuration (autostart_resume_conversion=false) - marking as stalled for manual resume via dashboard."
-            # Reuses the exact same stalled/stalled_reason schema
-            # bin/resume_active_conversion.py's llama-disabled case already
-            # writes - kbg_web/app.py's _get_stall_info() /api/books/
-            # /api/resume-stalled/<slug> need no changes to pick this up.
-            python3 -c "
-import json
-path = '$KBG_HOME/.active_conversion.json'
-try:
-    with open(path, 'r', encoding='utf-8') as f:
-        state = json.load(f)
-    if not state.get('stalled'):
-        state['stalled'] = True
-        state['stalled_reason'] = 'Автовідновлення вимкнено в налаштуваннях. Натисніть «Відновити», щоб продовжити вручну.'
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(state, f, ensure_ascii=False)
-except Exception:
-    pass
-"
-        fi
-    fi
-elif [ -f "$KBG_HOME/.active_conversion.json" ]; then
+if [ -f "$KBG_HOME/.active_conversion.json" ]; then
     if pgrep -f "translate_manga.py|run_conversion_batches.py|translate_epub.py" >/dev/null; then
         echo "Autostart: conversion state file present but a conversion is already running - not resuming a duplicate."
     else

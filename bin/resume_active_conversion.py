@@ -106,27 +106,6 @@ def main():
         if not llama_running:
             print(f"[AutoResume] Llama translation server autostart is disabled and server is not running. "
                   f"Skipping auto-resume of translation for '{slug}' to prevent overloading the device.")
-            # Real incident, 2026-07-26: this early return used to leave
-            # .active_conversion.json completely untouched, so the dashboard
-            # (which only reads that file's mere presence + is_book_process_
-            # running) kept showing the book as "in progress" forever with a
-            # frozen progress bar - no process was ever actually running
-            # again, and nothing told the user why. Mark the state itself as
-            # stalled (kept on disk, not deleted, so a manual resume can
-            # still reuse the exact saved cmd/cwd/log_path) so kbg_web/app.py
-            # can surface a real "stopped, resume manually" banner instead of
-            # a silently-frozen spinner.
-            try:
-                state["stalled"] = True
-                state["stalled_reason"] = (
-                    "Автозапуск сервера перекладу вимкнено в налаштуваннях, а сам сервер "
-                    "не працює. Автовідновлення після перезапуску Termux пропущено, щоб не "
-                    "перевантажити пристрій ще раз. Натисніть «Відновити», щоб продовжити вручну."
-                )
-                with open(STATE_PATH, "w", encoding="utf-8") as f:
-                    json.dump(state, f, ensure_ascii=False)
-            except Exception as e:
-                print(f"[AutoResume] Could not mark state as stalled: {e}", file=sys.stderr)
             return
 
     NEEDS_LLAMA_STOPPED = ("agent_editor.py", "cast_ner_prepass.py")
@@ -138,21 +117,13 @@ def main():
         subprocess.run(["pkill", "-f", "llama-serve[r]"], capture_output=True)
         time.sleep(3)
 
-    # run_conversion_batches.py's own log() helper already appends every
-    # line to log_path itself, so also teeing its stdout into the same file
-    # here double-writes every line (see kbg_web/app.py's /api/run starter,
-    # fixed the same way for the same reason). translate_epub.py/
-    # translate_manga.py have no such internal writer, so for those this
-    # redirect is still their only sink and must stay.
-    child_writes_own_log = any("run_conversion_batches.py" in str(part) for part in cmd)
-
     # start_new_session=True: same reasoning as TASK-40's regen-timeout fix -
     # this process should survive independently of whatever shell/session
     # .bashrc itself is running under.
     proc = subprocess.Popen(
         cmd,
-        stdout=subprocess.DEVNULL if child_writes_own_log else log_file,
-        stderr=log_file if child_writes_own_log else (subprocess.STDOUT if log_path else subprocess.DEVNULL),
+        stdout=log_file,
+        stderr=subprocess.STDOUT if log_path else subprocess.DEVNULL,
         cwd=cwd,
         start_new_session=True,
     )
@@ -164,7 +135,7 @@ def main():
     # process, so nobody else will ever clear the file; without this, a
     # completed resumed run left the state file behind permanently and every
     # subsequent Termux restart relaunched the pipeline (observed live
-    # 2026-07-16: a stale testmanga state file survived a finished run).
+    # 2026-07-16: a stale frieren state file survived a finished run).
     # If the ENVIRONMENT itself dies again mid-run, this watcher dies with
     # it and the file correctly remains for the next boot's resume.
     proc.wait()

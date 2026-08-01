@@ -80,14 +80,29 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "gemma" ]; then
     fetch_and_verify "$GEMMA_DIR" "mmproj-model-f16.gguf" "$GEMMA_BASE/mmproj-model-f16.gguf" 700000000
 fi
 
-# 2. Whisper ASR Models
-if [ "$TARGET" = "all" ] || [ "$TARGET" = "asr" ]; then
-    WHISPER_DIR="$HOME/models/sherpa-onnx-whisper-small-int8"
-    WHISPER_BASE="https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/main"
-    echo "[premium-models] Завантаження моделей Whisper Small INT8 у $WHISPER_DIR"
-    fetch_and_verify "$WHISPER_DIR" "small-encoder.int8.onnx" "$WHISPER_BASE/small-encoder.int8.onnx" 100000000
-    fetch_and_verify "$WHISPER_DIR" "small-decoder.int8.onnx" "$WHISPER_BASE/small-decoder.int8.onnx" 40000000
-    fetch_and_verify "$WHISPER_DIR" "small-tokens.txt" "$WHISPER_BASE/small-tokens.txt" 100000
+# 3. StyleTTS2 Models (Ukrainian TTS)
+if [ "$TARGET" = "all" ] || [ "$TARGET" = "styletts2" ] || [ "$TARGET" = "tts" ]; then
+    STYLETTS2_DIR="$HOME/kindle-butch-gen/models/styletts2"
+    STYLETTS2_BASE="https://huggingface.co/patriotyk/styletts2_ukrainian_single/resolve/main"
+    echo "[premium-models] Завантаження моделей StyleTTS2 у $STYLETTS2_DIR"
+    fetch_and_verify "$STYLETTS2_DIR" "model.onnx" "$STYLETTS2_BASE/model.onnx" 300000000
+    if [ ! -f "$STYLETTS2_DIR/style.npy" ]; then
+        echo "[premium-models] Завантаження style.pt та створення style.npy..."
+        fetch_and_verify "$STYLETTS2_DIR" "style.pt" "$STYLETTS2_BASE/style.pt" 1000
+        python3 -c "
+import pickle, zipfile, numpy as np
+try:
+    with zipfile.ZipFile('$STYLETTS2_DIR/style.pt', 'r') as z:
+        data_name = [n for n in z.namelist() if '/data/0' in n][0]
+        with z.open(data_name) as f:
+            arr = np.frombuffer(f.read(), dtype=np.float32)
+            np.save('$STYLETTS2_DIR/style.npy', arr)
+            print('[premium-models] style.npy успішно створено з style.pt')
+except Exception as e:
+    print('[premium-models] Помилка створення style.npy:', e)
+" 2>/dev/null || true
+    fi
 fi
 
 echo "[premium-models] Усі запитані моделі готові до використання."
+

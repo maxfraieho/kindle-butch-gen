@@ -81,7 +81,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
   const [enableBubbleTone, setEnableBubbleTone] = useState<boolean>(false);
 
   // TTS settings state
-  const [ttsEngine, setTtsEngine] = useState<string>('supertonic3');
+  const [ttsEngine, setTtsEngine] = useState<string>('styletts2');
   const [ttsSpeakerId, setTtsSpeakerId] = useState<number>(2);
   const [ttsSpeed, setTtsSpeed] = useState<number>(1.0);
   const [ttsNoiseScale, setTtsNoiseScale] = useState<number>(0.667);
@@ -112,7 +112,7 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
         const mins = Number((secs / 60).toFixed(2));
         setCooldownMinutesInput(String(mins));
 
-        setTtsEngine(s.tts_engine || 'supertonic3');
+        setTtsEngine('styletts2');
         setTtsSpeakerId(s.tts_speaker_id ?? 2);
         setTtsSpeed(s.tts_speed ?? 1.0);
         setTtsNoiseScale(s.tts_noise_scale ?? 0.667);
@@ -446,6 +446,42 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
             </label>
           </div>
 
+          {/* Premium & Extended options section */}
+          <div className="pt-3 border-t border-slate-700/40 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+              <Crown className="w-4 h-4 text-amber-400" />
+              <span>⭐ Преміальні функції та Розширені режими</span>
+            </div>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                id="bs-mqm-review"
+                checked={settings.enable_mqm_review}
+                onChange={(e) => handleCheckbox('enable_mqm_review', e.target.checked)}
+                className="mt-0.5 w-5 h-5 flex-shrink-0 accent-amber-500 cursor-pointer rounded border-slate-700"
+              />
+              <span className="text-xs text-slate-200 leading-relaxed">
+                <span className="font-semibold text-white">📊 Перевірка якості перекладу (MQM)</span>{' '}
+                — автоматичний аналіз точності перекладу через багатофакторні метрики.
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                id="bs-asr-verify"
+                checked={settings.enable_asr_verify}
+                onChange={(e) => handleCheckbox('enable_asr_verify', e.target.checked)}
+                className="mt-0.5 w-5 h-5 flex-shrink-0 accent-amber-500 cursor-pointer rounded border-slate-700"
+              />
+              <span className="text-xs text-slate-200 leading-relaxed">
+                <span className="font-semibold text-white">🎙️ ASR Верифікація наголосів (Whisper)</span>{' '}
+                — розпізнавання згенерованого аудіо для виявлення та виправлення відхилень у наголосах.
+              </span>
+            </label>
+          </div>
+
           {/* Manga options */}
           {settings.is_manga && (
             <div className="space-y-3 pt-3 border-t border-slate-700/40">
@@ -511,34 +547,13 @@ export const BookSettingsModal: React.FC<BookSettingsModalProps> = ({
               </label>
               <select
                 id="bs-tts-engine"
-                value={ttsEngine}
+                value="styletts2"
                 onChange={(e) => setTtsEngine(e.target.value)}
-                className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3 py-2 focus:outline-none focus:border-emerald-400"
+                className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-emerald-400 text-xs px-3 py-2 focus:outline-none focus:border-emerald-400 font-semibold"
               >
-                <option value="supertonic3">Supertonic 3 (Flow Matching, 31 мова)</option>
-                {(settings.target_lang || 'uk') === 'uk' && (
-                  <option value="styletts2">StyleTTS2 (спеціалізована для української)</option>
-                )}
+                <option value="styletts2">StyleTTS2 (спеціалізована для української)</option>
               </select>
             </div>
-
-            {/* Speaker ID */}
-            {ttsEngine === 'supertonic3' && (
-              <div className="space-y-1.5">
-                <label htmlFor="bs-tts-speaker" className="block text-xs font-semibold text-slate-300">
-                  Speaker ID (0–9)
-                </label>
-                <input
-                  id="bs-tts-speaker"
-                  type="number"
-                  min={0}
-                  max={9}
-                  value={ttsSpeakerId}
-                  onChange={(e) => setTtsSpeakerId(parseInt(e.target.value, 10) || 0)}
-                  className="w-full rounded-xl bg-[#090e1c] border border-slate-700 text-white text-xs px-3.5 py-2 focus:outline-none focus:border-emerald-400 font-mono"
-                />
-              </div>
-            )}
 
             {/* Speed */}
             <div className="space-y-1.5">

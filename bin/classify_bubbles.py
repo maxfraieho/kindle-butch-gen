@@ -5,7 +5,7 @@ pipeline. Runs inside the proot container (needs cv2). Additive only:
 with --write, stores bubble_class/confidence back into bubbles_meta.
 
 Usage (container):
-    python3 bin/classify_bubbles.py --book <slug> [--limit 30] [--write]
+    python3 bin/classify_bubbles.py --book frieren [--limit 30] [--write]
 """
 import argparse
 import glob

@@ -8,7 +8,7 @@ import { Modal } from '../components/ui/Modal';
 import { BookSettingsModal } from './BookSettingsModal';
 import { ProtocolModal } from '../components/ui/ProtocolModal';
 import { ResumeStalledModal } from '../components/ui/ResumeStalledModal';
-import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink, Sparkles } from 'lucide-react';
+import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink, Sparkles, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface SupportProfile {
@@ -647,7 +647,8 @@ export const Dashboard: React.FC = () => {
                       Етапи
                     </Button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+
+                  <div className={`grid ${book.is_manga ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
                     <Button
                       variant="outline"
                       size="sm"
@@ -662,6 +663,24 @@ export const Dashboard: React.FC = () => {
                     >
                       🔬 Протокол
                     </Button>
+                    {book.is_manga && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        icon={<Eye className="w-3.5 h-3.5 text-emerald-400" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/manga/${book.slug}`);
+                        }}
+                        title="Перегляд та редагування манги"
+                        className="w-full text-xs border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40 bg-emerald-950/20 font-semibold"
+                      >
+                        🎨 Перегляд Манги
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
                     {!isRunning ? (
                       <Button
                         variant="secondary"
@@ -678,8 +697,6 @@ export const Dashboard: React.FC = () => {
                         ⚙️ Активний
                       </div>
                     )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="outline"
                       size="sm"
@@ -690,14 +707,15 @@ export const Dashboard: React.FC = () => {
                     >
                       Налаштування
                     </Button>
-                    <button
-                      onClick={(e) => handleDelete(book.slug, e)}
-                      title="Видалити"
-                      className="flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 border border-slate-700/60 hover:border-rose-500/40 rounded-[10px] py-1.5 hover:bg-slate-800 transition-colors w-full font-medium"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Видалити
-                    </button>
                   </div>
+
+                  <button
+                    onClick={(e) => handleDelete(book.slug, e)}
+                    title="Видалити книгу"
+                    className="flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 border border-slate-700/60 hover:border-rose-500/40 rounded-[10px] py-1.5 hover:bg-slate-800 transition-colors w-full font-medium"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Видалити
+                  </button>
                 </div>
               </Card>
             );
