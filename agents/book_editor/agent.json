@@ -1,0 +1,13 @@
+{
+  "model_path": "~/models/qwen25-3b-editor/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+  "context_size": 4096,
+  "threads": 4,
+  "n_gpu_layers": 99,
+  "temperature": 0.1,
+  "n_predict": 200,
+  "limit_per_book": 20,
+  "severity_threshold": 3,
+  "kv_cache_type": "q8_0",
+  "note": "symmetric KV cache (q8_0/q8_0), NOT asymmetric — on OpenCL/Adreno asymmetric K/V cache silently breaks Flash Attention and falls back to CPU (25x slower) with no error in logs",
+  "_todo_gbnf": "TODO Stage 9: add grammar-file (GBNF) to constrain JSON output — --grammar-file adds near-zero inference overhead and improves JSON compliance (JSONSchemaBench). Implement when model is actually integrated."
+}

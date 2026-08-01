@@ -1,0 +1,10 @@
+# v0 agent rules for book editor (TASK-90)
+rules:
+  - id: skip_short_paragraphs
+    - text_len < 50
+    - skip: Paragraph too short for LLM review
+  - id: flag_version_numbers
+    - text_len >= 50
+    - require_note: Paragraph contains version numbers; flag for human attention even if model passes
+advise:
+  - Pay special attention to version numbers and code identifiers during human review.
