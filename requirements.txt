@@ -1,0 +1,22 @@
+# Core Web & API
+Flask
+flask-httpauth
+requests
+tqdm
+marisa-trie
+blinker
+Pillow
+pytesseract
+num2words
+
+# Manga & PDF Processing
+marker-pdf
+pydantic
+transformers
+manga-ocr
+mokuro
+stress-uk
+
+# Audio Synthesis & ASR Engine
+onnxruntime
+sherpa-onnx
