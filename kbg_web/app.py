@@ -2972,22 +2972,52 @@ def preview_book_stages(slug):
             return jsonify({"status": "error", "message": f"Error parsing book: {e}"}), 500
     elif os.path.exists(paths["batches_dir"]):
         import glob
-        from common.text_protect import PlaceholderManager
-        from kbg_web.status_helper import split_into_segments
-        pm = PlaceholderManager()
         batch_files = glob.glob(os.path.join(paths["batches_dir"], "batch_*", "*", "*.md"))
         clean_batch_files = [f for f in batch_files if not f.endswith(f"_translated_{target_lang}.md")]
+        # Exclude full-book batches (e.g. batch_0_373) if smaller 50-page batches exist
+        if len(clean_batch_files) > 1:
+            clean_batch_files = [f for f in clean_batch_files if not re.search(r"batch_0_\d{3,}", f)] or clean_batch_files
+        
+        segs_cache_path = os.path.join(paths["cache_dir"], "batch_segments_cache.json")
+        segs_cache = {}
+        if os.path.exists(segs_cache_path):
+            try:
+                with open(segs_cache_path, "r", encoding="utf-8") as scf:
+                    segs_cache = json.load(scf)
+            except Exception:
+                pass
+        
+        cache_updated = False
+        from common.text_protect import PlaceholderManager
+        from kbg_web.status_helper import split_into_segments
+        pm = None
+
         for bf in sorted(clean_batch_files):
             try:
-                with open(bf, "r", encoding="utf-8") as f:
-                    text = f.read()
-                protected_text = pm.protect(text)
-                segs = split_into_segments(protected_text)
-                for seg in segs:
-                    h = get_hash(seg)
+                mtime = str(os.path.getmtime(bf))
+                cache_key = f"{bf}_{mtime}"
+                if cache_key in segs_cache:
+                    file_segs = segs_cache[cache_key]
+                else:
+                    if pm is None:
+                        pm = PlaceholderManager()
+                    with open(bf, "r", encoding="utf-8") as f:
+                        text = f.read()
+                    protected_text = pm.protect(text)
+                    raw_segs = split_into_segments(protected_text)
+                    file_segs = []
+                    for seg in raw_segs:
+                        h = get_hash(seg)
+                        orig_restored = pm.restore(seg)
+                        file_segs.append({"hash": h, "original": orig_restored})
+                    segs_cache[cache_key] = file_segs
+                    cache_updated = True
+                
+                for item in file_segs:
+                    h = item["hash"]
+                    orig_restored = item["original"]
                     trans_text = trans_cache.get(h)
-                    orig_restored = pm.restore(seg)
-                    trans_restored = pm.restore(trans_text) if trans_text else orig_restored
+                    trans_restored = trans_text if trans_text else orig_restored
                     batch_paragraphs.append({
                         "hash": h,
                         "original": orig_restored,
@@ -2996,6 +3026,13 @@ def preview_book_stages(slug):
                         "stressed": stress_cache.get(h, trans_restored),
                         "has_audio": os.path.exists(os.path.join(chunks_dir, f"{h}.wav"))
                     })
+            except Exception:
+                pass
+                
+        if cache_updated:
+            try:
+                with open(segs_cache_path, "w", encoding="utf-8") as scf:
+                    json.dump(segs_cache, scf, ensure_ascii=False)
             except Exception:
                 pass
 

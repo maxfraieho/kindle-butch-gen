@@ -1,0 +1,15 @@
+site/
+assets/
+site-frontend/
+kbg_web/static/dist/
+frontend/dist/
+node_modules/
+.venv/
+scratch/
+*.min.js
+*.js.map
+*.wav
+*.mp3
+*.jpg
+*.png
+.gitnexus/
