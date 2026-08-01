@@ -24,6 +24,7 @@ try:
     from kbg_web.mode_switcher import mode_bp
 except ImportError:
     mode_bp = None
+from kbg_web.book_pipeline import book_pipeline_bp
 
 TTS_ENGINES = {
     "styletts2": {
@@ -35,6 +36,7 @@ TTS_ENGINES = {
 app = Flask(__name__)
 if mode_bp:
     app.register_blueprint(mode_bp)
+app.register_blueprint(book_pipeline_bp)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB - 200MB blocked real manga volumes (high-res scan CBZ routinely exceeds 200MB)
 
 # TASK-62: persistent secret key (survives Flask restarts) - a key that
@@ -274,7 +276,7 @@ def _get_stall_info(slug):
         pass
     return False, None
 
-_CONVERSION_SCRIPTS = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py", "audio_stage.py", "tts_helper.py")
+_CONVERSION_SCRIPTS = ("translate_epub.py", "translate_manga.py", "run_conversion_batches.py", "audio_stage.py", "tts_helper.py", "run_book_pipeline.py")
 
 
 def _find_book_process_pids(slug):
@@ -856,8 +858,21 @@ def run_conversion_api(slug):
                     is_manga = cfg.get("is_manga", False)
             except Exception:
                 pass
-                
-        if is_manga:
+
+        if cfg.get("pipeline_kind") == "docsbook":
+            # TASK-90: docs2book pipeline. Books created via this path go
+            # through kbg_web/book_pipeline.py's own /api/book-pipeline/run
+            # instead, which sets up log_path/active_processes the same way
+            # this route does below -- this branch exists so the generic
+            # /api/run/<slug> also works on a docsbook book if something
+            # calls it directly.
+            cmd = [
+                sys.executable, "bin/run_book_pipeline.py",
+                "--book", slug,
+            ]
+            if data.get("clean"):
+                cmd.append("--clean")
+        elif is_manga:
             # Determine source file or directory
             manga_input = ""
             if os.path.isdir(os.path.join(paths["book_dir"], "source")):
@@ -2636,6 +2651,41 @@ def _stop_llama_server():
             os.remove(LLAMA_PID_FILE)
         except Exception:
             pass
+
+def _swap_llama_server(model_path, wait_ready=True, wait_timeout=120):
+    """TASK-90: swap the single llama-server slot to a different model
+    (e.g. the book_editor's Qwen2.5-3B), reusing the exact stop/start
+    mechanism start_translation_server_api() already uses -- not a second,
+    independent server. Caller is responsible for swapping back afterward
+    (e.g. via another _swap_llama_server(hy_mt2_path) call) and for
+    restoring global_settings.json's translation_model if the process is
+    interrupted mid-swap -- that crash-safety wiring belongs to
+    bin/run_book_pipeline.py (Stage 9), not this helper.
+
+    Returns True if the server answered /health before wait_timeout,
+    False otherwise (or immediately True if wait_ready=False).
+    """
+    sh_script = os.path.expanduser("~/start-translation-server.sh")
+    if not os.path.exists(sh_script):
+        # Check before touching any state: global_settings.json is shared
+        # by every book's translation, not just docsbook -- an unguarded
+        # write here would leave it pointed at the editor model with no
+        # way to start anything, breaking translation for all books.
+        return False
+
+    settings = load_global_settings()
+    settings["translation_model"] = model_path
+    save_global_settings(settings)
+
+    _stop_llama_server()
+
+    subprocess.Popen(["bash", sh_script, LLAMA_PID_FILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+
+    if not wait_ready:
+        return True
+
+    from common.utils import wait_for_server_ready
+    return wait_for_server_ready("http://127.0.0.1:8081/completion", max_wait=wait_timeout, wait_interval=5)
 
 @app.route("/api/models/start", methods=["POST"])
 def start_translation_server_api():
