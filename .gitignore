@@ -33,6 +33,7 @@ web_credentials.json
 scratch/
 books/
 screenshots/
+screenshot/
 
 # Frontend Node.js dependencies & build output
 frontend/node_modules/
