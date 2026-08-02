@@ -48,6 +48,7 @@ const KNOWN_STAGES = [
   { key: 'docs_ingest', label: 'Ingesting docs' },
   { key: 'humanize', label: 'NotebookLM humanise' },
   { key: 'editor_review', label: 'Editor review' },
+  { key: 'merge', label: 'Merge' },
   { key: 'book_compile_en', label: 'Compile EN PDF' },
   { key: 'translation', label: 'Translation' },
   { key: 'book_compile_uk', label: 'Compile UK PDF' },
@@ -67,6 +68,19 @@ const StageStepper: React.FC<{ currentStage: string | null; running: boolean }> 
   currentStage,
   running,
 }) => {
+  // 'error' is a terminal failure state, not a step in the sequence — it can
+  // happen after any stage, so mapping it into KNOWN_STAGES' index would
+  // misleadingly show either "nothing done" or "everything done". Render a
+  // dedicated banner instead of trying to place it in the stepper.
+  if (currentStage === 'error') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-300 border border-rose-500/40">
+        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+        Pipeline failed
+      </div>
+    );
+  }
+
   const currentIdx = currentStage
     ? KNOWN_STAGES.findIndex((s) => s.key === currentStage)
     : -1;

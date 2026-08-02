@@ -110,10 +110,16 @@ def book_pipeline_run(slug):
 
     log_path = paths["log_path"]
     log_file = open(log_path, "a", encoding="utf-8")
-    proc = subprocess.Popen(
-        cmd, stdout=log_file, stderr=subprocess.STDOUT,
-        cwd=repo_dir, start_new_session=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=log_file, stderr=subprocess.STDOUT,
+            cwd=repo_dir, start_new_session=True,
+        )
+    finally:
+        # The child holds its own dup of this fd via stdout redirection;
+        # closing it in the parent doesn't affect the child, and skipping
+        # this leaked one fd per pipeline start in this long-lived process.
+        log_file.close()
     active_processes[slug] = proc
     _write_active_conversion_state(slug, cmd, repo_dir, log_path)
     return jsonify({"status": "success", "message": "Book pipeline started"})
@@ -160,7 +166,15 @@ def book_pipeline_status(slug):
         try:
             with open(flags_path, "r", encoding="utf-8") as f:
                 flags = json.load(f)
-            resolved_ids = {e["target_id"] for e in edit_store.list_edits(slug, mode="book")}
+            # Only edits that actually reached a terminal state count as
+            # resolved -- a freshly-Applied flag creates a "pending" edit
+            # (it still needs approval through the generic edit-approval
+            # gate), so counting it here would zero the pending badge
+            # before anything was actually approved.
+            resolved_ids = {
+                e["target_id"] for e in edit_store.list_edits(slug, mode="book")
+                if e.get("status") in ("approved", "discarded")
+            }
             flags_pending = sum(1 for fl in flags if fl.get("flag_id") not in resolved_ids)
         except Exception:
             pass

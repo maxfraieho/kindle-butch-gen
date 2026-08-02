@@ -966,14 +966,21 @@ def run_conversion_api(slug):
         child_writes_own_log = "run_conversion_batches.py" in cmd
 
         # Start background subprocess
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL if child_writes_own_log else log_file,
-            stderr=log_file if child_writes_own_log else subprocess.STDOUT,
-            cwd=repo_dir,
-            text=True
-        )
-        
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL if child_writes_own_log else log_file,
+                stderr=log_file if child_writes_own_log else subprocess.STDOUT,
+                cwd=repo_dir,
+                text=True,
+                start_new_session=True,
+            )
+        finally:
+            # The child holds its own dup of this fd via stdout/stderr
+            # redirection; closing it here avoids leaking one fd per
+            # conversion start in this long-lived Flask process.
+            log_file.close()
+
         active_processes[slug] = proc
         _write_active_conversion_state(slug, cmd, repo_dir, log_path)
         return jsonify({"status": "success", "message": "Pipeline started in background"})
@@ -1031,13 +1038,19 @@ def run_audio_api(slug):
             f.write("Command: " + " ".join(cmd) + "\n\n")
 
         log_file = open(log_path, "a", encoding="utf-8")
-        proc = subprocess.Popen(
-            cmd,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            cwd=repo_dir,
-            text=True
-        )
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                cwd=repo_dir,
+                text=True,
+                start_new_session=True,
+            )
+        finally:
+            # The child holds its own dup of this fd via stdout redirection;
+            # closing it here avoids leaking one fd per audio-stage start.
+            log_file.close()
 
         active_processes[slug] = proc
         _write_active_conversion_state(slug, cmd, repo_dir, log_path)
@@ -1052,47 +1065,68 @@ def run_audio_api(slug):
 def stop_conversion_api(slug):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Недійсний формат ідентифікатора (slug)"}), 400
-        
+
     pids = _find_book_process_pids(slug)
     if slug not in active_processes and not pids:
         return jsonify({"status": "error", "message": "Немає активного процесу для цієї книги"}), 400
-        
-    if pids:
-        for p in pids:
+
+    # Prefer a graceful stop for the process we hold a direct handle to (it
+    # was started with start_new_session=True, so its pid is also its own
+    # process group leader) -- give it a moment to shut down cleanly before
+    # escalating to SIGKILL. This block used to be unreachable dead code
+    # after an earlier unconditional return; it's now the real first step.
+    if slug in active_processes:
+        proc = active_processes[slug]
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+        del active_processes[slug]
+
+    # Kill the whole process GROUP for any pids found by cmdline match too
+    # (TASK-90 A.9 pattern, same as book_pipeline_stop) -- these may be
+    # orphans surviving a Flask restart, so there's no waitable handle for
+    # them; go straight to SIGKILL on the group.
+    for p in pids:
+        try:
+            os.killpg(p, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception:
             try:
                 os.kill(p, signal.SIGKILL)
             except Exception:
                 pass
-    if slug in active_processes:
-        try:
-            active_processes[slug].kill()
-        except Exception:
-            pass
-        del active_processes[slug]
+
+    # Explicit user stop should not trigger auto-resume on next restart.
     _clear_active_conversion_state(slug)
-    return jsonify({"status": "success", "message": f"Процес для книги '{slug}' зупинено"})
-        
-    proc = active_processes[slug]
-    if proc.poll() is not None:
-        return jsonify({"status": "error", "message": "Процес вже завершено"}), 400
-        
+
     try:
-        proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-
-        # Explicit user stop should not trigger auto-resume on next restart.
-        _clear_active_conversion_state(slug)
-
         paths = resolve_book_paths(repo_dir, slug)
         with open(paths["log_path"], "a", encoding="utf-8") as f:
             f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Процес конвертації зупинено користувачем ---\n")
+    except Exception:
+        pass
 
-        return jsonify({"status": "success", "message": "Процес успішно зупинено"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({"status": "success", "message": f"Процес для книги '{slug}' зупинено"})
 
 @app.route("/api/delete/<slug>", methods=["POST"])
 def delete_book_api(slug):
