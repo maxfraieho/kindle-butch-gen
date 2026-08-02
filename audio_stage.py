@@ -379,9 +379,16 @@ def main():
     chunk_texts = []
     header_hashes = set()
     mid_sentence_hashes = set()
+    # TTS quality audit (2026-08-02) Part B-fix-2: last chunk of each source
+    # paragraph, so the ffmpeg_list builder can tell "sentence end within a
+    # paragraph" (no extra pause needed, tts_helper.py's own end-padding is
+    # enough) apart from "paragraph end" (needs a real pause) -- both
+    # currently get the same flat silence file.
+    paragraph_end_hashes = set()
     for p in filtered_paragraphs:
         is_heading = p.strip().startswith("#")
         chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
+        last_chunk_hash_in_paragraph = None
         for chunk, ends_mid_sentence in chunks:
             chunk = chunk.strip()
             if chunk:
@@ -391,6 +398,9 @@ def main():
                     header_hashes.add(chunk_hash)
                 if ends_mid_sentence:
                     mid_sentence_hashes.add(chunk_hash)
+                last_chunk_hash_in_paragraph = chunk_hash
+        if last_chunk_hash_in_paragraph is not None:
+            paragraph_end_hashes.add(last_chunk_hash_in_paragraph)
 
     log(f"Total TTS text chunks to synthesize/verify: {len(chunk_texts)}")
 
@@ -654,13 +664,25 @@ def main():
     temp_dir = os.path.join(paths["audio_dir"], "temp_processing")
     os.makedirs(temp_dir, exist_ok=True)
 
-    # Generate silence WAV files
-    silence_500_path = os.path.join(temp_dir, "silence_500.wav")
-    silence_3000_path = os.path.join(temp_dir, "silence_3000.wav")
+    # Generate silence WAV files.
+    # TTS quality audit (2026-08-02) Part B-fix-2: graduated pause lengths
+    # instead of one flat value for every non-heading boundary. tts_helper.py
+    # already bakes ~500ms of end-padding into a chunk's own WAV after
+    # sentence-ending punctuation (run_styletts2's custom_pad_end) -- these
+    # extra silence files stack ON TOP of that per-chunk padding, so the
+    # *total* pause a listener hears is padding + inserted file:
+    #   sentence end within a paragraph: ~500ms (padding alone, no file)
+    #   paragraph end:                   ~500+400 = 900ms  (silence_400_path)
+    #   before a heading:                ~500+1200 = 1700ms (silence_1200_path)
+    # Target ranges came from the TTS quality audit's orthoepic/SSML-style
+    # recommendation (400-500 / 800-1000 / 1500-2000ms respectively) --
+    # down from the prior flat 1000ms / 3500ms.
+    silence_400_path = os.path.join(temp_dir, "silence_400.wav")
+    silence_1200_path = os.path.join(temp_dir, "silence_1200.wav")
 
     try:
-        generate_silence_wav(silence_500_path, 500, sample_rate)
-        generate_silence_wav(silence_3000_path, 3000, sample_rate)
+        generate_silence_wav(silence_400_path, 400, sample_rate)
+        generate_silence_wav(silence_1200_path, 1200, sample_rate)
     except Exception as e:
         log(f"Error generating silence files: {e}")
         sys.exit(1)
@@ -686,10 +708,20 @@ def main():
                 if idx < len(chunk_hashes) - 1 and h not in mid_sentence_hashes:
                     next_hash = chunk_hashes[idx + 1]
                     is_next_heading = next_hash in header_hashes
-                    silence_file = silence_3000_path if is_next_heading else silence_500_path
+                    is_paragraph_end = h in paragraph_end_hashes
 
-                    escaped_silence = os.path.abspath(silence_file).replace("'", "'\\''")
-                    lf.write(f"file '{escaped_silence}'\n")
+                    if is_next_heading:
+                        silence_file = silence_1200_path
+                    elif is_paragraph_end:
+                        silence_file = silence_400_path
+                    else:
+                        # sentence end within a paragraph -- tts_helper.py's
+                        # own end-padding is the whole pause, no extra file
+                        silence_file = None
+
+                    if silence_file:
+                        escaped_silence = os.path.abspath(silence_file).replace("'", "'\\''")
+                        lf.write(f"file '{escaped_silence}'\n")
     except Exception as e:
         log(f"Error writing ffmpeg list file: {e}")
         sys.exit(1)
