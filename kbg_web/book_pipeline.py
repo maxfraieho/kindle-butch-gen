@@ -196,7 +196,7 @@ def book_pipeline_stop(slug):
     import signal
     from kbg_web.app import (
         validate_slug, active_processes, _find_book_process_pids,
-        _clear_active_conversion_state,
+        _clear_active_conversion_state, _reconcile_active_model,
     )
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug"}), 400
@@ -237,6 +237,14 @@ def book_pipeline_stop(slug):
         del active_processes[slug]
 
     _clear_active_conversion_state(slug)
+
+    # Q-15: SIGKILL above can catch run_book_pipeline.py mid-editor-swap,
+    # leaving global_settings.json's active_model stuck on the editor
+    # model. Only safe to reconcile once nothing else is running -- the
+    # llama-server slot and its settings are shared across all books.
+    if not active_processes:
+        _reconcile_active_model()
+
     return jsonify({"status": "success", "message": f"Book pipeline for '{slug}' stopped"})
 
 

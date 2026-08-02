@@ -2628,6 +2628,7 @@ def get_models_info():
             
     return jsonify({
         "translation_model": translation_model,
+        "active_model": settings.get("active_model", translation_model),
         "available_models": available,
         "server_status": {
             "running": is_open,
@@ -2691,10 +2692,16 @@ def _swap_llama_server(model_path, wait_ready=True, wait_timeout=120):
     (e.g. the book_editor's Qwen2.5-3B), reusing the exact stop/start
     mechanism start_translation_server_api() already uses -- not a second,
     independent server. Caller is responsible for swapping back afterward
-    (e.g. via another _swap_llama_server(hy_mt2_path) call) and for
-    restoring global_settings.json's translation_model if the process is
-    interrupted mid-swap -- that crash-safety wiring belongs to
-    bin/run_book_pipeline.py (Stage 9), not this helper.
+    (e.g. via another _swap_llama_server(hy_mt2_path) call).
+
+    Q-15: writes "active_model", NOT "translation_model" -- the latter is
+    the user's configured preference (shown in Settings UI, set only via
+    /api/models/configure) and must never be clobbered by an editor-review
+    swap. This also means a SIGKILL mid-swap (e.g. book_pipeline_stop)
+    can leave "active_model" stuck pointing at the editor model, but never
+    corrupts translation_model itself -- see _reconcile_active_model(),
+    called wherever we know no book pipeline is running, for cleanup of
+    that stale leftover.
 
     Returns True if the server answered /health before wait_timeout,
     False otherwise (or immediately True if wait_ready=False).
@@ -2708,7 +2715,7 @@ def _swap_llama_server(model_path, wait_ready=True, wait_timeout=120):
         return False
 
     settings = load_global_settings()
-    settings["translation_model"] = model_path
+    settings["active_model"] = model_path
     save_global_settings(settings)
 
     _stop_llama_server()
@@ -2720,6 +2727,25 @@ def _swap_llama_server(model_path, wait_ready=True, wait_timeout=120):
 
     from common.utils import wait_for_server_ready
     return wait_for_server_ready("http://127.0.0.1:8081/completion", max_wait=wait_timeout, wait_interval=5)
+
+
+def _reconcile_active_model():
+    """Q-15: reset a stale "active_model" left over from an editor-review
+    swap that never got to swap back (SIGKILL via book_pipeline_stop, or
+    the whole Flask process dying mid-swap). Safe to call only when no
+    book pipeline is running anywhere -- callers are Flask startup (a
+    fresh process means any prior active_processes state is gone, so any
+    leftover mismatch is definitely stale) and book_pipeline_stop, once
+    it has confirmed no other book pipeline is still active. Metadata-only:
+    does not touch the actual llama-server process, since
+    start_translation_server_api() already reads translation_model (never
+    corrupted by the swap) whenever it next starts the server."""
+    settings = load_global_settings()
+    active = settings.get("active_model")
+    translation = settings.get("translation_model")
+    if active and active != translation:
+        settings["active_model"] = translation
+        save_global_settings(settings)
 
 @app.route("/api/models/start", methods=["POST"])
 def start_translation_server_api():
@@ -4291,7 +4317,12 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5000, help="Port to run the dashboard on (default: 5000)")
     parser.add_argument("--debug", action="store_true", help="Run in Flask debug mode")
     args = parser.parse_args()
-    
+
+    # Q-15: a fresh process means active_processes is empty regardless of
+    # what was running before -- any prior editor-swap that never restored
+    # active_model is definitely stale now.
+    _reconcile_active_model()
+
     app.run(host="0.0.0.0", port=args.port, debug=args.debug, threaded=True)
 
 
