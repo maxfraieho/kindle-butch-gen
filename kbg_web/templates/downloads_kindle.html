@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Vydra - Архів завантажень</title>
+    <style>
+        /* Kindle e-ink browser research (2026-08-02): NetFront/~2010 WebKit
+           fork, 16-shade grayscale display, 200-600ms full-panel refresh.
+           No animations/transitions/hover (causes flicker/ghosting on
+           e-ink, and :hover is meaningless with no cursor), no box-shadow
+           (documented Kindle browser viewport-sizing bug: a shadow that
+           extends past the viewport, even one hidden via overflow, makes
+           the engine expand the viewport and break the whole layout), no
+           CSS Grid (unsupported), plain block/table layout only. Strict
+           #000/#FFF contrast -- light grays can blend into the E-ink
+           panel's own gray background. */
+        body {
+            margin: 0;
+            padding: 1em;
+            font-family: Georgia, serif;
+            background: #FFFFFF;
+            color: #000000;
+        }
+        h1 {
+            font-size: 1.4em;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 0.3em;
+        }
+        h2 {
+            font-size: 1.1em;
+            margin-top: 1.5em;
+            border-bottom: 1px solid #000000;
+            padding-bottom: 0.2em;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        td {
+            padding: 0.6em 0.2em;
+            border-bottom: 1px solid #000000;
+            vertical-align: top;
+        }
+        .file-name {
+            font-weight: bold;
+        }
+        .file-meta {
+            font-size: 0.85em;
+        }
+        .download-link {
+            display: block;
+            border: 2px solid #000000;
+            padding: 0.4em 0.8em;
+            text-align: center;
+            text-decoration: none;
+            color: #000000;
+            font-weight: bold;
+            margin-top: 0.3em;
+        }
+        .empty {
+            text-align: center;
+            padding: 2em 0;
+        }
+        .nav {
+            margin-bottom: 1em;
+        }
+        .nav a {
+            color: #000000;
+        }
+    </style>
+</head>
+<body>
+    <div class="nav"><a href="/">&laquo; Дашборд</a></div>
+    <h1>Vydra - Архів завантажень</h1>
+
+    {% if not groups %}
+    <p class="empty">Жодного файлу не знайдено.</p>
+    {% endif %}
+
+    {% for book_title, files in groups.items() %}
+    <h2>{{ book_title }}</h2>
+    <table>
+        {% for file in files %}
+        <tr>
+            <td>
+                <div class="file-name">{{ file.filename }}</div>
+                <div class="file-meta">{{ file.target }} &middot; {{ file.size }}</div>
+                <a class="download-link" href="{{ file.download_url }}">Завантажити</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endfor %}
+</body>
+</html>

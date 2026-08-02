@@ -6,6 +6,7 @@ import subprocess
 import shutil
 import signal
 import uuid
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from flask import (make_response, Flask, jsonify, request, render_template_string, render_template,
                    send_file, session, redirect, url_for)
@@ -377,10 +378,27 @@ def detect_epub_lang(epub_path):
         pass
     return None
 
+def is_kindle_eink_browser(user_agent_string):
+    """Kindle e-ink research (2026-08-02): classic E-ink Kindles (Paperwhite,
+    Basic, Oasis, Scribe) run a ~2010-vintage WebKit fork (NetFront) that
+    silently ignores <script type="module"> per the HTML5 spec for unknown
+    script types -- so the React SPA's entry script never runs at all, and
+    the visitor sees a permanently blank page (no error, nothing in
+    ReactDOM.createRoot ever fires). Their User-Agent reliably contains
+    "Kindle/" without "Silk/". Kindle FIRE tablets (Fire OS, Amazon Silk
+    browser, real Chromium-based engine) send "Silk/" and DO handle the
+    modern SPA fine -- must not be caught by this check, hence excluding
+    "silk" explicitly rather than just matching "kindle"."""
+    if not user_agent_string:
+        return False
+    ua = user_agent_string.lower()
+    return "kindle" in ua and "silk" not in ua
+
+
 def _serve_spa_or_template(template_name, **context):
     dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
     index_path = os.path.join(dist_dir, "index.html")
-    if os.path.exists(index_path):
+    if os.path.exists(index_path) and not is_kindle_eink_browser(request.headers.get("User-Agent", "")):
         return send_file(index_path)
     return render_template(template_name, **context)
 
@@ -1270,24 +1288,67 @@ def resume_stalled_conversion_api(slug):
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# Kindle e-ink browser research (2026-08-02): Python's mimetypes module
+# doesn't know .azw3/.mobi at all (mimetypes.guess_type returns
+# (None, None)), so send_file() without an explicit mimetype= falls back
+# to application/octet-stream -- Kindle's browser rejects/refuses to save
+# a download with that generic type. application/x-mobipocket-ebook is
+# the "guaranteed fallback" MIME type Kindle's own ebook store service
+# recognizes for both legacy .mobi and .azw3 (KF8) files.
+_KINDLE_EBOOK_MIMETYPES = {
+    ".azw3": "application/x-mobipocket-ebook",
+    ".mobi": "application/x-mobipocket-ebook",
+}
+
+
+def _ascii_fallback_filename(filename):
+    """RFC 6266's filename*=UTF-8''... syntax (which Flask/Werkzeug uses
+    automatically for any non-ASCII filename) is silently unparseable by
+    Kindle's ~2010-vintage WebKit fork -- confirmed by a real calibre-web
+    user-facing bug (issue #1149) where this exact thing made Kindle's
+    browser refuse every download, reporting an unrecognized file type.
+    The fix is a hybrid header carrying a plain-ASCII filename="..." (this
+    is what Kindle's parser actually reads) alongside the modern
+    filename*=... (for everything else). Returns an ASCII-only filename
+    with the original extension preserved -- transliteration is overkill
+    here since Vydra's own filenames are already ASCII slugs in practice;
+    this is just a safety net for the (currently theoretical) case where
+    one isn't."""
+    if filename.isascii():
+        return filename
+    root, ext = os.path.splitext(filename)
+    ascii_root = re.sub(r'[^A-Za-z0-9_-]+', '_', root) or "book"
+    return f"{ascii_root}{ext}"
+
+
 @app.route("/api/download/<slug>/<filename>")
 def download_output_file(slug, filename):
     if not validate_slug(slug):
         return jsonify({"status": "error", "message": "Invalid slug format"}), 400
-        
+
     filename = os.path.basename(filename)
     paths = resolve_book_paths(repo_dir, slug)
     output_dir = os.path.abspath(paths["output_dir"])
     file_path = os.path.abspath(os.path.join(output_dir, filename))
-    
+
     # Path traversal validation: ensure resolved path is strictly inside books/<slug>/output/
     if not file_path.startswith(output_dir + os.sep):
         return jsonify({"status": "error", "message": "Access denied (path traversal detected)"}), 403
-        
+
     if not os.path.exists(file_path) or not os.path.isfile(file_path):
         return jsonify({"status": "error", "message": "File not found"}), 404
 
-    return send_file(file_path, as_attachment=True)
+    ext = os.path.splitext(filename)[1].lower()
+    mimetype = _KINDLE_EBOOK_MIMETYPES.get(ext)
+
+    resp = send_file(file_path, as_attachment=False, mimetype=mimetype)
+
+    ascii_name = _ascii_fallback_filename(filename)
+    quoted_utf8 = quote(filename)
+    resp.headers["Content-Disposition"] = (
+        f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quoted_utf8}'
+    )
+    return resp
 
 @app.route("/api/delete-file/<slug>/<filename>", methods=["POST", "DELETE"])
 def delete_output_file(slug, filename):
@@ -4190,6 +4251,19 @@ def preview_book_page(slug, href):
 
 @app.route("/downloads")
 def downloads_page():
+    # Kindle e-ink research (2026-08-02): the "legacy" downloads.html
+    # _serve_spa_or_template() would otherwise fall back to is ITSELF not
+    # Kindle-compatible -- it renders an empty shell and populates the
+    # actual file list via fetch() + arrow functions + template literals,
+    # all of which are unsupported by Kindle's ~2010 WebKit fork (fetch
+    # doesn't exist; arrow functions are a fatal SyntaxError that kills
+    # the whole script block). A real fix needs a page with ZERO
+    # client-side JS dependency -- the file list rendered directly into
+    # the HTML server-side, matching the research's explicit
+    # recommendation. downloads_kindle.html does exactly that.
+    if is_kindle_eink_browser(request.headers.get("User-Agent", "")):
+        groups = _group_downloadable_files(_collect_downloadable_files())
+        return render_template("downloads_kindle.html", groups=groups)
     return _serve_spa_or_template("downloads.html")
 
 @app.route("/legacy/downloads")
@@ -4197,8 +4271,12 @@ def legacy_downloads_page():
     """See legacy_dashboard() above - same dual-serve rationale."""
     return render_template("downloads.html")
 
-@app.route("/api/downloads")
-def api_all_downloads():
+
+def _collect_downloadable_files():
+    """Shared by /api/downloads (JSON, consumed by the React SPA and the
+    legacy JS-driven downloads.html) and downloads_page()'s Kindle branch
+    (server-side Jinja2 rendering, no JS) so both stay in sync -- this was
+    previously duplicated only inside api_all_downloads()."""
     import os
     import json
     all_files = []
@@ -4265,8 +4343,24 @@ def api_all_downloads():
                             "description": desc,
                             "download_url": f"/api/download/{entry}/{f}"
                         })
-                        
-    return jsonify(all_files)
+
+    return all_files
+
+
+def _group_downloadable_files(all_files):
+    """book_title -> [file, ...], in first-seen order. Mirrors the JS
+    grouping logic in downloads.html's renderFiles() (Object literal used
+    as an insertion-ordered map, same as this dict) so the Kindle SSR page
+    and the JS-rendered page group books identically."""
+    groups = {}
+    for file in all_files:
+        groups.setdefault(file["book_title"], []).append(file)
+    return groups
+
+
+@app.route("/api/downloads")
+def api_all_downloads():
+    return jsonify(_collect_downloadable_files())
 
 
 @app.route("/", defaults={"path": ""})
