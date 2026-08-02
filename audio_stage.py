@@ -374,8 +374,19 @@ def main():
     log(f"Filtered paragraphs count (excluding TOC and technical details): {len(filtered_paragraphs)}")
 
     # Clean formatting and split paragraphs if they exceed 1000 characters
-    # For StyleTTS2 we enforce a much lower max_chars limit to avoid ONNX broadcast errors
-    max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
+    # For StyleTTS2 we enforce a much lower max_chars limit to avoid ONNX
+    # broadcast errors. TTS quality audit (2026-08-02) Part B-fix-3:
+    # empirically re-measured this limit with real StyleTTS2 inference
+    # (real book sentences at 150/200/250/276/300 chars) -- 276 chars
+    # synthesized cleanly, 300 chars reproduced the exact broadcast error
+    # ("Attempting to broadcast an axis by a dimension other than 1.") this
+    # limit exists to avoid. Raised to 220: real margin below the observed
+    # 276-succeeds/300-fails boundary, since text length isn't a precise
+    # proxy for the audio-frame count that actually triggers the ONNX
+    # error -- different phonetic density could shift the failure point.
+    # Was 150 before this measurement (an unverified guess, not previously
+    # tested against the actual failure boundary).
+    max_chunk_chars = 220 if tts_engine == "styletts2" else 1000
     chunk_texts = []
     header_hashes = set()
     mid_sentence_hashes = set()
