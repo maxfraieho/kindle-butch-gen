@@ -116,6 +116,15 @@ def locate_translated_file(book_dir, target_lang):
     return None
 
 def split_paragraph_to_chunks(text, max_chars=1000):
+    """Returns a list of (chunk_text, ends_mid_sentence) tuples.
+
+    ends_mid_sentence=True marks a chunk that was cut off purely by the
+    max_chars word-budget (bin/tts_helper.py's fallback for a single
+    sentence too long to fit) -- there is no real punctuation boundary
+    between this chunk and the next one, unlike every other chunk boundary
+    here which always falls after a complete sentence. TTS quality audit
+    (2026-08-02) Part B: audio_stage.py's caller uses this to skip the
+    silence padding it would otherwise insert on an artificial cut."""
     # Strip any stray placeholders of the form __PREFIX_ID__ BEFORE formatting is stripped
     text = re.sub(r"__[A-Z_]+_\d+__", "", text)
     # Strip formatting from paragraph first
@@ -125,7 +134,7 @@ def split_paragraph_to_chunks(text, max_chars=1000):
 
     # If within limit, return as single chunk
     if len(clean_text) <= max_chars:
-        return [clean_text]
+        return [(clean_text, False)]
 
     # Split by sentence endings (. ! ?) followed by whitespace
     sentences = re.split(r'(?<=[.!?])\s+', clean_text)
@@ -141,29 +150,31 @@ def split_paragraph_to_chunks(text, max_chars=1000):
         # If a single sentence exceeds 1000 characters, chunk it by words
         if len(sentence) > max_chars:
             if curr_group:
-                chunks.append(" ".join(curr_group))
+                chunks.append((" ".join(curr_group), False))
                 curr_group = []
                 curr_len = 0
-            
+
             words = sentence.split(" ")
             word_group = []
             word_len = 0
             for w in words:
                 if word_len + len(w) + 1 > max_chars:
                     if word_group:
-                        chunks.append(" ".join(word_group))
+                        chunks.append((" ".join(word_group), True))
                     word_group = [w]
                     word_len = len(w)
                 else:
                     word_group.append(w)
                     word_len += len(w) + 1
             if word_group:
-                chunks.append(" ".join(word_group))
+                # last piece of this sentence -- ends on the sentence's own
+                # punctuation, a real boundary, not an artificial cut
+                chunks.append((" ".join(word_group), False))
         else:
             # Check if adding the sentence would exceed the limit
             if curr_len + len(sentence) + (1 if curr_group else 0) > max_chars:
                 if curr_group:
-                    chunks.append(" ".join(curr_group))
+                    chunks.append((" ".join(curr_group), False))
                 curr_group = [sentence]
                 curr_len = len(sentence)
             else:
@@ -171,7 +182,7 @@ def split_paragraph_to_chunks(text, max_chars=1000):
                 curr_len += len(sentence) + (1 if len(curr_group) > 1 else 0)
 
     if curr_group:
-        chunks.append(" ".join(curr_group))
+        chunks.append((" ".join(curr_group), False))
 
     return chunks
 
@@ -367,15 +378,19 @@ def main():
     max_chunk_chars = 150 if tts_engine == "styletts2" else 1000
     chunk_texts = []
     header_hashes = set()
+    mid_sentence_hashes = set()
     for p in filtered_paragraphs:
         is_heading = p.strip().startswith("#")
         chunks = split_paragraph_to_chunks(p, max_chars=max_chunk_chars)
-        for chunk in chunks:
+        for chunk, ends_mid_sentence in chunks:
             chunk = chunk.strip()
             if chunk:
                 chunk_texts.append(chunk)
+                chunk_hash = get_hash(chunk)
                 if is_heading:
-                    header_hashes.add(get_hash(chunk))
+                    header_hashes.add(chunk_hash)
+                if ends_mid_sentence:
+                    mid_sentence_hashes.add(chunk_hash)
 
     log(f"Total TTS text chunks to synthesize/verify: {len(chunk_texts)}")
 
@@ -401,7 +416,8 @@ def main():
         if chunk_hash not in cache or not os.path.exists(wav_file):
             missing_chunks.append({
                 "hash": chunk_hash,
-                "text": text
+                "text": text,
+                "ends_mid_sentence": chunk_hash in mid_sentence_hashes,
             })
 
     # Keep only unique missing chunks for synthesis to avoid duplicate processing
@@ -660,12 +676,18 @@ def main():
                 escaped_chunk = os.path.abspath(faded_chunk).replace("'", "'\\''")
                 lf.write(f"file '{escaped_chunk}'\n")
 
-                # Insert appropriate silence between chunks
-                if idx < len(chunk_hashes) - 1:
+                # Insert appropriate silence between chunks -- except when
+                # THIS chunk was cut off mid-sentence purely by the
+                # word-budget (TTS quality audit 2026-08-02 Part B): there
+                # is no real pause in the source text at that boundary, so
+                # no silence file is inserted at all (tts_helper.py also
+                # trims this chunk's own end-padding down to ~30ms; see
+                # split_paragraph_to_chunks).
+                if idx < len(chunk_hashes) - 1 and h not in mid_sentence_hashes:
                     next_hash = chunk_hashes[idx + 1]
                     is_next_heading = next_hash in header_hashes
                     silence_file = silence_3000_path if is_next_heading else silence_500_path
-                    
+
                     escaped_silence = os.path.abspath(silence_file).replace("'", "'\\''")
                     lf.write(f"file '{escaped_silence}'\n")
     except Exception as e:

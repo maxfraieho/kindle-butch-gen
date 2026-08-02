@@ -439,6 +439,7 @@ def run_styletts2(payload):
     for i, chunk in enumerate(chunks):
         chunk_hash = chunk.get("hash")
         text = chunk.get("text", "").strip()
+        ends_mid_sentence = chunk.get("ends_mid_sentence", False)
 
         if slug:
             send_heartbeat(slug, f"{i + 1}/{total}", stage="озвучення")
@@ -584,13 +585,20 @@ def run_styletts2(payload):
 
             # Trim leading/trailing silence (StyleTTS2 native sample rate is 24000 Hz) with custom end padding
             last_char = text[-1] if text else ""
-            if last_char in [".", "!", "?", "…"]:
+            if ends_mid_sentence:
+                # TTS quality audit (2026-08-02) Part B: this chunk was cut
+                # off purely by the word-budget, mid-sentence -- there is no
+                # real pause here at all in the source text, so don't add
+                # one (audio_stage.py also skips its own silence file for
+                # this boundary; see split_paragraph_to_chunks).
+                custom_pad_end = 30
+            elif last_char in [".", "!", "?", "…"]:
                 custom_pad_end = 500  # 500 ms pause after sentences
             elif last_char in [",", ";", ":"]:
                 custom_pad_end = 250  # 250 ms pause after clauses
             else:
                 custom_pad_end = 250
-                
+
             int16_samples = trim_silence(int16_samples, 24000, pad_end_ms=custom_pad_end)
 
             # Save wav file (StyleTTS2 native sample rate is 24000 Hz)
