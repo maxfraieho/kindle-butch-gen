@@ -680,7 +680,13 @@ def main():
         "proot-distro", "login", "ubuntu", "--",
         "ffmpeg", "-y", "-fflags", "+genpts", "-f", "concat", "-safe", "0",
         "-i", os.path.abspath(ffmpeg_list_path),
-        "-af", "afftdn,highpass=f=80,lowpass=f=8000,speechnorm",
+        # TTS quality audit (2026-08-02) Part D: bare speechnorm defaults to
+        # peak=0.95 (~-0.45 dBFS) -- confirmed via `ffmpeg -h filter=speechnorm`
+        # and volumedetect on the real book (measured -0.33..-0.4 dB peak
+        # throughout). peak=0.85 targets ~-1.41 dBFS sample peak, leaving
+        # headroom for LAME's ~0.3-1 dB encode overshoot before hitting
+        # -1.0 dBTP; ~1 dB RMS loss is inaudible.
+        "-af", "afftdn,highpass=f=80,lowpass=f=8000,speechnorm=peak=0.85",
         "-c:a", "libmp3lame", "-q:a", "4",
         os.path.abspath(output_mp3)
     ]
