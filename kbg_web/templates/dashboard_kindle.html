@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Vydra - Дашборд</title>
+    <style>
+        /* Same e-ink-safe rules as downloads_kindle.html: no animations/
+           transitions/hover/box-shadow/grid, pure #000/#FFF contrast,
+           block layout only. See downloads_kindle.html for the full
+           rationale (Kindle Browser Fallback Research, 2026-08-02). */
+        body {
+            margin: 0;
+            padding: 1em;
+            font-family: Georgia, serif;
+            background: #FFFFFF;
+            color: #000000;
+        }
+        h1 {
+            font-size: 1.4em;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 0.3em;
+        }
+        p {
+            line-height: 1.5;
+        }
+        .nav-link {
+            display: block;
+            border: 2px solid #000000;
+            padding: 0.6em 1em;
+            text-align: center;
+            text-decoration: none;
+            color: #000000;
+            font-weight: bold;
+            margin-top: 0.8em;
+        }
+        form {
+            margin-top: 2em;
+        }
+        .logout-btn {
+            display: block;
+            width: 100%;
+            border: 1px solid #000000;
+            background: #FFFFFF;
+            padding: 0.5em;
+            font-size: 1em;
+            color: #000000;
+        }
+    </style>
+</head>
+<body>
+    <h1>Vydra - Дашборд</h1>
+    <p>Спрощена версія інтерфейсу для рідерів Kindle. Повний дашборд з керуванням книгами доступний зі звичайного браузера.</p>
+
+    <a class="nav-link" href="/downloads">Архів завантажень (AZW3, EPUB, MP3...)</a>
+    <a class="nav-link" href="/manual">Посібник користувача</a>
+
+    <form method="post" action="/logout">
+        <button class="logout-btn" type="submit">Вийти</button>
+    </form>
+</body>
+</html>

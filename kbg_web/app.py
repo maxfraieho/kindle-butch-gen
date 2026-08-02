@@ -416,6 +416,17 @@ def _serve_spa_or_template(template_name, **context):
 
 @app.route("/")
 def dashboard():
+    # Kindle e-ink research (2026-08-02): dashboard.html (the "legacy"
+    # fallback _serve_spa_or_template() would otherwise use) depends
+    # entirely on static/js/dashboard.js for its actual content -- same
+    # not-Kindle-compatible situation as the old downloads.html had.
+    # Replicating the FULL dynamic dashboard (live conversion status etc.)
+    # isn't meaningful on a device that can't usefully show live-updating
+    # content anyway (200-600ms e-ink refresh) -- a simple static landing
+    # pointing at what IS actually usable on Kindle (the downloads archive)
+    # is the honest, scoped fix here.
+    if is_kindle_eink_browser(request.headers.get("User-Agent", "")):
+        return render_template("dashboard_kindle.html")
     return _serve_spa_or_template("dashboard.html")
 
 @app.route("/legacy/dashboard")
@@ -2883,6 +2894,14 @@ def stop_translation_server_api():
 def view_book_stages(slug):
     if not validate_slug(slug):
         return "Invalid slug format", 400
+    # Kindle e-ink research (2026-08-02): this page is inherently a live,
+    # auto-polling progress view (stages.js) -- not meaningful on a
+    # 200-600ms-refresh e-ink display even if it were JS-compatible, and
+    # it isn't (same fetch/ES6 dependency as the other legacy JS files).
+    # A short static explanation + a link back to /downloads is more
+    # honest than serving a page that will never show anything.
+    if is_kindle_eink_browser(request.headers.get("User-Agent", "")):
+        return render_template("stages_kindle.html", slug=slug)
     # Serve visualizer page
     return _serve_spa_or_template("stages.html", slug=slug)
 

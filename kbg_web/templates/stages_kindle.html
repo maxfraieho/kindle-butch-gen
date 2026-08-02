@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Vydra - Прогрес</title>
+    <style>
+        /* Same e-ink-safe rules as downloads_kindle.html. */
+        body {
+            margin: 0;
+            padding: 1em;
+            font-family: Georgia, serif;
+            background: #FFFFFF;
+            color: #000000;
+        }
+        h1 {
+            font-size: 1.4em;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 0.3em;
+        }
+        p {
+            line-height: 1.5;
+        }
+        .nav-link {
+            display: block;
+            border: 2px solid #000000;
+            padding: 0.6em 1em;
+            text-align: center;
+            text-decoration: none;
+            color: #000000;
+            font-weight: bold;
+            margin-top: 0.8em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Vydra - Прогрес обробки</h1>
+    <p>
+        Ця сторінка показує хід обробки книги "{{ slug }}" у реальному часі
+        (автоматичне оновлення кожні кілька секунд) — це вимагає
+        JavaScript, недоступного в браузері Kindle.
+    </p>
+    <p>
+        Перевірте архів завантажень трохи пізніше — щойно книга буде
+        готова, файл з'явиться там автоматично.
+    </p>
+    <a class="nav-link" href="/downloads">Архів завантажень</a>
+    <a class="nav-link" href="/">Дашборд</a>
+</body>
+</html>
