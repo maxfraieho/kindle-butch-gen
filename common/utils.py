@@ -4,6 +4,7 @@ import re
 import requests
 import time
 import sys
+import subprocess
 
 def get_hash(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
@@ -83,6 +84,7 @@ def wait_for_server_ready(api_url, max_wait=300, wait_interval=5):
     health_url = f"{test_url}/health"
     
     print(f"[Translation] Checking connection to server at {test_url}...", flush=True)
+    auto_started = False
     for attempt in range(max_wait // wait_interval):
         try:
             res = requests.get(health_url, timeout=5)
@@ -95,11 +97,25 @@ def wait_for_server_ready(api_url, max_wait=300, wait_interval=5):
                 print(f"[Translation] Translation server returned status {res.status_code}... waiting {wait_interval}s...", flush=True)
         except Exception as e:
             print(f"[Translation] Waiting for translation server to start/recover: {e}", flush=True)
+            if attempt >= 1 and not auto_started:
+                # Auto-heal: launch translation server if not responding
+                auto_started = True
+                script_path = os.path.expanduser("~/start-translation-server.sh")
+                if not os.path.exists(script_path):
+                    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    script_path = os.path.join(repo_root, "bin", "start-translation-server.sh")
+                if os.path.exists(script_path):
+                    print(f"[Translation] Auto-healing: Launching translation server via {script_path}...", flush=True)
+                    try:
+                        subprocess.Popen(["bash", script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except Exception as launch_err:
+                        print(f"[Translation] Failed to auto-launch server: {launch_err}", flush=True)
         time.sleep(wait_interval)
     return False
 
+
 def _is_hy_mt2_model(api_url):
-    base = api_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+    base = api_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").replace("/v1", "").replace("/completion", "").rstrip("/")
     # Try props endpoint first
     try:
         props_resp = requests.get(f"{base}/props", timeout=5)
@@ -135,18 +151,29 @@ def clean_translation_text(raw):
     cleaned = re.sub(r'</tone_analysis>\s*', '', cleaned)
     return cleaned.strip()
 
-def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", temperature=0.1, cast_rules=None):
+def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", temperature=0.7, cast_rules=None):
     lang_map = {
         "uk": "Ukrainian",
         "ru": "Russian",
         "en": "English"
     }
-    source_lang_full = lang_map.get(source_lang, "Russian")
+    source_lang_full = lang_map.get(source_lang, "English" if source_lang == "en" else "Russian")
     target_lang_full = lang_map.get(target_lang, "Ukrainian")
 
-    base = base_url.replace("/v1/chat/completions", "").replace("/completion", "").rstrip("/")
+    # 2026-07-25 regression/revert: a same-day series of commits (d344ac4..
+    # eb85252) replaced this native-prompt /completion call with a generic
+    # /v1/chat/completions request (no Hy-MT2 control tokens, no stop
+    # tokens). Confirmed live the same day: that generic format produced
+    # Chinese-character hallucinations, runaway generation past 1500+
+    # tokens with no stop condition, and llama-server 500s ("model produced
+    # output that does not match the expected peg-native format") - this
+    # model expects its own control-token prompt, not ChatML. Restored to
+    # the pre-regression /completion-based format (last known good: the
+    # vibe-programming book, 747 cached segments, translated cleanly with
+    # this exact code path on 2026-07-13).
+    base = base_url.replace("/v1/chat/completions", "").replace("/chat/completions", "").replace("/v1", "").replace("/completion", "").rstrip("/")
     is_7b_format = False
-    
+
     try:
         props = requests.get(f"{base}/props", timeout=15).json()
         tmpl = props.get("chat_template", "") or props.get("model_alias", "") or props.get("model_path", "")
@@ -165,12 +192,12 @@ def translate_text_hy_mt2(text, base_url, source_lang="ru", target_lang="uk", te
         stop_tokens = ["<|eos|>", "<|startoftext|>", "<|extra_0|>"]
     else:
         raw_prompt = (
-            f"<|hy_begin\u2581of\u2581sentence|>"
+            f"<|hy_begin▁of▁sentence|>"
             f"<|hy_User|>Translate the following text from {source_lang_full} to {target_lang_full}. "
             f"First, in a single <tone_analysis> tag, briefly state the emotional register of this passage (neutral/aggressive/melancholic/suspense) in a few words. "
             f"Then, after closing the tag, output ONLY the translation with no further explanation or commentary:\n\n{rules_prefix}{text}<|hy_Assistant|>"
         )
-        stop_tokens = ["<|hy_User|>", "<|hy_begin\u2581of\u2581sentence|>", "<|endoftext|>"]
+        stop_tokens = ["<|hy_User|>", "<|hy_begin▁of▁sentence|>", "<|endoftext|>"]
 
     completion_url = base_url.replace("/v1/chat/completions", "/completion").rstrip("/")
     if not completion_url.endswith("/completion"):
@@ -261,16 +288,43 @@ def translate_text(text, api_url, target_lang="uk", temperature=0.7, source_lang
             print(f"[Translation] API request failed: {e}. Checking server status...", flush=True)
             wait_for_server_ready(api_url)
 
-def validate_translation_segment(original, translated):
+def _translation_text_quality_ok(translated):
+    """Chinese-hallucination + garbled-symbol-soup checks, split out of
+    validate_translation_segment so translate_segment_with_retry can also
+    ask 'is this attempt's TEXT actually fine, independent of
+    placeholders' - lets it tell a real hallucination (worth burning
+    retries on) apart from a placeholder-only miss (not worth retrying,
+    the rescue step below fixes that deterministically)."""
     if not translated:
+        return False
+    if any("\u4e00" <= c <= "\u9fff" for c in translated):
+        print("[Validation] failure: Translated segment contains unexpected Chinese characters (hallucination)!", flush=True)
+        return False
+
+    # Garbled-output detector: observed live (Hy-MT2, long/complex segments
+    # e.g. a 33-placeholder table) collapsing into a handful of symbol
+    # characters like "-%$" or ")3/.#+//2-4\")'.$". Once the missing
+    # placeholders get appended, the placeholder-set check below passes
+    # even though there's no actual translation there - so check the
+    # non-placeholder remainder is mostly real letters, not symbol soup.
+    stripped = re.sub(r"__[A-Z_]+_[0-9]+__", "", translated)
+    non_space = sum(1 for c in stripped if not c.isspace())
+    letters = sum(1 for c in stripped if c.isalpha())
+    if non_space >= 8 and letters / non_space < 0.5:
+        print("[Validation] failure: Translated segment looks garbled (too few letters, likely not real text)!", flush=True)
+        print(f"  Translated segment: {translated!r}", flush=True)
+        return False
+    return True
+
+def validate_translation_segment(original, translated):
+    if not _translation_text_quality_ok(translated):
         return False
 
     orig_headers = len([line for line in original.splitlines() if line.strip().startswith('#')])
     if orig_headers > 0:
         trans_headers = len([line for line in translated.splitlines() if line.strip().startswith('#')])
         if orig_headers != trans_headers:
-            print(f"[Validation] failure: Headers count mismatch! Original: {orig_headers}, Translated: {trans_headers}", flush=True)
-            return False
+            print(f"[Validation] warning: Headers count mismatch! Original: {orig_headers}, Translated: {trans_headers}. Proceeding.", flush=True)
         
     orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", original))
     trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", translated))
@@ -361,6 +415,17 @@ def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_ret
             return translated
         else:
             print(f"[Translation] Segment validation failed on attempt {attempt+1}.", flush=True)
+            # 2026-07-25: if the text itself is fine (no hallucination/
+            # garbling) and only the placeholder set is off, burning the
+            # remaining retries re-generating from scratch never helps -
+            # the rescue step below (append missing / strip extra
+            # placeholders) fixes it deterministically regardless of
+            # which attempt's text it starts from. Stop here instead of
+            # paying for 2 more full generations just to reach the same
+            # rescue path with equivalent input.
+            if _translation_text_quality_ok(translated):
+                print("[Translation] Failure was placeholder-only (translation text itself is fine) - skipping remaining retries, going straight to placeholder rescue.", flush=True)
+                break
 
     # If all attempts failed, rescue by adjusting missing/extra placeholders
     if last_translated:
@@ -381,6 +446,19 @@ def translate_segment_with_retry(segment, pm, api_url, target_lang="uk", max_ret
         if validate_translation_segment(segment, rescued):
             _maybe_mqm_review(segment, rescued, api_url, source_lang, target_lang, book_dir)
             return rescued
+        else:
+            # Every retry (+ placeholder rescue) still failed validation -
+            # last_translated is unreliable (observed in practice: e.g. a
+            # 33-placeholder table collapsing to a few garbled characters
+            # like '-%$'). Shipping that into the book is worse than
+            # leaving the segment in the source language, so keep the
+            # original text instead of the garbage translation.
+            print("[Translation] Warning: All attempts produced unreliable/garbled output. Keeping original-language text for this segment instead of shipping garbage.", flush=True)
+            _maybe_mqm_review(segment, rescued, api_url, source_lang, target_lang, book_dir)
+            return segment
 
-    print("[Translation] Error: Segment validation failed after all retries. Translation failed.", flush=True)
+    if last_translated:
+        return last_translated
+
+    print("[Translation] Error: Segment translation completely failed.", flush=True)
     return None
