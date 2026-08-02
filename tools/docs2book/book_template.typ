@@ -1,3 +1,4 @@
+#let horizontalrule = line(start: (25%,0%), end: (75%,0%))
 #set document(title: "TITLE_PLACEHOLDER", author: "AUTHOR_PLACEHOLDER")
 #set text(font: "Liberation Serif", lang: "LANG_PLACEHOLDER", size: 10.5pt, hyphenate: true)
 #set par(justify: true, leading: 0.65em, first-line-indent: 1.2em)
