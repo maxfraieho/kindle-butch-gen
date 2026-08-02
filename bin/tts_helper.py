@@ -73,6 +73,39 @@ def normalize_accents(text):
     # Convert spacing acute accent (´, \u00b4) to combining acute accent (́, \u0301)
     return text.replace("\u00b4", "\u0301")
 
+_EXTRA_PRONUNCIATION_DICT = None
+
+
+def _load_extra_pronunciation_dict():
+    """TTS quality audit (2026-08-02) Part C-fix-2: book-agnostic technical
+    term pronunciations, external to this file so future books don't need a
+    code change -- deliberately separate from the DICTIONARY below (which is
+    specific to an earlier book and left untouched, Chesterton's-fence
+    style, since it's already working for that book). Cached at module
+    level; missing/malformed file is a soft no-op (extra terms just fall
+    back to the naive letter-by-letter path below, same as before this
+    feature existed), not a hard failure -- this is a narration-quality
+    nice-to-have, not something that should ever abort synthesis."""
+    global _EXTRA_PRONUNCIATION_DICT
+    if _EXTRA_PRONUNCIATION_DICT is not None:
+        return _EXTRA_PRONUNCIATION_DICT
+    path = os.path.join(_repo_dir, "common", "pronunciation_uk.json")
+    result = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            sections = json.load(f)
+        for section in sections.values():
+            for term, pronunciation in section.items():
+                result[r"\b" + re.escape(term) + r"\b"] = pronunciation
+                if term.lower() != term:
+                    result[r"\b" + re.escape(term.lower()) + r"\b"] = pronunciation
+    except Exception as e:
+        print(f"[TTSHelper] Warning: failed to load {path}: {e}", file=sys.stderr)
+        result = {}
+    _EXTRA_PRONUNCIATION_DICT = result
+    return result
+
+
 def transliterate_english_words(text):
     # Dictionary of common technical terms with pronunciation and stress
     DICTIONARY = {
@@ -126,7 +159,17 @@ def transliterate_english_words(text):
     # Apply direct dictionary replacements
     for pattern, replacement in DICTIONARY.items():
         text = re.sub(pattern, replacement, text)
-        
+
+    # TTS quality audit (2026-08-02) Part C-fix-2: book-agnostic terms from
+    # common/pronunciation_uk.json, applied after the book-specific
+    # DICTIONARY above so a term already covered there (e.g. API/JSON/SQL)
+    # keeps its existing entry -- no overlap in practice (checked against
+    # the current data-engineering term list when this was added), but this
+    # ordering makes DICTIONARY win if one is ever added later.
+    for pattern, replacement in _load_extra_pronunciation_dict().items():
+        text = re.sub(pattern, replacement, text)
+
+
     # Also handle letter-by-letter fallback for any remaining English words
     def repl(match):
         word = match.group(0)
