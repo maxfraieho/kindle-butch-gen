@@ -444,18 +444,32 @@ def build_typst(
         print(f"Pandoc failed (exit code {res_pandoc.returncode}):\n{res_pandoc.stderr}")
         return False
 
+    # TTS/book quality audit (2026-08-02) Phase 0.6: Typst on this device
+    # only sees its 4 built-in font families by default (no Liberation
+    # Serif, despite book_template.typ requesting it) -- every book
+    # rendered before this fix silently fell back to Libertinus Serif.
+    # --font-path makes the installed Source Serif 4 (and anything else
+    # under this directory) visible.
+    font_path = os.path.expanduser("~/.local/share/fonts")
     typst_cmd = [
         typst_bin,
         "compile",
+        "--font-path", font_path,
         str(book_typ),
         str(out_pdf_path.resolve())
     ]
-    
+
     res_typst = subprocess.run(typst_cmd, cwd=build_dir, capture_output=True, text=True)
     if res_typst.returncode != 0:
         print(f"Typst compile failed (exit code {res_typst.returncode}):\n{res_typst.stderr}")
         return False
-        
+
+    # Print warnings even on success -- this is exactly how the missing-font
+    # fallback above went unnoticed through every prior book render (the
+    # old code only surfaced stderr on a non-zero exit code).
+    if res_typst.stderr.strip():
+        print(f"Typst compile warnings:\n{res_typst.stderr}")
+
     return out_pdf_path.exists() and out_pdf_path.stat().st_size > 0
 
 
