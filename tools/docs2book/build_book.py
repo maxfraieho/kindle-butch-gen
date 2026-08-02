@@ -5,6 +5,7 @@ Supports Typst (via Pandoc) as primary engine and WeasyPrint as fallback engine.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -407,42 +408,113 @@ def build_typst(
     build_dir: Path,
     title: str,
     author: str,
-    lang: str
+    lang: str,
+    professional_formatting: bool = False,
+    professional_meta: Optional[Dict] = None,
 ) -> bool:
-    """Compile PDF using Pandoc + Typst pipeline."""
+    """Compile PDF using Pandoc + Typst pipeline.
+
+    professional_formatting=False (default): unchanged legacy path --
+    pandoc --template=book_template.typ with TITLE_PLACEHOLDER-style
+    str.replace substitution. Left exactly as it was; every existing
+    caller/book keeps byte-identical behavior.
+
+    professional_formatting=True: book publication quality module
+    (2026-08-02) -- pandoc runs WITHOUT --template (plain markdown->typst
+    body fragment), metadata goes through a meta.json file read by
+    pro_book_template.typ's book() function via Typst's json(), and a tiny
+    main.typ ties body + template together. Closes the injection risk and
+    OUTLINE_TITLE_PLACEHOLDER/TITLE_PLACEHOLDER substring-ordering
+    fragility the legacy str.replace path has (see
+    book_publication_quality_implementation_plan.md section 0.4).
+    """
     pandoc_bin = shutil.which('pandoc')
     typst_bin = shutil.which('typst')
-    
+
     if not pandoc_bin or not typst_bin:
         print("Typst engine requirement missing: pandoc or typst binary not found in PATH.")
         return False
-        
+
     outline_title = "Зміст" if lang.lower() == 'uk' else "Contents"
-    
-    template_content = template_path.read_text(encoding='utf-8')
-    template_content = template_content.replace('OUTLINE_TITLE_PLACEHOLDER', outline_title)
-    template_content = template_content.replace('TITLE_PLACEHOLDER', title)
-    template_content = template_content.replace('AUTHOR_PLACEHOLDER', author)
-    template_content = template_content.replace('LANG_PLACEHOLDER', lang)
-    
-    prepared_template = build_dir / "prepared_template.typ"
-    prepared_template.write_text(template_content, encoding='utf-8')
-    
-    book_typ = build_dir / "book.typ"
-    
-    pandoc_cmd = [
-        pandoc_bin,
-        "-f", "markdown+header_attributes-citations+lists_without_preceding_blankline",
-        "-t", "typst",
-        str(merged_md_path),
-        "-o", str(book_typ),
-        f"--template={prepared_template}",
-    ]
-    
-    res_pandoc = subprocess.run(pandoc_cmd, cwd=build_dir, capture_output=True, text=True)
-    if res_pandoc.returncode != 0:
-        print(f"Pandoc failed (exit code {res_pandoc.returncode}):\n{res_pandoc.stderr}")
-        return False
+    font_path = os.path.expanduser("~/.local/share/fonts")
+
+    if professional_formatting:
+        script_dir = Path(__file__).parent.resolve()
+        body_typ = build_dir / "body.typ"
+
+        pandoc_cmd = [
+            pandoc_bin,
+            "-f", "markdown+header_attributes-citations+lists_without_preceding_blankline",
+            "-t", "typst",
+            str(merged_md_path),
+            "-o", str(body_typ),
+        ]
+        res_pandoc = subprocess.run(pandoc_cmd, cwd=build_dir, capture_output=True, text=True)
+        if res_pandoc.returncode != 0:
+            print(f"Pandoc failed (exit code {res_pandoc.returncode}):\n{res_pandoc.stderr}")
+            return False
+
+        # #horizontalrule must resolve in body.typ's OWN top-level scope --
+        # Typst's #include evaluates an included file independently, it
+        # does NOT inherit bindings from whatever file includes it (learned
+        # the hard way testing this: importing horizontalrule only in
+        # main.typ and #include-ing body.typ failed with "unknown variable:
+        # horizontalrule" at body.typ's own #horizontalrule line).
+        body_content = body_typ.read_text(encoding='utf-8')
+        body_typ.write_text(
+            '#import "pro_book_template.typ": horizontalrule\n\n' + body_content,
+            encoding='utf-8',
+        )
+
+        meta = dict(professional_meta or {})
+        meta.setdefault("title", title)
+        meta.setdefault("authors", author)
+        meta.setdefault("lang", lang)
+        meta.setdefault("toc_title", outline_title)
+        meta_path = build_dir / "meta.json"
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding='utf-8')
+
+        # pro_book_template.typ and pro/ must sit next to main.typ so its
+        # relative #import paths resolve.
+        shutil.copy(script_dir / "pro_book_template.typ", build_dir / "pro_book_template.typ")
+        shutil.copytree(script_dir / "pro", build_dir / "pro")
+
+        main_typ = build_dir / "main.typ"
+        main_typ.write_text(
+            '#import "pro_book_template.typ": book\n'
+            '#book(meta: json("meta.json"))[\n'
+            '  #include "body.typ"\n'
+            ']\n',
+            encoding='utf-8',
+        )
+        typst_input = main_typ
+    else:
+        template_content = template_path.read_text(encoding='utf-8')
+        template_content = template_content.replace('OUTLINE_TITLE_PLACEHOLDER', outline_title)
+        template_content = template_content.replace('TITLE_PLACEHOLDER', title)
+        template_content = template_content.replace('AUTHOR_PLACEHOLDER', author)
+        template_content = template_content.replace('LANG_PLACEHOLDER', lang)
+
+        prepared_template = build_dir / "prepared_template.typ"
+        prepared_template.write_text(template_content, encoding='utf-8')
+
+        book_typ = build_dir / "book.typ"
+
+        pandoc_cmd = [
+            pandoc_bin,
+            "-f", "markdown+header_attributes-citations+lists_without_preceding_blankline",
+            "-t", "typst",
+            str(merged_md_path),
+            "-o", str(book_typ),
+            f"--template={prepared_template}",
+        ]
+
+        res_pandoc = subprocess.run(pandoc_cmd, cwd=build_dir, capture_output=True, text=True)
+        if res_pandoc.returncode != 0:
+            print(f"Pandoc failed (exit code {res_pandoc.returncode}):\n{res_pandoc.stderr}")
+            return False
+
+        typst_input = book_typ
 
     # TTS/book quality audit (2026-08-02) Phase 0.6: Typst on this device
     # only sees its 4 built-in font families by default (no Liberation
@@ -450,12 +522,11 @@ def build_typst(
     # rendered before this fix silently fell back to Libertinus Serif.
     # --font-path makes the installed Source Serif 4 (and anything else
     # under this directory) visible.
-    font_path = os.path.expanduser("~/.local/share/fonts")
     typst_cmd = [
         typst_bin,
         "compile",
         "--font-path", font_path,
-        str(book_typ),
+        str(typst_input),
         str(out_pdf_path.resolve())
     ]
 
@@ -687,6 +758,13 @@ def main():
         default="auto",
         help="PDF generation engine (default: auto)"
     )
+    parser.add_argument(
+        "--professional",
+        action="store_true",
+        help="Book publication quality module (2026-08-02): title page, "
+             "copyright page, TOC, graded typography via pro_book_template.typ "
+             "instead of the legacy minimal book_template.typ. Typst engine only."
+    )
 
     args = parser.parse_args()
 
@@ -741,7 +819,8 @@ def main():
                     build_dir,
                     args.title,
                     args.author,
-                    args.lang
+                    args.lang,
+                    professional_formatting=args.professional,
                 )
                 if success:
                     print(f"Successfully generated PDF using Typst engine -> '{out_pdf}'")
