@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { SlidersHorizontal, BookOpen, Headphones, Image, Zap, CheckCircle, Sparkles } from 'lucide-react';
+import { SlidersHorizontal, BookOpen, Headphones, Image, Zap, CheckCircle, Sparkles, FileText } from 'lucide-react';
 
 export const ModesView: React.FC = () => {
+  const navigate = useNavigate();
   const [selectedProfile, setSelectedProfile] = useState<'standard' | 'fast' | 'audioonly' | 'manga'>('standard');
 
   const profiles = [
@@ -55,6 +57,30 @@ export const ModesView: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Docs Book Pipeline card (separate action, not a profile) */}
+      <Card
+        onClick={() => navigate('/book-pipeline/new')}
+        className="bg-[#131c2e] border border-emerald-500/20 hover:border-emerald-400/50 p-6 space-y-4 cursor-pointer transition-all shadow-xl hover:shadow-emerald-950/40"
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center">
+              <FileText className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-white">Docs Book Pipeline</h3>
+              <Badge variant="emerald">New</Badge>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-slate-300 leading-relaxed">
+          Clone a docs repo, humanise with NotebookLM, run an optional AI editor review, then compile English and Ukrainian PDFs automatically.
+        </p>
+        <Button variant="primary" size="sm" className="w-full text-xs">
+          Open Book Pipeline →
+        </Button>
+      </Card>
 
       {/* Profiles Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

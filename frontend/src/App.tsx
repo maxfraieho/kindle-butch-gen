@@ -10,6 +10,7 @@ import { DownloadsView } from './pages/DownloadsView';
 import { SettingsView } from './pages/SettingsView';
 import { MangaEditor } from './pages/MangaEditor';
 import { ModesView } from './pages/ModesView';
+import { BookPipelineView } from './pages/BookPipelineView';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { authenticated, loading } = useAuth();
@@ -73,6 +74,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <ModesView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/book-pipeline/:slug"
+              element={
+                <ProtectedRoute>
+                  <BookPipelineView />
                 </ProtectedRoute>
               }
             />
