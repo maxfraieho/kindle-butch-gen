@@ -409,9 +409,15 @@ def is_kindle_eink_browser(user_agent_string):
 def _serve_spa_or_template(template_name, **context):
     dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
     index_path = os.path.join(dist_dir, "index.html")
-    if os.path.exists(index_path) and not is_kindle_eink_browser(request.headers.get("User-Agent", "")):
+    is_kindle = is_kindle_eink_browser(request.headers.get("User-Agent", ""))
+    if os.path.exists(index_path) and not is_kindle:
         return send_file(index_path)
-    return render_template(template_name, **context)
+    # is_kindle in context: lets an otherwise-shared template (e.g.
+    # manual.html, which needs no separate *_kindle.html variant) skip the
+    # handful of CSS properties known to misbehave on Kindle's browser
+    # (box-shadow specifically -- a documented viewport-sizing bug) without
+    # degrading the normal-browser experience.
+    return render_template(template_name, is_kindle=is_kindle, **context)
 
 
 @app.route("/")

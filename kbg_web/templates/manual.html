@@ -22,7 +22,7 @@
         code { background: #1c1c2a; padding: 0.1em 0.4em; border-radius: 5px; font-size: 0.92em; }
         .shot { width: 100%; max-width: 420px; display: block; margin: 0.8rem auto 0.3rem;
                 border-radius: 12px; border: 1px solid #2a2a3d;
-                box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+                {% if not is_kindle %}box-shadow: 0 6px 24px rgba(0,0,0,0.45);{% endif %} }
         .shot.wide { max-width: 100%; }
         .cap { font-size: 0.85rem; color: #8888a0; text-align: center; margin-bottom: 1rem; }
         .topbar { display: flex; align-items: center; gap: 0.8rem; }
