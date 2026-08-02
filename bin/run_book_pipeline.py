@@ -65,10 +65,28 @@ def log(msg):
 
 
 def write_progress(book_dir, stage, **extra):
-    """Atomic write (tmp + os.replace) -- same pattern as
-    common/book_editor.py's _append_flags and common/mqm_review.py."""
+    """Read-merge-write, atomically (tmp + os.replace) -- same pattern as
+    common/book_editor.py's _append_flags and common/mqm_review.py.
+
+    Merges rather than blindly overwriting so a value set by a *separate
+    subprocess* mid-pipeline (translate_stage.py's segments_degraded,
+    written directly into this same file -- see its
+    _write_segments_degraded) survives every later stage transition this
+    process writes, instead of being wiped by the very next call. No
+    current reader depends on stale extras disappearing across stages
+    (book_pipeline_status only ever reads "stage" and "segments_degraded"
+    back out)."""
     path = os.path.join(book_dir, "book_pipeline_progress.json")
-    data = {"stage": stage, "updated_at": time.time(), **extra}
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        except Exception:
+            data = {}
+    data["stage"] = stage
+    data["updated_at"] = time.time()
+    data.update(extra)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
