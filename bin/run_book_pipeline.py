@@ -107,6 +107,24 @@ def collect_markdown_files(docs_dir):
     return sorted(files)
 
 
+LICENSE_BASENAMES = ("LICENSE", "LICENCE", "COPYING")
+
+
+def _find_license_file(clone_dir):
+    """Case-insensitive scan of the repo root for a LICENSE/LICENCE/COPYING
+    file (any extension, e.g. LICENSE.md). Existence check only -- reading
+    and judging the actual terms is the explicitly deferred human call
+    (Q-9), not something this gate attempts."""
+    try:
+        entries = os.listdir(clone_dir)
+    except OSError:
+        return None
+    for name in sorted(entries):
+        if name.split(".")[0].upper() in LICENSE_BASENAMES:
+            return name
+    return None
+
+
 def stage_docs_ingest(book_dir, config):
     write_progress(book_dir, "docs_ingest")
     repo_url = config.get("repo_url")
@@ -124,6 +142,16 @@ def stage_docs_ingest(book_dir, config):
         )
     else:
         log("repo_clone/ already present, skipping clone (resume).")
+
+    license_file = _find_license_file(clone_dir)
+    if not license_file and not config.get("license_ack"):
+        raise RuntimeError(
+            f"No LICENSE/LICENCE/COPYING file found at the root of {repo_url} -- "
+            "refusing to proceed without an explicit acknowledgment that this "
+            "source's licensing has been checked. Set \"license_ack\": true in "
+            "config.json (or the license_ack field on book creation) to override."
+        )
+    write_progress(book_dir, "docs_ingest", license_file=license_file)
 
     docs_subdir = config.get("docs_subdir", "docs")
     docs_dir = os.path.join(clone_dir, docs_subdir)

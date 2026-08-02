@@ -72,6 +72,11 @@ def book_pipeline_create():
         "source_lang": data.get("source_lang", "en"),
         "target_lang": data.get("target_lang", "uk"),
         "enable_book_editor": bool(data.get("enable_book_editor", False)),
+        # Q-9: docs_ingest refuses to proceed if the cloned repo has no
+        # LICENSE/LICENCE/COPYING file at its root UNLESS this is set --
+        # an explicit signal the caller has actually checked the source's
+        # licensing themselves, not an automated legal judgment.
+        "license_ack": bool(data.get("license_ack", False)),
     }
     config_path = os.path.join(book_dir, "config.json")
     with open(config_path, "w", encoding="utf-8") as f:
