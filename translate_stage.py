@@ -17,6 +17,33 @@ def log(message):
     print(f"[Translate] {message}", flush=True)
 
 
+def _write_segments_degraded(book_dir, count):
+    """Best-effort structured signal for the gap noted alongside the
+    restored non-blocking degradation path (Q-18 follow-up, Q-19): how
+    many segments fell back to original-language text because validation
+    never passed. Merges into the same book_pipeline_progress.json that
+    bin/run_book_pipeline.py's write_progress() owns, preserving whatever
+    it already wrote (e.g. "stage") instead of overwriting the whole
+    file -- this script runs as a separate subprocess, not through that
+    function directly. No-op (not an error) for non-docsbook books,
+    which don't have this progress file at all."""
+    if not book_dir or not count:
+        return
+    progress_path = os.path.join(book_dir, "book_pipeline_progress.json")
+    try:
+        data = {}
+        if os.path.exists(progress_path):
+            with open(progress_path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        data["segments_degraded"] = count
+        tmp = progress_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, progress_path)
+    except Exception as e:
+        log(f"Попередження: Не вдалося записати segments_degraded у прогрес-файл: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Markdown translation module via llama-server")
     parser.add_argument("--input", "-i", required=False, help="Input Markdown file")
@@ -104,11 +131,13 @@ def main():
             log(f"Попередження: Не вдалося завантажити кеш: {e}. Початок з нуля.")
             
     translated_segments = []
-    
+    degraded_count = 0
+
     for idx, seg in enumerate(segments):
         seg_hash = get_hash(seg)
         if seg_hash in cache:
-            translated_segments.append(cache[seg_hash])
+            translated_seg = cache[seg_hash]
+            translated_segments.append(translated_seg)
         else:
             log(f"Переклад сегменту {idx+1}/{len(segments)} (довжина: {len(seg)} симв.)...")
             translated_seg = translate_segment_with_retry(seg, pm, args.api_url, target_lang=target_lang, source_lang=paths["source_lang"], book_dir=paths["book_dir"])
@@ -122,7 +151,19 @@ def main():
                     json.dump(cache, cf, ensure_ascii=False, indent=2)
             except Exception as e:
                 log(f"Попередження: Не вдалося зберегти кеш: {e}")
-                
+
+        # translate_segment_with_retry returns the original segment verbatim
+        # as its last-resort degradation path (see common/utils.py) when
+        # validation never passes after all retries. Detecting it here via
+        # equality -- instead of changing that shared function's return
+        # signature -- keeps translate_epub.py and the test suite untouched.
+        if translated_seg == seg:
+            degraded_count += 1
+
+    if degraded_count:
+        log(f"Увага: {degraded_count}/{len(segments)} сегмент(ів) лишились у мові оригіналу (валідація перекладу не пройшла після всіх спроб).")
+    _write_segments_degraded(paths.get("book_dir"), degraded_count)
+
     log("Об'єднання перекладених сегментів...")
     translated_protected_text = "\n\n".join(translated_segments)
     

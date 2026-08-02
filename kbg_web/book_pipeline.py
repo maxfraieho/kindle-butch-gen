@@ -152,11 +152,14 @@ def book_pipeline_status(slug):
     # a Stage 5 (frontend) concern. This endpoint is self-contained until
     # that integration happens.
     stage = None
+    segments_degraded = None
     progress_path = os.path.join(paths["book_dir"], "book_pipeline_progress.json")
     if os.path.exists(progress_path):
         try:
             with open(progress_path, "r", encoding="utf-8") as f:
-                stage = json.load(f).get("stage")
+                progress_data = json.load(f)
+                stage = progress_data.get("stage")
+                segments_degraded = progress_data.get("segments_degraded")
         except Exception:
             pass
 
@@ -184,6 +187,7 @@ def book_pipeline_status(slug):
         "stage": stage,
         "log": log_lines,
         "flags_pending": flags_pending,
+        "segments_degraded": segments_degraded,
     })
 
 

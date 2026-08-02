@@ -24,6 +24,7 @@ interface PipelineStatus {
   stage: string | null;
   log: string[];
   flags_pending: number;
+  segments_degraded: number | null;
 }
 
 interface EditorFlag {
@@ -707,6 +708,13 @@ export const BookPipelineView: React.FC = () => {
             currentStage={status?.stage ?? null}
             running={status?.running ?? false}
           />
+          {!!status?.segments_degraded && status.segments_degraded > 0 && (
+            <div className="flex items-center gap-2 text-amber-400 text-sm font-medium pt-1">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              {status.segments_degraded} segment{status.segments_degraded === 1 ? '' : 's'} left untranslated
+              (validation failed after all retries)
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">

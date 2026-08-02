@@ -320,12 +320,19 @@ def validate_translation_segment(original, translated):
     if not _translation_text_quality_ok(translated):
         return False
 
-    orig_headers = len([line for line in original.splitlines() if line.strip().startswith('#')])
-    if orig_headers > 0:
-        trans_headers = len([line for line in translated.splitlines() if line.strip().startswith('#')])
-        if orig_headers != trans_headers:
-            print(f"[Validation] warning: Headers count mismatch! Original: {orig_headers}, Translated: {trans_headers}. Proceeding.", flush=True)
-        
+    # Compare the actual SEQUENCE of heading levels, not just a count --
+    # a count-only check lets e.g. "#### CSI" -> "## CSI" through silently
+    # since both are "1 heading". This mirrors the placeholder check below
+    # (return False, don't just warn) so a mismatch triggers the same
+    # retry-then-degrade path instead of shipping a segment that silently
+    # lost its markdown structure.
+    orig_heading_levels = [len(m.group(1)) for m in re.finditer(r'^(#{1,6})\s', original, re.M)]
+    if orig_heading_levels:
+        trans_heading_levels = [len(m.group(1)) for m in re.finditer(r'^(#{1,6})\s', translated, re.M)]
+        if orig_heading_levels != trans_heading_levels:
+            print(f"[Validation] failure: Heading levels mismatch! Original: {orig_heading_levels}, Translated: {trans_heading_levels}.", flush=True)
+            return False
+
     orig_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", original))
     trans_placeholders = set(re.findall(r"__[A-Z_]+_[0-9]+__", translated))
     
