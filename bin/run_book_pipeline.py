@@ -10,10 +10,13 @@ itself.
 Stages: docs_ingest -> humanize -> editor_review -> merge ->
 book_compile_en -> translation -> book_compile_uk.
 
-editor_review in THIS pass only runs common.book_editor's deterministic
-checks (check_artifacts/check_structure). The model-calling checks
-(fact_drift, translation_hostile) are Stage 9 -- not implemented here, the
-editor model is not downloaded yet and this script never calls it.
+editor_review runs common.book_editor's deterministic checks
+(check_artifacts/check_structure) on every chapter first, then (TASK-90
+Stage 9 Part 2) runs the model-calling checks (fact_drift,
+translation_hostile) via a single-GPU-slot swap to the editor model, but
+ONLY on paragraphs the deterministic pass already flagged -- see
+_run_model_review below and common/book_editor.py's Stage 9 comment block
+for the gating rationale.
 """
 import argparse
 import json
@@ -29,7 +32,10 @@ if repo_dir not in sys.path:
     sys.path.insert(0, repo_dir)
 
 from common.book_paths import resolve_book_paths
-from common.book_editor import run_deterministic_checks
+from common.book_editor import (
+    run_deterministic_checks_for_chapter, run_model_checks,
+    load_agent_config, EditorModelError,
+)
 from common.notebooklm_client import (
     NotebookLMClient, NotebookLMConnectionError, NotebookLMToolError,
 )
@@ -174,6 +180,75 @@ def stage_humanize(book_dir, config, manifest):
     return humanized_dir
 
 
+def _run_model_review(flags_path, paragraph_flags):
+    """TASK-90 Stage 9 Part 2 -- model-calling half of editor_review. Only
+    called on paragraphs the deterministic pre-filter above already flagged
+    (para_index >= 0, i.e. real paragraphs, not a chapter-level para_index=-1
+    flag) -- the gating decision documented in common/book_editor.py's Stage
+    9 comment block: cheaper than running the model on every paragraph, and
+    the excerpts are already paragraph-sized (TASK-90 A.1/A.2), so nothing
+    here risks the editor model's context_size.
+
+    Single-GPU-slot swap: the translation model is swapped out for the
+    editor model for the WHOLE batch (one swap in, one swap out), not per
+    paragraph -- swapping is itself an expensive stop/start/wait-for-ready
+    cycle. try/finally guarantees the swap-back attempt runs even if a
+    model call raises or the loop is left early; this does NOT protect
+    against external SIGKILL (e.g. via /api/book-pipeline/stop), which
+    bypasses Python's finally entirely -- a known, deliberately deferred
+    gap (TASK-90_plan.md A.4).
+
+    A per-paragraph EditorModelError is caught and logged as NOT FULLY
+    CHECKED, not swallowed as if the paragraph were clean -- the paragraph
+    still carries its original deterministic flag, so the book still ends
+    up pending human review either way. There is no partial-detector cache:
+    a later re-run always redoes both fact_drift and translation_hostile
+    from scratch for that paragraph, matching run_model_checks' per-
+    paragraph all-or-nothing design."""
+    from kbg_web.app import _swap_llama_server, load_global_settings
+
+    try:
+        agent_config = load_agent_config()
+    except (OSError, json.JSONDecodeError) as e:
+        log(f"editor_review: could not load agents/book_editor/agent.json, skipping model checks: {e}")
+        return
+
+    original_model = load_global_settings().get("translation_model")
+    swapped = _swap_llama_server(agent_config["model_path"])
+    if not swapped:
+        log("editor_review: editor model server did not become ready -- skipping model checks this run "
+            "(deterministic flags above are unaffected and still pending review).")
+        if original_model:
+            _swap_llama_server(original_model)
+        return
+
+    try:
+        limit = agent_config.get("limit_per_book", 20)
+        for i, fl in enumerate(paragraph_flags):
+            if i >= limit:
+                log(f"editor_review: limit_per_book ({limit}) reached, "
+                    f"{len(paragraph_flags) - limit} remaining flagged paragraph(s) skipped this run.")
+                break
+            try:
+                new_flags = run_model_checks(
+                    fl["source_excerpt"], fl["humanized_excerpt"],
+                    chapter=fl["chapter"], para_index=fl["para_index"],
+                    agent_config=agent_config, flags_path=flags_path,
+                )
+                if new_flags:
+                    log(f"editor_review: model added {len(new_flags)} flag(s) on "
+                        f"{fl['chapter']} para {fl['para_index']}")
+            except EditorModelError as e:
+                log(f"editor_review: NOT FULLY CHECKED by model -- {fl['chapter']} para {fl['para_index']} "
+                    f"(will retry both detectors from scratch on next run): {e}")
+    finally:
+        if original_model:
+            restored = _swap_llama_server(original_model)
+            if not restored:
+                log("editor_review: WARNING -- failed to restore translation_model after editor "
+                    "review; the translation server may need a manual restart.")
+
+
 def stage_editor_review(book_dir, config, manifest, humanized_dir):
     write_progress(book_dir, "editor_review")
     if not config.get("enable_book_editor"):
@@ -181,6 +256,7 @@ def stage_editor_review(book_dir, config, manifest, humanized_dir):
         return
 
     flags_path = os.path.join(book_dir, "book_editor_flags.json")
+    paragraph_flags = []
     for entry in manifest:
         src_path = os.path.join(book_dir, "source_docs", entry["manifest_file"])
         out_name = f"{entry['index']:03d}_{os.path.basename(entry['source_rel'])}"
@@ -191,12 +267,15 @@ def stage_editor_review(book_dir, config, manifest, humanized_dir):
             source = f.read()
         with open(hum_path, "r", encoding="utf-8") as f:
             humanized = f.read()
-        flags = run_deterministic_checks(
-            source, humanized, chapter=entry["source_rel"],
-            para_index=0, flags_path=flags_path,
+        flags = run_deterministic_checks_for_chapter(
+            source, humanized, chapter=entry["source_rel"], flags_path=flags_path,
         )
         if flags:
             log(f"editor_review: {len(flags)} flag(s) on {entry['source_rel']}")
+        paragraph_flags.extend(fl for fl in flags if fl["para_index"] >= 0)
+
+    if paragraph_flags:
+        _run_model_review(flags_path, paragraph_flags)
 
     # Human gate: if any unresolved flags exist, pause here rather than
     # proceeding straight to merge/compile. "Unresolved" == not yet present

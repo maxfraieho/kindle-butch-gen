@@ -187,16 +187,35 @@ def book_pipeline_stop(slug):
     if slug not in active_processes and not pids:
         return jsonify({"status": "error", "message": "No active process for this book"}), 400
 
+    # Kill the whole process GROUP, not just the matched pid (TASK-90 A.9
+    # fix -- same pattern as the earlier audio_stage.py/tts_helper.py
+    # orphan incident: run_book_pipeline.py's own subprocess.run() calls
+    # (git clone, docs2book build_book.py, translate_stage.py) are children
+    # that don't themselves match _find_book_process_pids' cmdline pattern,
+    # so killing only the matched pid left them running. Every launcher of
+    # these scripts uses start_new_session=True, which makes the launched
+    # pid its own process group leader (pgid == pid), so os.killpg(pid, ...)
+    # reaches the whole tree in one signal. Falls back to os.kill on the
+    # single pid if killpg fails for any reason (e.g. pid is not a group
+    # leader), rather than silently doing nothing.
     for p in pids:
         try:
-            os.kill(p, signal.SIGKILL)
-        except Exception:
+            os.killpg(p, signal.SIGKILL)
+        except ProcessLookupError:
             pass
+        except Exception:
+            try:
+                os.kill(p, signal.SIGKILL)
+            except Exception:
+                pass
     if slug in active_processes:
         try:
-            active_processes[slug].kill()
+            os.killpg(active_processes[slug].pid, signal.SIGKILL)
         except Exception:
-            pass
+            try:
+                active_processes[slug].kill()
+            except Exception:
+                pass
         del active_processes[slug]
 
     _clear_active_conversion_state(slug)
