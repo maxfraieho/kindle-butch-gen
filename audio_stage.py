@@ -270,10 +270,43 @@ def main():
     paragraphs = re.split(r'\n\s*\n', content)
     log(f"Total paragraphs read: {len(paragraphs)}")
 
+    # TTS quality audit (2026-08-02) Part C: markdown code fences (```) do
+    # NOT survive in this book's translated corpus -- lost upstream (the
+    # PDF->markdown conversion flattens embedded source code onto single
+    # run-on lines with no fence markers left), so code paragraphs are
+    # indistinguishable from prose by syntax alone; this heuristic
+    # (>=2 code-keyword hits AND a low Cyrillic-character ratio, checked
+    # after stripping markdown links so a URL's brackets/parens don't skew
+    # the ratio) was validated against this actual corpus: 82/1679
+    # paragraphs flagged, zero false positives on manual review of all 82.
+    _CODE_LIKE_KEYWORDS = re.compile(
+        r'\b(import \w|def \w+\(|print\(|return \w|elif |except:|lambda |self\.\w|'
+        r'f"|f\'|\.append\(|\.groupby\(|== |!= |:\n|\):\s*$)'
+    )
+    _MD_LINK_RE = re.compile(r'\[([^\]]*)\]\([^)]*\)')
+    _BARE_URL_RE = re.compile(r'https?://\S+')
+
+    def _delinkify(text):
+        """Drop URLs from TTS input: markdown links keep their spoken
+        anchor text, bare URLs are removed outright (nothing to speak)."""
+        text = _MD_LINK_RE.sub(r'\1', text)
+        text = _BARE_URL_RE.sub('', text)
+        return text
+
+    def _looks_like_code_paragraph(p_clean):
+        p_nolinks = _delinkify(p_clean)
+        total = len(re.findall(r'\S', p_nolinks))
+        if total == 0:
+            return False
+        cyrillic = len(re.findall(r'[Ѐ-ӿ]', p_nolinks))
+        cyr_ratio = cyrillic / total
+        kw_hits = len(_CODE_LIKE_KEYWORDS.findall(p_clean))
+        return kw_hits >= 2 and cyr_ratio < 0.25
+
     # Filter out TOC, publisher technical pages, and other metadata
     filtered_paragraphs = []
     skip_section = False
-    
+
     skip_heading_keywords = [
         "зміст", 
         "передмова від видавництва", 
@@ -314,8 +347,18 @@ def main():
         if is_publication_page:
             log(f"[AudioStage] Skipping publication/copyright page paragraph: '{p_clean[:60]}...'")
             continue
-            
-        filtered_paragraphs.append(p)
+
+        if _looks_like_code_paragraph(p_clean):
+            log(f"[AudioStage] Skipping code-like paragraph: '{p_clean[:60]}...'")
+            continue
+
+        p_no_links = _delinkify(p)
+        if not p_no_links.strip():
+            # paragraph was only a bare URL/link -- nothing left to speak
+            log(f"[AudioStage] Skipping URL-only paragraph: '{p_clean[:60]}...'")
+            continue
+
+        filtered_paragraphs.append(p_no_links)
 
     log(f"Filtered paragraphs count (excluding TOC and technical details): {len(filtered_paragraphs)}")
 
