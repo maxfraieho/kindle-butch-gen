@@ -158,9 +158,20 @@ def login():
             return redirect(request.args.get("next") or url_for("dashboard"))
         return render_template_string(LOGIN_PAGE, error="Невірний логін або пароль"), 401
     
+    # Kindle e-ink browser research (2026-08-02): this is the FIRST page
+    # any not-yet-authenticated Kindle visit actually hits (every
+    # protected route redirects here) -- unconditionally serving the SPA
+    # shell here meant the is_kindle_eink_browser() fix on /downloads
+    # etc. was never even reached. LOGIN_PAGE is already a plain <form>
+    # with zero JS, so no new template was needed here, just the same
+    # detection check. This is also very likely why the failure looked
+    # like a solid BLACK screen rather than a blank one: the SPA's
+    # compiled CSS sets a dark body background as a plain (non-JS) rule,
+    # while <div id="root"> stays empty forever since the module script
+    # never runs -- dark background, zero visible content.
     dist_dir = os.path.join(os.path.dirname(__file__), "static", "dist")
     index_path = os.path.join(dist_dir, "index.html")
-    if os.path.exists(index_path):
+    if os.path.exists(index_path) and not is_kindle_eink_browser(request.headers.get("User-Agent", "")):
         return send_file(index_path)
 
     return render_template_string(LOGIN_PAGE, error=None)
