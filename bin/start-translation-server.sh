@@ -14,11 +14,19 @@ termux-wake-lock
 export LD_LIBRARY_PATH="$HOME:/system/lib64:/vendor/lib64:$PREFIX/opt/vendor/lib:$HOME/llama.cpp/build/bin"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODEL=$(python3 -c "import json, os; s_path=os.path.join('${REPO_DIR}', 'global_settings.json'); home=os.path.expanduser('~'); default_m=os.path.join(home, 'models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf'); print(json.load(open(s_path)).get('translation_model', default_m)) if os.path.exists(s_path) else print(default_m)")
+# TASK-90 Stage 9 fix: _swap_llama_server() (kbg_web/app.py) writes
+# "active_model" for editor-model swaps, NEVER "translation_model" (Q-15 --
+# that key is the user's configured translation preference and must not be
+# clobbered by a swap). This script previously only ever read
+# "translation_model", so a swap to the editor model silently loaded Hy-MT2
+# instead -- no error anywhere, the model-swap mechanism just didn't work.
+# active_model takes priority now; translation_model is the fallback for
+# the normal (non-swap) translation path, unchanged.
+MODEL=$(python3 -c "import json, os; s_path=os.path.join('${REPO_DIR}', 'global_settings.json'); home=os.path.expanduser('~'); default_m=os.path.join(home, 'models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf'); data=json.load(open(s_path)) if os.path.exists(s_path) else {}; print(data.get('active_model') or data.get('translation_model') or default_m)")
 PORT=8081
 PID_FILE="${1:-$HOME/llama-server-8081.pid}"
 
-echo "$(date): Запуск моделі перекладу Hy-MT2-7B на порту $PORT..."
+echo "$(date): Запуск моделі на порту $PORT ($MODEL)..."
 
 cd ~/llama.cpp/build/bin
 nohup ./llama-server \
@@ -28,6 +36,7 @@ nohup ./llama-server \
   --parallel 1 \
   -t 4 \
   --no-mmap \
+  -ctk q8_0 -ctv q8_0 \
   --host 0.0.0.0 \
   --port "$PORT" \
   > ~/llama-translation-server.log 2>&1 & disown
