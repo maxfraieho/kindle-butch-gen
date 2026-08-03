@@ -206,7 +206,7 @@ def run_llm(text, model, book_dir=None):
     
     if not book_dir:
         # Fallback to blocking subprocess if book_dir is not provided
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, start_new_session=True)
         return res.stdout
 
     stderr_path = os.path.join(book_dir, "edits", "ner_scan_llama_stderr.log")
@@ -225,7 +225,8 @@ def run_llm(text, model, book_dir=None):
             stdout=subprocess.PIPE,
             stderr=stderr_file,
             text=True,
-            bufsize=1
+            bufsize=1,
+            start_new_session=True
         )
 
         while True:

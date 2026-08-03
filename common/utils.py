@@ -107,7 +107,7 @@ def wait_for_server_ready(api_url, max_wait=300, wait_interval=5):
                 if os.path.exists(script_path):
                     print(f"[Translation] Auto-healing: Launching translation server via {script_path}...", flush=True)
                     try:
-                        subprocess.Popen(["bash", script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.Popen(["bash", script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
                     except Exception as launch_err:
                         print(f"[Translation] Failed to auto-launch server: {launch_err}", flush=True)
         time.sleep(wait_interval)

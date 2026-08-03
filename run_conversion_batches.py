@@ -35,7 +35,8 @@ def run_command_streaming(cmd, log_path, prefix="", env=None):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            env=env
+            env=env,
+            start_new_session=True
         )
         for line in process.stdout:
             log(f"{prefix}{line.strip()}", log_path)
@@ -74,7 +75,8 @@ def run_marker_batch(start, end, pdf_path, batches_dir, log_path):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1
+                bufsize=1,
+                start_new_session=True
             )
             for line in process.stdout:
                 log_file.write(line)
