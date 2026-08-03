@@ -23,6 +23,11 @@ REMOTE="${UPDATE_REMOTE:-server-projects}"
 
     sleep 2
 
+    echo "Rebuilding frontend..."
+    if ! (cd "$KBG_HOME/frontend" && npm run build); then
+        echo "WARNING: frontend build failed -- serving previous dist/ bundle, not blocking backend restart."
+    fi
+
     echo "Restarting Flask web server..."
     pkill -f "python3 kbg_web/app.py" || true
     sleep 1
