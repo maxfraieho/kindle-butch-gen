@@ -23,6 +23,22 @@ class PlaceholderManager:
             return self.add(match.group(0), "IMAGE_LINE")
         text = re.sub(r"^!\[[^\]]*\]\([^)]+\)\s*$", image_line_repl, text, flags=re.MULTILINE)
 
+        # 0.5. Markdown headers immediately followed by a parenthetical
+        # path (e.g. "##### Terminal Character
+        # (zellij-server/src/panes/terminal_character.rs)") -- protect
+        # the ENTIRE header line, not just the path. Hy-MT2 has been
+        # observed to consistently drop the leading "#" marker
+        # specifically for this pattern (Q-17), even when the rest of
+        # the translation is otherwise coherent. Same "hide the whole
+        # line" principle as IMAGE_LINE above -- the header text stays
+        # untranslated for this narrow case, a smaller loss than losing
+        # the heading structure (and the book's TOC/navigation) entirely.
+        # The `/` requirement in the parenthetical distinguishes an
+        # actual path from an ordinary aside like "## Overview (draft)".
+        def header_path_repl(match):
+            return self.add(match.group(0), "HEADER_PATH")
+        text = re.sub(r"^#{1,6}\s+.*\([^()]*/[^()]*\)\s*$", header_path_repl, text, flags=re.MULTILINE)
+
         # 1. Code blocks
         def cb_repl(match):
             return self.add(match.group(0), "CODE_BLOCK")
