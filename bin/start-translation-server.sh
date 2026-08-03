@@ -13,7 +13,15 @@ termux-wake-lock
 
 export LD_LIBRARY_PATH="$HOME:/system/lib64:/vendor/lib64:$PREFIX/opt/vendor/lib:$HOME/llama.cpp/build/bin"
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Hardcoded, not derived from $BASH_SOURCE: the deployed copy of this
+# script (~/start-translation-server.sh) lives directly in $HOME, not in
+# kindle-butch-gen/bin/ -- "dirname($BASH_SOURCE)/.." silently resolved
+# to $HOME/.. there (global_settings.json never found, MODEL always
+# fell through to the hardcoded Hy-MT2 default). Hardcoding here too so
+# this git-tracked copy behaves identically regardless of where it's
+# deployed, instead of only working by the coincidence of currently
+# sitting at repo_root/bin/.
+REPO_DIR="$HOME/kindle-butch-gen"
 # TASK-90 Stage 9 fix: _swap_llama_server() (kbg_web/app.py) writes
 # "active_model" for editor-model swaps, NEVER "translation_model" (Q-15 --
 # that key is the user's configured translation preference and must not be
