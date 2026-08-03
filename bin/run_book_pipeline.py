@@ -36,46 +36,17 @@ from common.book_editor import (
     run_deterministic_checks_for_chapter, run_model_checks,
     load_agent_config, EditorModelError,
 )
-from common.notebooklm_client import (
-    NotebookLMClient, NotebookLMConnectionError, NotebookLMToolError,
-)
+from common.gemini_humanizer import GeminiHumanizer, SemanticGenerationError
 
 DOCS2BOOK_SCRIPT = os.path.join(repo_dir, "tools", "docs2book", "build_book.py")
 
-HUMANIZE_PROMPT_TEMPLATE = (
-    'Rewrite the attached source as a chapter of a book, addressed to the '
-    'reader as if the project maintainers are speaking directly, '
-    'first-person plural ("we built it so that...", "we designed it this '
-    'way because..."). Do NOT include any citation markers, footnote '
-    'numbers, or bracketed references like [1] or [2] anywhere in the '
-    'output -- write it as continuous prose a human would read in a '
-    'printed book, with zero visible sourcing apparatus. Preserve every '
-    'fact, field name, default value, code sample, and diagram exactly as '
-    'given, character-for-character in code blocks -- do not invent or '
-    'drop anything technical. Open with 1-2 sentences orienting the reader '
-    'on why this chapter matters before diving into specifics. Keep total '
-    'length within roughly +/-20% of the source. Output ONLY the finished '
-    'chapter in Markdown -- no preamble, no meta-commentary, no citations '
-    'of any kind.\n\nChapter title: {title}'
-)
-
-# NotebookLM sometimes returns HTTP 200 with a refusal message instead of
-# an error -- confirmed live in books/zellij-e2e-test/humanized/
-# 004_THIRD_PARTY_INSTALL.md (and it propagated through merge into
-# merged_en.md:75) because stage_humanize wrote client.chat_ask()'s answer
-# straight to disk with no content check. Deliberately just one confirmed
-# substring for now, not a broader classifier -- need 3+ real examples
-# before generalizing this pattern.
-KNOWN_REFUSAL_MARKERS = (
-    "I'm sorry, but I couldn't find enough context in the document",
-)
-
-
-class HumanizeRefusalError(RuntimeError):
-    """Raised when NotebookLM's chat_ask() answer matches a known refusal
-    pattern instead of real humanized content -- stops it from being
-    written into the book corpus as if it were a successful chapter."""
-    pass
+def _strip_frontmatter(content: str) -> str:
+    """Strip YAML frontmatter if present and return remaining body."""
+    if content.startswith('---'):
+        parts = content.split('---', 2)
+        if len(parts) >= 3:
+            return parts[2].lstrip()
+    return content
 
 
 def log(msg):
@@ -198,18 +169,13 @@ def stage_docs_ingest(book_dir, config):
 
 def stage_humanize(book_dir, config, manifest):
     write_progress(book_dir, "humanize", chapters_total=len(manifest))
-    notebook_id = config.get("notebook_id")
-    if not notebook_id:
-        raise RuntimeError(
-            "config.json is missing notebook_id -- there is no automated "
-            "notebook-creation step yet (Stage 1's notebooklm_client.py "
-            "has no notebooks_create); an existing NotebookLM notebook_id "
-            "must be supplied at book-create time."
-        )
 
     humanized_dir = os.path.join(book_dir, "humanized")
     os.makedirs(humanized_dir, exist_ok=True)
-    client = NotebookLMClient()
+
+    model_name = config.get("gemini_model", config.get("model_name", "gemini-3.6-flash"))
+    api_key = config.get("gemini_api_key")
+    humanizer = GeminiHumanizer(api_key=api_key, model_name=model_name)
 
     for entry in manifest:
         out_name = f"{entry['index']:03d}_{os.path.basename(entry['source_rel'])}"
@@ -223,26 +189,13 @@ def stage_humanize(book_dir, config, manifest):
             content = f.read()
 
         title = os.path.splitext(os.path.basename(entry["source_rel"]))[0]
-        source_title = f"[run_book_pipeline] {entry['source_rel']}"
         try:
-            source = client.sources_add_text(notebook_id, source_title, content)
-            source_id = source.get("id") or source.get("source_id")
-            answer = client.chat_ask(
-                notebook_id,
-                HUMANIZE_PROMPT_TEMPLATE.format(title=title),
-                source_ids=[source_id] if source_id else None,
-            )
-        except (NotebookLMConnectionError, NotebookLMToolError) as e:
+            answer = humanizer.humanize_chapter(content, title=title)
+        except SemanticGenerationError as e:
+            log(f"humanize: chapter {entry['index']}: too thin to humanize ({e}), copied through as-is")
+            answer = _strip_frontmatter(content)
+        except Exception as e:
             raise RuntimeError(f"humanize failed on {entry['source_rel']}: {e}") from e
-
-        for marker in KNOWN_REFUSAL_MARKERS:
-            if marker in answer:
-                raise HumanizeRefusalError(
-                    f"humanize: NotebookLM returned a refusal instead of "
-                    f"content for {entry['source_rel']} (matched marker "
-                    f"{marker!r}) -- refusing to write it into the book "
-                    f"corpus as if it were a successful chapter."
-                )
 
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(answer)
