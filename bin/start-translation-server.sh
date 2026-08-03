@@ -30,9 +30,22 @@ REPO_DIR="$HOME/kindle-butch-gen"
 # instead -- no error anywhere, the model-swap mechanism just didn't work.
 # active_model takes priority now; translation_model is the fallback for
 # the normal (non-swap) translation path, unchanged.
-MODEL=$(python3 -c "import json, os; s_path=os.path.join('${REPO_DIR}', 'global_settings.json'); home=os.path.expanduser('~'); default_m=os.path.join(home, 'models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf'); data=json.load(open(s_path)) if os.path.exists(s_path) else {}; print(data.get('active_model') or data.get('translation_model') or default_m)")
+MODEL=$(python3 -c "import json, os; s_path=os.path.join('${REPO_DIR}', 'global_settings.json'); home=os.path.expanduser('~'); default_m=os.path.join(home, 'models/hy-mt2/Hy-MT2-7B-Q4_K_M.gguf'); data=json.load(open(s_path)) if os.path.exists(s_path) else {}; print(os.path.expanduser(data.get('active_model') or data.get('translation_model') or default_m))")
 PORT=8081
 PID_FILE="${1:-$HOME/llama-server-8081.pid}"
+
+# Symmetric q8_0 KV cache is bake-off-VERIFIED only for the editor
+# model (Qwen2.5-3B, agents/book_editor/agent.json) -- applying it
+# unconditionally to Hy-MT2 (the translation model) would be an
+# untested change to the core, heavily-used translation path (Opus-
+# audit caught this: it was silently unconditional). Detect editor-
+# model launches by path (case-insensitive "qwen") and only enable
+# the flags there; Hy-MT2 keeps its previously-verified default (no
+# explicit -ctk/-ctv -> llama-server's own default, f16/f16).
+KV_CACHE_ARGS=()
+if echo "$MODEL" | command grep -qi "qwen"; then
+    KV_CACHE_ARGS=(-ctk q8_0 -ctv q8_0)
+fi
 
 echo "$(date): Запуск моделі на порту $PORT ($MODEL)..."
 
@@ -44,7 +57,7 @@ nohup ./llama-server \
   --parallel 1 \
   -t 4 \
   --no-mmap \
-  -ctk q8_0 -ctv q8_0 \
+  "${KV_CACHE_ARGS[@]}" \
   --host 0.0.0.0 \
   --port "$PORT" \
   > ~/llama-translation-server.log 2>&1 & disown

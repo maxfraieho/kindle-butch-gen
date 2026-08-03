@@ -2802,7 +2802,12 @@ def configure_models():
 
     settings = load_global_settings()
     if translation_model:
-        settings["translation_model"] = translation_model
+        # Expand ~ at the same single point _swap_llama_server() does --
+        # a user-supplied path with a literal "~" would otherwise fail
+        # the exact same way the editor-model swap did before that fix
+        # (start-translation-server.sh passes this straight to
+        # `llama-server -m`, which does not do shell-style expansion).
+        settings["translation_model"] = os.path.expanduser(translation_model)
 
     save_global_settings(settings)
     return jsonify({"status": "success"})
@@ -2913,7 +2918,10 @@ def _reconcile_active_model():
     corrupted by the swap) whenever it next starts the server."""
     settings = load_global_settings()
     active = settings.get("active_model")
-    translation = settings.get("translation_model")
+    # expanduser is a no-op on an already-absolute path -- defensive,
+    # in case translation_model ever holds a pre-fix "~"-prefixed value
+    # written before configure_models() started expanding on save.
+    translation = os.path.expanduser(settings.get("translation_model") or "") or None
     if active and active != translation:
         settings["active_model"] = translation
         save_global_settings(settings)
