@@ -59,6 +59,24 @@ HUMANIZE_PROMPT_TEMPLATE = (
     'of any kind.\n\nChapter title: {title}'
 )
 
+# NotebookLM sometimes returns HTTP 200 with a refusal message instead of
+# an error -- confirmed live in books/zellij-e2e-test/humanized/
+# 004_THIRD_PARTY_INSTALL.md (and it propagated through merge into
+# merged_en.md:75) because stage_humanize wrote client.chat_ask()'s answer
+# straight to disk with no content check. Deliberately just one confirmed
+# substring for now, not a broader classifier -- need 3+ real examples
+# before generalizing this pattern.
+KNOWN_REFUSAL_MARKERS = (
+    "I'm sorry, but I couldn't find enough context in the document",
+)
+
+
+class HumanizeRefusalError(RuntimeError):
+    """Raised when NotebookLM's chat_ask() answer matches a known refusal
+    pattern instead of real humanized content -- stops it from being
+    written into the book corpus as if it were a successful chapter."""
+    pass
+
 
 def log(msg):
     print(f"[run_book_pipeline] {msg}", flush=True)
@@ -216,6 +234,15 @@ def stage_humanize(book_dir, config, manifest):
             )
         except (NotebookLMConnectionError, NotebookLMToolError) as e:
             raise RuntimeError(f"humanize failed on {entry['source_rel']}: {e}") from e
+
+        for marker in KNOWN_REFUSAL_MARKERS:
+            if marker in answer:
+                raise HumanizeRefusalError(
+                    f"humanize: NotebookLM returned a refusal instead of "
+                    f"content for {entry['source_rel']} (matched marker "
+                    f"{marker!r}) -- refusing to write it into the book "
+                    f"corpus as if it were a successful chapter."
+                )
 
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(answer)
