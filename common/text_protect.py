@@ -33,10 +33,23 @@ class PlaceholderManager:
         # line" principle as IMAGE_LINE above -- the header text stays
         # untranslated for this narrow case, a smaller loss than losing
         # the heading structure (and the book's TOC/navigation) entirely.
-        # The `/` requirement in the parenthetical distinguishes an
-        # actual path from an ordinary aside like "## Overview (draft)".
+        # Two refinements found by an Opus-model audit on the initial
+        # version (bare "contains a /" was too broad):
+        #   1. A header ending in a markdown link ("## See [docs](url)")
+        #      is not this pattern at all -- exclude when the "(" is a
+        #      link target immediately after "]".
+        #   2. A "/" alone doesn't mean a path -- "(2024/2025)" or
+        #      "(Ch. 3/4)" are dates/ratios, not paths. Real path
+        #      segments ("panes/terminal_character.rs") always have a
+        #      letter directly touching the slash; pure date/ratio
+        #      parentheticals don't.
         def header_path_repl(match):
-            return self.add(match.group(0), "HEADER_PATH")
+            line = match.group(0)
+            if re.search(r"\][^()]*\([^()]*/[^()]*\)\s*$", line):
+                return line
+            if not re.search(r"[A-Za-z]/|/[A-Za-z]", line):
+                return line
+            return self.add(line, "HEADER_PATH")
         text = re.sub(r"^#{1,6}\s+.*\([^()]*/[^()]*\)\s*$", header_path_repl, text, flags=re.MULTILINE)
 
         # 1. Code blocks
