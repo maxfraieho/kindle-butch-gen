@@ -2874,7 +2874,19 @@ def _swap_llama_server(model_path, wait_ready=True, wait_timeout=120):
         return False
 
     settings = load_global_settings()
-    settings["active_model"] = model_path
+    # agents/book_editor/agent.json's model_path is written with a literal
+    # "~" (e.g. "~/models/qwen25-3b-editor/..."). Storing that string as-is
+    # and having start-translation-server.sh pass it straight through to
+    # `llama-server -m` fails silently at the C++ level -- llama.cpp does
+    # not do shell-style tilde expansion, so it reports a plain "No such
+    # file or directory" and exits; wait_for_server_ready() then times out
+    # and this function returns False, which _run_model_review() already
+    # treats as a graceful skip. Confirmed live (2026-08-03): the editor
+    # model has therefore never actually loaded in ANY prior run despite
+    # Stage 9 being marked done -- every real editor-review call up to now
+    # silently no-opped instead of running the model. Expand here, once,
+    # at the single point every caller goes through.
+    settings["active_model"] = os.path.expanduser(model_path)
     save_global_settings(settings)
 
     _stop_llama_server()
