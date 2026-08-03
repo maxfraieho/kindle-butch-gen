@@ -618,9 +618,9 @@ export const BookPipelineView: React.FC = () => {
             variant="ghost"
             size="sm"
             icon={<ArrowLeft className="w-4 h-4" />}
-            onClick={() => navigate('/modes')}
+            onClick={() => navigate('/')}
           >
-            Back to modes
+            Back to dashboard
           </Button>
           <div>
             <h1 className="text-xl font-extrabold text-white flex items-center gap-2">
@@ -646,9 +646,9 @@ export const BookPipelineView: React.FC = () => {
             variant="ghost"
             size="sm"
             icon={<ArrowLeft className="w-4 h-4" />}
-            onClick={() => navigate('/modes')}
+            onClick={() => navigate('/')}
           >
-            Back to modes
+            Back to dashboard
           </Button>
           <div>
             <h1 className="text-xl font-extrabold text-white flex items-center gap-2">

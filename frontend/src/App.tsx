@@ -9,7 +9,6 @@ import { StagesView } from './pages/StagesView';
 import { DownloadsView } from './pages/DownloadsView';
 import { SettingsView } from './pages/SettingsView';
 import { MangaEditor } from './pages/MangaEditor';
-import { ModesView } from './pages/ModesView';
 import { BookPipelineView } from './pages/BookPipelineView';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -66,14 +65,6 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <DownloadsView />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/modes"
-              element={
-                <ProtectedRoute>
-                  <ModesView />
                 </ProtectedRoute>
               }
             />

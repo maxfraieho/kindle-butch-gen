@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, Download, SlidersHorizontal, Settings, LogOut, User, Sparkles } from 'lucide-react';
+import { BookOpen, Download, Settings, LogOut, User, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export interface AppShellProps {
@@ -15,7 +15,6 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const navItems = [
     { label: 'Книги', path: '/', icon: <BookOpen className="w-5 h-5" /> },
     { label: 'Завантаження', path: '/downloads', icon: <Download className="w-5 h-5" /> },
-    { label: 'Режими', path: '/modes', icon: <SlidersHorizontal className="w-5 h-5" /> },
     { label: 'Налаштування', path: '/settings', icon: <Settings className="w-5 h-5" /> },
   ];
 
