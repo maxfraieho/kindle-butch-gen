@@ -34,6 +34,7 @@ scratch/
 books/
 screenshots/
 screenshot/
+kbg_web/.flask_secret_key
 
 # Frontend Node.js dependencies & build output
 frontend/node_modules/
