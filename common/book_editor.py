@@ -403,7 +403,15 @@ def run_model_checks(
     (e.g. fact_drift checked but translation_hostile silently didn't) is
     exactly the kind of ambiguity that undermines the human review gate.
     Caller (stage_editor_review) is responsible for catching this per
-    paragraph and recording it visibly, not treating it as \"clean\"."""
+    paragraph and recording it visibly, not treating it as \"clean\".
+
+    Flags returned here are ALWAYS proposals for a human to approve or
+    discard (see edit_store's pending/approved/discarded lifecycle) --
+    never auto-applied. This is a final, deliberate design decision
+    (Q-3), not a pending TODO: a small local model's flagged "issue"
+    text quotes fragments that cannot be trusted without a human
+    checking them against the original source text alongside the
+    humanized rewrite."""
     threshold = agent_config.get("severity_threshold", 3)
     editor_model_name = os.path.basename(agent_config["model_path"])
     new_flags: List[Dict] = []
