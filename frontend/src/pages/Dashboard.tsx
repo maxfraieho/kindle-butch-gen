@@ -8,7 +8,8 @@ import { Modal } from '../components/ui/Modal';
 import { BookSettingsModal } from './BookSettingsModal';
 import { ProtocolModal } from '../components/ui/ProtocolModal';
 import { ResumeStalledModal } from '../components/ui/ResumeStalledModal';
-import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink, Sparkles, Eye } from 'lucide-react';
+import { CopyrightMetaModal } from '../components/ui/CopyrightMetaModal';
+import { BookOpen, Plus, Play, Square, Trash2, RefreshCw, Layers, Upload, Folder, CheckCircle, Settings2, ExternalLink, Sparkles, Eye, Copyright } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface SupportProfile {
@@ -41,6 +42,8 @@ export const Dashboard: React.FC = () => {
   const [addingBook, setAddingBook] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [settingsSlug, setSettingsSlug] = useState<string | null>(null);
+  const [copyrightModalSlug, setCopyrightModalSlug] = useState<string | null>(null);
+  const [copyrightModalTitle, setCopyrightModalTitle] = useState<string>('');
   const [protocolModalSlug, setProtocolModalSlug] = useState<string | null>(null);
   const [protocolModalTitle, setProtocolModalTitle] = useState<string>('');
   const [stalledModalBook, setStalledModalBook] = useState<Book | null>(null);
@@ -680,7 +683,7 @@ export const Dashboard: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {!isRunning ? (
                       <Button
                         variant="secondary"
@@ -697,6 +700,23 @@ export const Dashboard: React.FC = () => {
                         ⚙️ Активний
                       </div>
                     )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon={<Copyright className="w-3.5 h-3.5 text-cyan-400" />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCopyrightModalSlug(book.slug);
+                        setCopyrightModalTitle(book.title || book.slug);
+                      }}
+                      title="Метадані та текст копірайту"
+                      className="w-full text-xs"
+                    >
+                      Копірайт
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -945,6 +965,13 @@ export const Dashboard: React.FC = () => {
             await handleRun(protocolModalSlug, { stopPropagation: () => {} } as any);
           }
         }}
+      />
+      {/* Copyright Metadata & Text Editor Modal */}
+      <CopyrightMetaModal
+        slug={copyrightModalSlug}
+        bookTitle={copyrightModalTitle}
+        isOpen={copyrightModalSlug !== null}
+        onClose={() => setCopyrightModalSlug(null)}
       />
     </div>
   );

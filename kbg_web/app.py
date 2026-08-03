@@ -1718,6 +1718,76 @@ def characters_settings_api(slug):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return jsonify({"status": "success", "enable_cast_registry": enable})
 
+@app.route("/api/book/<slug>/copyright-meta", methods=["GET"])
+def get_copyright_meta_api(slug):
+    """GET per-book copyright metadata."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    if not os.path.exists(paths["book_dir"]):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+    from common.copyright_meta import load_copyright_meta
+    meta = load_copyright_meta(paths["book_dir"])
+    return jsonify({"status": "success", "copyright_meta": meta})
+
+
+@app.route("/api/book/<slug>/copyright-meta", methods=["POST"])
+def post_copyright_meta_api(slug):
+    """POST form fields to generate UK and EN copyright text and save metadata."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    book_dir = paths["book_dir"]
+    if not os.path.exists(book_dir):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    from common.copyright_meta import load_copyright_meta, save_copyright_meta, generate_copyright_text
+
+    meta = load_copyright_meta(book_dir)
+    for field in ("translator_name", "original_title", "original_author", "original_url", "original_license"):
+        if field in body:
+            meta[field] = str(body[field] or "").strip()
+
+    uk_text, en_text = generate_copyright_text(meta)
+    meta["generated_text_uk"] = uk_text
+    meta["generated_text_en"] = en_text
+
+    save_copyright_meta(book_dir, meta)
+    return jsonify({
+        "status": "success",
+        "generated_text_uk": uk_text,
+        "generated_text_en": en_text,
+        "copyright_meta": meta,
+    })
+
+
+@app.route("/api/book/<slug>/copyright-meta/text", methods=["PUT"])
+def put_copyright_meta_text_api(slug):
+    """PUT manually edited UK/EN copyright texts."""
+    if not validate_slug(slug):
+        return jsonify({"status": "error", "message": "Invalid slug"}), 400
+    paths = resolve_book_paths(repo_dir, slug)
+    book_dir = paths["book_dir"]
+    if not os.path.exists(book_dir):
+        return jsonify({"status": "error", "message": "Book not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    from common.copyright_meta import load_copyright_meta, save_copyright_meta
+
+    meta = load_copyright_meta(book_dir)
+    if "edited_text_uk" in body:
+        meta["edited_text_uk"] = body["edited_text_uk"]
+    if "edited_text_en" in body:
+        meta["edited_text_en"] = body["edited_text_en"]
+
+    save_copyright_meta(book_dir, meta)
+    return jsonify({
+        "status": "success",
+        "copyright_meta": meta,
+    })
+
+
 @app.route("/api/manga/<slug>/bubble-tone", methods=["GET"])
 def get_bubble_tone_api(slug):
     """TASK-67: per-book enable_bubble_tone read. NOT premium-gated - the
