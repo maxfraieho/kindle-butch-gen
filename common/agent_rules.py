@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-common/agent_rules.py — v0 rules interpreter (extracted from bin/agent_editor.py for TASK-90).
+common/agent_rules.py — v0 rules interpreter (extracted from bin/agent_editor.py for TASK-94).
 """
 
 from __future__ import annotations

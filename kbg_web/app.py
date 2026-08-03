@@ -906,7 +906,7 @@ def run_conversion_api(slug):
                 pass
 
         if cfg.get("pipeline_kind") == "docsbook":
-            # TASK-90: docs2book pipeline. Books created via this path go
+            # TASK-94: docs2book pipeline. Books created via this path go
             # through kbg_web/book_pipeline.py's own /api/book-pipeline/run
             # instead, which sets up log_path/active_processes the same way
             # this route does below -- this branch exists so the generic
@@ -1148,7 +1148,7 @@ def stop_conversion_api(slug):
         del active_processes[slug]
 
     # Kill the whole process GROUP for any pids found by cmdline match too
-    # (TASK-90 A.9 pattern, same as book_pipeline_stop) -- these may be
+    # (TASK-94 A.9 pattern, same as book_pipeline_stop) -- these may be
     # orphans surviving a Flask restart, so there's no waitable handle for
     # them; go straight to SIGKILL on the group.
     for p in pids:
@@ -2847,7 +2847,7 @@ def _stop_llama_server():
             pass
 
 def _swap_llama_server(model_path, wait_ready=True, wait_timeout=120):
-    """TASK-90: swap the single llama-server slot to a different model
+    """TASK-94: swap the single llama-server slot to a different model
     (e.g. the book_editor's Qwen2.5-3B), reusing the exact stop/start
     mechanism start_translation_server_api() already uses -- not a second,
     independent server. Caller is responsible for swapping back afterward

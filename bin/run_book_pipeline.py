@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bin/run_book_pipeline.py — TASK-90: docs2book pipeline orchestrator.
+bin/run_book_pipeline.py — TASK-94: docs2book pipeline orchestrator.
 
 Detached subprocess launched by kbg_web/book_pipeline.py's
 POST /api/book-pipeline/run/<slug>. Same Popen/log/resume pattern as
@@ -11,7 +11,7 @@ Stages: docs_ingest -> humanize -> editor_review -> merge ->
 book_compile_en -> translation -> book_compile_uk.
 
 editor_review runs common.book_editor's deterministic checks
-(check_artifacts/check_structure) on every chapter first, then (TASK-90
+(check_artifacts/check_structure) on every chapter first, then (TASK-94
 Stage 9 Part 2) runs the model-calling checks (fact_drift,
 translation_hostile) via a single-GPU-slot swap to the editor model, but
 ONLY on paragraphs the deterministic pass already flagged -- see
@@ -227,12 +227,12 @@ def stage_humanize(book_dir, config, manifest):
 
 
 def _run_model_review(flags_path, paragraph_flags):
-    """TASK-90 Stage 9 Part 2 -- model-calling half of editor_review. Only
+    """TASK-94 Stage 9 Part 2 -- model-calling half of editor_review. Only
     called on paragraphs the deterministic pre-filter above already flagged
     (para_index >= 0, i.e. real paragraphs, not a chapter-level para_index=-1
     flag) -- the gating decision documented in common/book_editor.py's Stage
     9 comment block: cheaper than running the model on every paragraph, and
-    the excerpts are already paragraph-sized (TASK-90 A.1/A.2), so nothing
+    the excerpts are already paragraph-sized (TASK-94 A.1/A.2), so nothing
     here risks the editor model's context_size.
 
     Single-GPU-slot swap: the translation model is swapped out for the
@@ -242,7 +242,7 @@ def _run_model_review(flags_path, paragraph_flags):
     model call raises or the loop is left early; this does NOT protect
     against external SIGKILL (e.g. via /api/book-pipeline/stop), which
     bypasses Python's finally entirely -- a known, deliberately deferred
-    gap (TASK-90_plan.md A.4).
+    gap (TASK-94_plan.md A.4).
 
     A per-paragraph EditorModelError is caught and logged as NOT FULLY
     CHECKED, not swallowed as if the paragraph were clean -- the paragraph

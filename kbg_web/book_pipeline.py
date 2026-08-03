@@ -1,5 +1,5 @@
 """
-kbg_web/book_pipeline.py — TASK-90: Flask Blueprint for the docs2book pipeline.
+kbg_web/book_pipeline.py — TASK-94: Flask Blueprint for the docs2book pipeline.
 
 Routes under /api/book-pipeline/*. Shared internals that live in kbg_web.app
 (active_processes, _find_book_process_pids, _heavy_state, _busy_409,
@@ -152,7 +152,7 @@ def book_pipeline_status(slug):
 
     # Own lightweight progress file, written by bin/run_book_pipeline.py --
     # NOT protocol_orchestrator.py's BOOK_PIPELINE_STAGES (that part of the
-    # original TASK-90 Stage 3 design, item 3.4, was deliberately deferred:
+    # original TASK-94 Stage 3 design, item 3.4, was deliberately deferred:
     # it needs the get_protocol_status()-based unified StagesView, which is
     # a Stage 5 (frontend) concern. This endpoint is self-contained until
     # that integration happens.
@@ -210,7 +210,7 @@ def book_pipeline_stop(slug):
     if slug not in active_processes and not pids:
         return jsonify({"status": "error", "message": "No active process for this book"}), 400
 
-    # Kill the whole process GROUP, not just the matched pid (TASK-90 A.9
+    # Kill the whole process GROUP, not just the matched pid (TASK-94 A.9
     # fix -- same pattern as the earlier audio_stage.py/tts_helper.py
     # orphan incident: run_book_pipeline.py's own subprocess.run() calls
     # (git clone, docs2book build_book.py, translate_stage.py) are children

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tests/test_book_editor.py — Unit tests for common/book_editor.py (TASK-90).
+tests/test_book_editor.py — Unit tests for common/book_editor.py (TASK-94).
 """
 
 import json
@@ -127,7 +127,7 @@ def _mock_response(status_code=200, content=None):
 
 
 class TestBookEditorModel(unittest.TestCase):
-    """TASK-90 Stage 9 Part 1/2 — mocked-HTTP tests for the model-calling
+    """TASK-94 Stage 9 Part 1/2 — mocked-HTTP tests for the model-calling
     half. No real network/GPU calls; requests.post is patched."""
 
     def test_call_editor_model_success(self):
@@ -200,7 +200,7 @@ class TestBookEditorModel(unittest.TestCase):
 
 
 class TestSplitParagraphsAndChapterGranularity(unittest.TestCase):
-    """TASK-90 Stage 9 A.1/A.2 — paragraph-granularity deterministic pre-filter."""
+    """TASK-94 Stage 9 A.1/A.2 — paragraph-granularity deterministic pre-filter."""
 
     def test_split_paragraphs_basic(self):
         text = "Para one.\n\nPara two.\n\nPara three."

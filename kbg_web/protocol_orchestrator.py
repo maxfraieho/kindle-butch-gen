@@ -95,7 +95,7 @@ def get_protocol_status(slug, data_dir="data"):
     # 100.0 here, but that assignment was always immediately overwritten by
     # progress.get("translation_percent", 0) below and had no effect. Left
     # unused pending a decision on whether merged_md should actually override
-    # progress.json (TASK-90 audit, 2026-08-01) -- not resolved in this pass.
+    # progress.json (TASK-94 audit, 2026-08-01) -- not resolved in this pass.
     merged_md = os.path.join(book_dir, "translated", f"merged_translated_{target_lang}.md")
 
     overall_pct = progress.get("overall_percent", 0)

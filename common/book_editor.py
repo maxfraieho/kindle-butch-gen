@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-common/book_editor.py — TASK-90: Deterministic QA checks for book editor.
+common/book_editor.py — TASK-94: Deterministic QA checks for book editor.
 
 Stateless, atomic JSON write, clear errors, no silent None.
 Implements check_artifacts, check_structure, and run_deterministic_checks.
@@ -20,7 +20,7 @@ AGENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agen
 
 
 def _make_flag_id(chapter: str, para_index: int, category: str, issue: str) -> str:
-    """Deterministic flag_id (TASK-90 Stage 9 A.7 fix). The old
+    """Deterministic flag_id (TASK-94 Stage 9 A.7 fix). The old
     secrets.token_hex(6) regenerated a fresh ID on every pipeline re-run,
     so a resolved/discarded flag's ID never matched the newly-detected
     same finding and stage_editor_review's human-gate check
@@ -171,7 +171,7 @@ def _append_flags(flags: List[Dict], flags_path: str) -> None:
         except (json.JSONDecodeError, ValueError):
             existing = []
 
-    # Dedupe by flag_id (TASK-90 Stage 9 A.7 follow-on): _make_flag_id is
+    # Dedupe by flag_id (TASK-94 Stage 9 A.7 follow-on): _make_flag_id is
     # now deterministic, so re-running the pipeline before a flag is
     # resolved would otherwise re-append the identical finding every time
     # -- same id, same content, but a growing pile of duplicate entries in
@@ -207,7 +207,7 @@ def split_paragraphs(text: str) -> List[str]:
     """Split markdown text into paragraphs on blank lines. Fence-aware:
     a ``` fenced code block is never split internally even if it contains
     blank lines, since a code block is one semantic unit for artifact-loss
-    checking (TASK-90 Stage 9 A.1 fix)."""
+    checking (TASK-94 Stage 9 A.1 fix)."""
     lines = text.split("\n")
     paragraphs: List[str] = []
     current: List[str] = []
@@ -234,7 +234,7 @@ def run_deterministic_checks_for_chapter(
     chapter: str,
     flags_path: Optional[str] = None,
 ) -> List[Dict]:
-    """Chapter-level entry point for the deterministic pre-filter (TASK-90
+    """Chapter-level entry point for the deterministic pre-filter (TASK-94
     Stage 9 A.1/A.2 fix -- the two were one problem: whole-chapter text
     was both the wrong granularity to flag against a human reviewer AND,
     unfixed, would have been what Part 2 hands the editor model, risking
@@ -301,10 +301,10 @@ def run_deterministic_checks_for_chapter(
 
 
 # ---------------------------------------------------------------------------
-# TASK-90 Stage 9 — model-calling half. Only invoked by the caller
+# TASK-94 Stage 9 — model-calling half. Only invoked by the caller
 # (bin/run_book_pipeline.py's stage_editor_review) on paragraphs the
 # deterministic checks above already flagged -- gating decision made
-# 2026-08-01, see TASK-90_plan.md: cheaper, matches the original pre-filter
+# 2026-08-01, see TASK-94_plan.md: cheaper, matches the original pre-filter
 # design; revisit only if real data later shows the regex pre-filter is
 # systematically missing drift the model would catch.
 # ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@ class EditorModelError(Exception):
 
 
 def load_agent_config() -> Dict:
-    """Public (TASK-90 Stage 9 Part 2): bin/run_book_pipeline.py's
+    """Public (TASK-94 Stage 9 Part 2): bin/run_book_pipeline.py's
     stage_editor_review calls this directly to get the dict it passes into
     run_model_checks -- not an internal-only helper anymore."""
     with open(os.path.join(AGENT_DIR, "agent.json"), "r", encoding="utf-8") as f:
