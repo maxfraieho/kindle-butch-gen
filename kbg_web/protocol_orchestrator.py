@@ -7,6 +7,8 @@ import json
 import glob
 from copy import deepcopy
 
+repo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 PIPELINE_STAGES = [
     {"id": "upload", "name": "Завантаження та витяг тексту", "tier": "standard", "icon": "upload",
      "description": "Завантаження EPUB/PDF, парсинг метаданих, витяг Markdown сегментів"},
@@ -89,9 +91,12 @@ def get_protocol_status(slug, data_dir="data"):
         pass
 
     target_lang = config.get("target_lang", "uk")
+    # merged_md's existence was previously used to force translation_pct to
+    # 100.0 here, but that assignment was always immediately overwritten by
+    # progress.get("translation_percent", 0) below and had no effect. Left
+    # unused pending a decision on whether merged_md should actually override
+    # progress.json (TASK-90 audit, 2026-08-01) -- not resolved in this pass.
     merged_md = os.path.join(book_dir, "translated", f"merged_translated_{target_lang}.md")
-    if os.path.exists(merged_md):
-        translation_pct = 100.0
 
     overall_pct = progress.get("overall_percent", 0)
     translation_pct = progress.get("translation_percent", 0)
@@ -101,6 +106,12 @@ def get_protocol_status(slug, data_dir="data"):
     output_dir = os.path.join(book_dir, "output")
     try:
         from common.book_paths import resolve_book_paths
+        # repo_dir is now module-level (see top of file) -- this used to
+        # raise NameError unconditionally and rely on this except to
+        # swallow it silently. The catch stays broad only to guard against
+        # a missing/malformed config.json (load_book_config already
+        # defends against that internally, but resolve_book_paths itself
+        # is not otherwise exercised for exotic failure modes here).
         paths = resolve_book_paths(repo_dir, slug)
         output_dir = paths.get("output_dir", output_dir)
         audio_dir = paths.get("audio_dir", os.path.join(book_dir, "audio"))
