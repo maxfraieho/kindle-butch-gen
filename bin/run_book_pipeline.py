@@ -40,6 +40,10 @@ from common.notebooklm_client import (
     NotebookLMClient, NotebookLMConnectionError, NotebookLMToolError,
 )
 
+KNOWN_REFUSAL_MARKERS = (
+    "I'm sorry, but I couldn't find enough context in the document",
+)
+
 DOCS2BOOK_SCRIPT = os.path.join(repo_dir, "tools", "docs2book", "build_book.py")
 
 HUMANIZE_PROMPT_TEMPLATE = (
@@ -178,6 +182,15 @@ def stage_docs_ingest(book_dir, config):
     return manifest
 
 
+def _strip_frontmatter(content: str) -> str:
+    """Strip YAML frontmatter if present and return remaining body."""
+    if content.startswith('---'):
+        parts = content.split('---', 2)
+        if len(parts) >= 3:
+            return parts[2].lstrip()
+    return content
+
+
 def stage_humanize(book_dir, config, manifest):
     write_progress(book_dir, "humanize", chapters_total=len(manifest))
     notebook_id = config.get("notebook_id")
@@ -193,6 +206,9 @@ def stage_humanize(book_dir, config, manifest):
     os.makedirs(humanized_dir, exist_ok=True)
     client = NotebookLMClient()
 
+    model_name = config.get("gemini_model", config.get("model_name", "gemini-3.6-flash"))
+    api_key = config.get("gemini_api_key")
+
     for entry in manifest:
         out_name = f"{entry['index']:03d}_{os.path.basename(entry['source_rel'])}"
         out_path = os.path.join(humanized_dir, out_name)
@@ -206,22 +222,63 @@ def stage_humanize(book_dir, config, manifest):
 
         title = os.path.splitext(os.path.basename(entry["source_rel"]))[0]
         source_title = f"[run_book_pipeline] {entry['source_rel']}"
+
+        answer = None
+        fallback_reason = None
+
+        # 1. Try NotebookLM primary
         try:
             source = client.sources_add_text(notebook_id, source_title, content)
             source_id = source.get("id") or source.get("source_id")
-            answer = client.chat_ask(
+            raw_answer = client.chat_ask(
                 notebook_id,
                 HUMANIZE_PROMPT_TEMPLATE.format(title=title),
                 source_ids=[source_id] if source_id else None,
             )
+
+            is_refusal = False
+            for marker in KNOWN_REFUSAL_MARKERS:
+                if marker in raw_answer:
+                    is_refusal = True
+                    break
+
+            if is_refusal:
+                fallback_reason = f"chapter {entry['index']}: NotebookLM refused (thin content), falling back to Gemini"
+            else:
+                answer = raw_answer
         except (NotebookLMConnectionError, NotebookLMToolError) as e:
-            raise RuntimeError(f"humanize failed on {entry['source_rel']}: {e}") from e
+            fallback_reason = f"chapter {entry['index']}: NotebookLM connection failed, falling back to Gemini ({e})"
+
+        # 2. Fall back to Gemini for this chapter if NotebookLM failed or refused
+        if answer is None:
+            log(f"humanize: {fallback_reason}")
+            try:
+                from common.gemini_humanizer import GeminiHumanizer, SemanticGenerationError
+                humanizer = GeminiHumanizer(api_key=api_key, model_name=model_name)
+                answer = humanizer.humanize_chapter(content, title=title)
+                log(f"humanize: chapter {entry['index']} ({entry['source_rel']}): Gemini fallback succeeded")
+            except ImportError as ie:
+                log(
+                    f"humanize: chapter {entry['index']} ({entry['source_rel']}): "
+                    f"Gemini fallback unavailable (ImportError: {ie}), copying source through as-is"
+                )
+                answer = _strip_frontmatter(content)
+            except Exception as ge:
+                log(
+                    f"humanize: chapter {entry['index']} ({entry['source_rel']}): "
+                    f"Gemini fallback failed ({ge}), copying source through as-is"
+                )
+                answer = _strip_frontmatter(content)
 
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(answer)
         log(f"humanize: wrote {out_name} ({len(answer)} chars)")
-        write_progress(book_dir, "humanize", chapters_total=len(manifest),
-                        chapters_done=entry["index"] + 1)
+        write_progress(
+            book_dir,
+            "humanize",
+            chapters_total=len(manifest),
+            chapters_done=entry["index"] + 1,
+        )
 
     return humanized_dir
 
