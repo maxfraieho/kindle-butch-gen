@@ -81,21 +81,21 @@
    Інтегровано Pillow-обробник у [translate_manga.py](file:///home/vokov/projects/kindle-butch-gen/translate_manga.py). Всі зображення з висотою понад 1920px (наприклад, оригінальні 1500x2250) даунскейляться до **1280x1920** (зберігши співвідношення сторін). Це запобігає багу пустих сторінок на читалках Kindle Scribe.
 3. **Запуск тестової конвертації манги**:
    - Чекбокс **Build Kindle AZW3** виставлено активним.
-   - Тестування проведено на манзі `testmanga` (194 сторінки).
+   - Тестування проведено на манзі `frieren` (194 сторінки).
    - Лог запуску підтверджує успішну обробку всіх сторінок:
      ```text
      [translate_manga.py] Preprocessing translated images for Kindle (downscale height > 1920px)...
      [translate_manga.py] Downscaling ...png from 1500x2250 to 1280x1920
      [translate_manga.py] Packaging pages into CBZ archive...
      [translate_manga.py] Generating AZW3 using Mapaki...
-     [translate_manga.py] Running Mapaki: /root/go/bin/mapaki -i /tmp/tmp_out -o .../testmanga_translated_uk.azw3 --title "TestManga Translated Uk"
+     [translate_manga.py] Running Mapaki: /root/go/bin/mapaki -i /tmp/tmp_out -o .../frieren_translated_uk.azw3 --title "Frieren Translated Uk"
      Processing images 194 / 194 [--------------------------------------] 100.00% 134 p/s
-     [translate_manga.py] AZW3 manga generated successfully at: .../testmanga_translated_uk.azw3
+     [translate_manga.py] AZW3 manga generated successfully at: .../frieren_translated_uk.azw3
      [translate_manga.py] Manga translation completed successfully!
      ```
    - У результаті успішно сформовано два файли:
-     *   `testmanga_translated_uk.cbz` — **`228 MB`** (архів оригінального розміру)
-     *   `testmanga_translated_uk.azw3` — **`108 MB`** (Kindle-сумісна версія з даунскейлом до 1280x1920)
+     *   `frieren_translated_uk.cbz` — **`228 MB`** (архів оригінального розміру)
+     *   `frieren_translated_uk.azw3` — **`108 MB`** (Kindle-сумісна версія з даунскейлом до 1280x1920)
 4. **Контроль опцій з дашборду**:
    - Перевірено роботу додаткових чекбоксів на дашборді (**Clean Pages**, **Translate**, **Build Kindle AZW3**).
    - Завдяки прапорцю `--no-translate` користувач може пропускати стадію OCR-перекладу і миттєво упаковувати наявний кеш картинок у нову збірку AZW3.
@@ -122,10 +122,10 @@
    - Аргументи `--max-width` та `--max-height` зчитуються скриптом перекладу манги.
    - Обробник перевіряє межі зображення по обох осях, пропорційно зменшуючи його, якщо воно перевищує бодай один ліміт. Це дозволяє генерувати `.azw3` файли значно меншого розміру для менших екранів, що критично прискорює завантаження книг та заощаджує простір на читалці.
 4. **Успішний тест реконвертації для Paperwhite 2024**:
-   - Проведено тест для манги `testmanga` з параметром `--max-width 1264 --max-height 1680`.
+   - Проведено тест для манги `frieren` з параметром `--max-width 1264 --max-height 1680`.
    - Завдяки увімкненій опції `--no-translate` оригінальні/кешовані перекладені зображення миттєво скопійовано та відмасштабовано зі збереженням пропорції 2:3 (до роздільної здатності `1120x1680`).
    - Фінальний розмір книги `.azw3` зменшився зі **`108.4 MB`** (при Safe Default) до **`84.5 MB`** (економія **24 MB / ~22%**!).
-   - Створений файл `testmanga_translated_uk.azw3` повністю валідний та готовий для завантаження на Kindle Paperwhite 2024.
+   - Створений файл `frieren_translated_uk.azw3` повністю валідний та готовий для завантаження на Kindle Paperwhite 2024.
 
 ## 8. Централізована сторінка завантажень (Downloads Archive)
 
