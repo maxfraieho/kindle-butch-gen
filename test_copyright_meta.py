@@ -74,10 +74,16 @@ class TestCopyrightMeta(unittest.TestCase):
         self.assertIn("Олесь Гончар", uk)
         self.assertIn("Clean Code", uk)
         self.assertIn("Robert C. Martin", uk)
+        self.assertIn("https://example.com/clean-code", uk)
+        self.assertIn("CC-BY-4.0", uk)
         self.assertNotIn("{translator_name}", uk)
         self.assertNotIn("{original_title}", uk)
+        self.assertNotIn("{original_url}", uk)
+        self.assertNotIn("{original_license}", uk)
 
         self.assertIn("Олесь Гончар", en)
+        self.assertIn("https://example.com/clean-code", en)
+        self.assertIn("CC-BY-4.0", en)
         self.assertIn("Clean Code", en)
 
         # Verify on disk
