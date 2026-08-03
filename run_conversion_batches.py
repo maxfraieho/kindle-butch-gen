@@ -29,14 +29,22 @@ def log(message, log_path):
 
 def run_command_streaming(cmd, log_path, prefix="", env=None):
     try:
+        # No start_new_session here on purpose: this script is itself
+        # always launched by app.py with start_new_session=True (its own
+        # process-group leader), and app.py's stop path killpg()s that
+        # top-level pid. Giving this nested child its OWN session would
+        # detach it from that group -- the killpg would then never reach
+        # it, re-creating the exact orphan-survives-parent-kill class of
+        # bug Q-14/16 exists to prevent, just one level down (confirmed
+        # by an Opus-model audit after an earlier same-day pass added
+        # this unconditionally and broke the inheritance chain).
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            env=env,
-            start_new_session=True
+            env=env
         )
         for line in process.stdout:
             log(f"{prefix}{line.strip()}", log_path)
@@ -70,13 +78,16 @@ def run_marker_batch(start, end, pdf_path, batches_dir, log_path):
     returncode = -1
     try:
         with open(marker_log_path, "w", encoding="utf-8") as log_file:
+            # No start_new_session here either -- see run_command_streaming's
+            # comment above, same reasoning. This one matters even more:
+            # it's the proot-distro/marker_single tree, the exact class of
+            # process the original Q-14 thermal incident was about.
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,
-                start_new_session=True
+                bufsize=1
             )
             for line in process.stdout:
                 log_file.write(line)

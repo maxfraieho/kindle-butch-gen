@@ -205,8 +205,14 @@ def run_llm(text, model, book_dir=None):
            "-no-cnv", "-p", PROMPT + text[:12000]]
     
     if not book_dir:
-        # Fallback to blocking subprocess if book_dir is not provided
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, start_new_session=True)
+        # Fallback to blocking subprocess if book_dir is not provided.
+        # No start_new_session: this script itself is always launched by
+        # app.py with start_new_session=True (own process-group leader),
+        # and the stop path killpg()s that top-level pid. Giving this
+        # nested llama-cli child its own session would detach it from
+        # that group, undoing the killpg reach (Opus-audit-caught
+        # regression from an earlier same-day pass).
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
         return res.stdout
 
     stderr_path = os.path.join(book_dir, "edits", "ner_scan_llama_stderr.log")
@@ -220,13 +226,14 @@ def run_llm(text, model, book_dir=None):
     chars_so_far = 0
 
     with open(stderr_path, "w", encoding="utf-8") as stderr_file:
+        # No start_new_session -- see the fallback branch above, same
+        # reasoning.
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=stderr_file,
             text=True,
-            bufsize=1,
-            start_new_session=True
+            bufsize=1
         )
 
         while True:
