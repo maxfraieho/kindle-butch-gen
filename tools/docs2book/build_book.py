@@ -765,6 +765,16 @@ def main():
              "copyright page, TOC, graded typography via pro_book_template.typ "
              "instead of the legacy minimal book_template.typ. Typst engine only."
     )
+    parser.add_argument(
+        "--copyright-meta",
+        type=Path,
+        default=None,
+        help="Path to a copyright_meta.json file (optional). When given and "
+             "the file exists, its generated/edited UK or EN text (matching "
+             "--lang, edited text taking priority when non-null) becomes "
+             "meta.copyright_text for --professional builds. No effect "
+             "without --professional; silently ignored if missing.",
+    )
 
     args = parser.parse_args()
 
@@ -811,6 +821,19 @@ def main():
 
         if args.engine in ("typst", "auto"):
             print("Attempting build with Typst engine (Pandoc + Typst)...")
+            professional_meta = None
+            if args.professional and args.copyright_meta and args.copyright_meta.exists():
+                try:
+                    with open(args.copyright_meta, "r", encoding="utf-8") as f:
+                        copyright_data = json.load(f)
+                    lang_key = "en" if args.lang.lower() == "en" else "uk"
+                    edited = copyright_data.get(f"edited_text_{lang_key}")
+                    text = edited if edited is not None else str(copyright_data.get(f"generated_text_{lang_key}") or "")
+                    if text:
+                        professional_meta = {"copyright_text": text}
+                except (OSError, json.JSONDecodeError) as e:
+                    print(f"Warning: could not read --copyright-meta '{args.copyright_meta}': {e}")
+
             try:
                 success = build_typst(
                     merged_md_path,
@@ -821,6 +844,7 @@ def main():
                     args.author,
                     args.lang,
                     professional_formatting=args.professional,
+                    professional_meta=professional_meta,
                 )
                 if success:
                     print(f"Successfully generated PDF using Typst engine -> '{out_pdf}'")

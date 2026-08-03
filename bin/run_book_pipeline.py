@@ -377,6 +377,7 @@ def stage_book_compile(book_dir, config, docs_path, out_pdf, stage_name):
         "--author", config.get("authors", "Unknown"),
         "--lang", "uk" if stage_name == "book_compile_uk" else "en",
         "--engine", "typst",
+        "--copyright-meta", os.path.join(book_dir, "edits", "copyright_meta.json"),
     ]
     log(f"{stage_name}: running docs2book -> {out_pdf}")
     subprocess.run(cmd, check=True, cwd=repo_dir)
