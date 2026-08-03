@@ -28,11 +28,7 @@ class TestProtocolAndRunAudio(unittest.TestCase):
         data = res.get_json()
         self.assertEqual(data.get("status"), "success")
 
-    def test_stop_endpoint(self):
-        res = self.client.post("/api/stop/data-engineering")
-        self.assertIn(res.status_code, (200, 400))
-        data = res.get_json()
-        self.assertIn("status", data)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -46,13 +46,36 @@ def _parse_sse(body: str) -> dict:
         event: message
         data: {"jsonrpc": "2.0", ...}
 
+    This server does NOT properly escape/frame multi-line payloads --
+    confirmed live 2026-08-03 by capturing a raw response: once the "data:"
+    line for a long humanized-chapter response starts, the server writes
+    literal, unescaped newline bytes straight into the stream instead of
+    either escaping them as "\\n" inside the JSON string or prefixing every
+    continuation line with "data:" (the spec-compliant multi-line form).
+    The continuation lines therefore have NO "data:" prefix at all -- they
+    are bare fragments of the same JSON string. The original single-line
+    parser silently truncated at the first line break (json.loads raised
+    "Unterminated string"), which is NOT one of the two exception types
+    stage_humanize's caller catches -- an uncaught crash, not a clean error.
+
+    Fix: once a "data:" line starts an event, treat every following line up
+    to the terminating blank line (or end of body) as a raw continuation of
+    that same value and rejoin with "\\n" to reconstruct the original text,
+    rather than requiring each continuation line to repeat "data:".
     """
+    data_lines: list[str] = []
+    collecting = False
     for line in body.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("data:"):
-            data_str = stripped[len("data:"):].strip()
-            if data_str:
-                return json.loads(data_str)
+        if collecting:
+            if line.strip() == "":
+                break
+            data_lines.append(line[len("data:"):].strip() if line.strip().startswith("data:") else line)
+            continue
+        if line.strip().startswith("data:"):
+            collecting = True
+            data_lines.append(line.strip()[len("data:"):].strip())
+    if data_lines:
+        return json.loads("\n".join(data_lines))
     raise NotebookLMConnectionError(
         f"No 'data:' line found in SSE response body: {body[:300]!r}"
     )
