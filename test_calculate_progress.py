@@ -156,5 +156,49 @@ class TestCalculateProgress(unittest.TestCase):
         self.assertEqual(res["manga_percent"], 50.0)
         self.assertEqual(res["overall_percent"], 50.0)
 
+    @patch('kbg_web.status_helper.resolve_book_paths')
+    def test_calculate_progress_docsbook_humanized(self, mock_resolve):
+        # Setup mock paths for a docsbook with humanized chapters
+        book_dir = os.path.join(self.temp_dir, "books", "ragflow")
+        os.makedirs(book_dir, exist_ok=True)
+        humanized_dir = os.path.join(book_dir, "humanized")
+        os.makedirs(humanized_dir, exist_ok=True)
+        source_dir = os.path.join(book_dir, "source")
+        os.makedirs(source_dir, exist_ok=True)
+        
+        # 10 total chapters in source, 5 humanized
+        for i in range(1, 11):
+            with open(os.path.join(source_dir, f"{i:03d}_ch.md"), "w") as f:
+                f.write(f"Source chapter {i}")
+        for i in range(1, 6):
+            with open(os.path.join(humanized_dir, f"{i:03d}_ch.md"), "w") as f:
+                f.write(f"Humanized chapter {i}")
+
+        config_path = os.path.join(book_dir, "config.json")
+        mock_resolve.return_value = {
+            "book_dir": book_dir,
+            "config_path": config_path,
+            "cache_dir": os.path.join(book_dir, "cache"),
+            "translate_cache": os.path.join(book_dir, "cache", "translate_cache.json"),
+            "batches_dir": os.path.join(book_dir, "batches"),
+            "translated_dir": os.path.join(book_dir, "translated"),
+            "audio_dir": os.path.join(book_dir, "audio"),
+            "target_lang": "uk",
+            "source_lang": "en"
+        }
+        
+        config_data = {
+            "is_manga": False,
+            "generate_audiobook": False,
+            "target_lang": "uk",
+            "source_lang": "en"
+        }
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config_data, f)
+
+        res = calculate_progress("ragflow")
+        self.assertEqual(res["translation_percent"], 50.0)
+        self.assertEqual(res["overall_percent"], 75.0)  # (100 marker + 50 trans) / 2
+
 if __name__ == '__main__':
     unittest.main()

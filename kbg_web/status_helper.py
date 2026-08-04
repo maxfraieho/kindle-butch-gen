@@ -364,9 +364,39 @@ def _calculate_progress_uncached(slug):
     if not should_translate:
         translation_percent = 100.0
     elif not has_pdf or not page_ranges:
-        # No per-batch data to check against (no-PDF resume path) - the
-        # merged file's mere existence is the only signal available here.
-        translation_percent = 100.0 if (os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0) else 0.0
+        if os.path.exists(merged_translated) and os.path.getsize(merged_translated) > 0:
+            translation_percent = 100.0
+        else:
+            humanized_dir = os.path.join(book_dir, "humanized")
+            translated_sub = os.path.join(book_dir, "translated")
+            source_dir = os.path.join(book_dir, "source")
+            if not os.path.exists(source_dir):
+                source_dir = os.path.join(book_dir, "docs")
+
+            hum_count = len([f for f in os.listdir(humanized_dir) if f.endswith(('.md', '.mdx'))]) if os.path.exists(humanized_dir) else 0
+            trans_count = len([f for f in os.listdir(translated_sub) if f.endswith(('.md', '.mdx')) and not f.startswith('merged_')]) if os.path.exists(translated_sub) else 0
+
+            completed_units = max(hum_count, trans_count)
+            total_units = 0
+            if os.path.exists(source_dir):
+                total_units = len([f for f in os.listdir(source_dir) if f.endswith(('.md', '.mdx'))])
+
+            if total_units == 0:
+                cfg_path = paths["config_path"]
+                if os.path.exists(cfg_path):
+                    try:
+                        with open(cfg_path, 'r', encoding='utf-8') as cf:
+                            cdata = json.load(cf)
+                            total_units = cdata.get("total_chunks") or cdata.get("total_chapters") or cdata.get("pdf_pages") or 0
+                    except Exception:
+                        pass
+
+            if completed_units > 0 and total_units > 0:
+                translation_percent = min(100.0, round((completed_units / total_units) * 100.0, 1))
+            elif completed_units > 0:
+                translation_percent = 99.0
+            else:
+                translation_percent = 0.0
     else:
         translate_cache = {}
         if os.path.exists(paths["translate_cache"]):
