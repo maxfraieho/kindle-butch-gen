@@ -176,6 +176,8 @@ def _progress_cache_key(slug, paths, book_dir):
         paths.get("config_path"),
         os.path.join(paths.get("cache_dir", book_dir), "epub_progress.json"),
         os.path.join(book_dir, "manga_progress.json"),
+        os.path.join(book_dir, "book_pipeline_progress.json"),
+        os.path.join(book_dir, "humanized"),
         paths.get("translate_cache"),
     ]
     pdf_path = paths.get("pdf_path")
@@ -370,6 +372,8 @@ def _calculate_progress_uncached(slug):
             humanized_dir = os.path.join(book_dir, "humanized")
             translated_sub = os.path.join(book_dir, "translated")
             source_dir = os.path.join(book_dir, "source")
+            if not os.path.exists(source_dir):
+                source_dir = os.path.join(book_dir, "source_docs")
             if not os.path.exists(source_dir):
                 source_dir = os.path.join(book_dir, "docs")
 
